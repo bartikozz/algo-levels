@@ -117,8 +117,20 @@
     // QQQ → NQ: main levels = every QQQ strike ending in 0/5 around the current price,
     // converted with the current NQ/QQQ ratio (Yahoo QQQ price incl. pre/post, else GEXbot QQQ spot).
     // The biggest call wall and put wall (by volume GEX, 0/5 strikes only) get a ★.
+    // Ratio like the "accurate strike -> futures conversion" indicator: NQ/QQQ on time-aligned
+    // 1m bars, smoothed over the last 100 bars (Level Smoothing 100). Fallback: instantaneous ratio.
     const qRef = [ctx.qqqPx, g.qqq && g.qqq.spot].find(p => p > 0 && last / p > 20 && last / p < 80);
-    const kq = qRef > 0 ? last / qRef : NaN;
+    let kq = NaN;
+    if (ctx.qqqBars && ctx.qqqBars.length && ctx.nqBars && ctx.nqBars.length) {
+      const qm = new Map(ctx.qqqBars.map(b => [b.t, b.c]));
+      const rs = [];
+      for (let i = ctx.nqBars.length - 1; i >= 0 && rs.length < (S.ratioSmooth || 100); i--) {
+        const b = ctx.nqBars[i], qc = qm.get(b.t);
+        if (qc > 0) { const r = b.c / qc; if (r > 20 && r < 80) rs.push(r); }
+      }
+      if (rs.length >= 10) { kq = rs.reduce((a, b) => a + b, 0) / rs.length; info.ratioN = rs.length; }
+    }
+    if (!(kq > 20 && kq < 80)) kq = qRef > 0 ? last / qRef : NaN;
     if (kq > 20 && kq < 80) { // sanity: NQ/QQQ ≈ 41
       const k = kq;
       info.ratio = k;

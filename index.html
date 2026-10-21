@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=15"></script>
+<script src="levels.js?v=16"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -286,6 +286,7 @@ async function api(path){
 async function loadBars(){ st.yf = A.parseYF(await api('/yf/NQ%3DF?interval=1m&range=5d')); mergeBars(); }
 function mergeBars(){
   const yf = st.yf || [];
+  st.data.nqBars = yf;
   const yfLast = yf.length ? yf[yf.length - 1].t : 0;
   for (const k of [...st.live.keys()]) if (k <= yfLast) st.live.delete(k);
   const live = [...st.live.values()].sort((a, b) => a.t - b.t);
@@ -356,8 +357,8 @@ function showSrc(err){
   else { el.textContent = 'Yahoo ~10 min'; el.className = 'badge'; if (err) el.title = err; }
 }
 async function loadQqqPx(){
-  const b = A.parseYF(await api('/yf/QQQ?interval=1m&range=1d'));
-  if (b.length) st.data.qqqPx = b[b.length - 1].c;
+  const b = A.parseYF(await api('/yf/QQQ?interval=1m&range=2d'));
+  if (b.length) { st.data.qqqPx = b[b.length - 1].c; st.data.qqqBars = b; }
 }
 async function loadDaily(){
   const want = S.volIndex || 'VXN';
@@ -521,7 +522,7 @@ function render(){
     : '—';
   $('mSig').textContent = i.sigma ? `${i.sigma.pts.toFixed(0)} b.` : '—';
   $('mPoc').textContent = i.vp ? fmtP(i.vp.poc) : '—';
-  $('mRatio').textContent = i.ratio ? i.ratio.toFixed(2) : '—';
+  $('mRatio').textContent = i.ratio ? i.ratio.toFixed(3) + (i.ratioN ? ` (avg ${i.ratioN})` : '') : '—';
   $('majors').innerHTML = (i.majors || []).map(m => {
     const z = majorZone(m, r.last), d = m.price - r.last;
     const zt = (m.stale ? 'vč. objem · ' : '') + (z === 'strong' ? 'V SILNÉ ZÓNĚ' : z === 'weak' ? 've slabé zóně' : `${d > 0 ? '+' : ''}${d.toFixed(0)} b.`);
