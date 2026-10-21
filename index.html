@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=9"></script>
+<script src="levels.js?v=10"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -274,7 +274,7 @@ async function liveTick(){
     else st.live.set(k, { t:k, o:px, h:px, l:px, c:px, v:0 });
     mergeBars();
     if (st.data.bars.length) {
-      st.res = A.compute(st.data, S);
+      computeNow();
       render();
       checkAlerts();
       showSrc();
@@ -284,6 +284,25 @@ async function liveTick(){
     showSrc(e.message);
   } finally { st.liveBusy = false; }
 }
+// GEXbot only computes during RTH; data older than 15 min = last close, not live
+function gexStale(){
+  const z = st.data.gex && (st.data.gex.zero || st.data.gex.full);
+  return !st.demo && !!z && Number.isFinite(z.timestamp) && (Date.now() / 1000 - z.timestamp > 15 * 60);
+}
+function etDateOf(sec){ return new Intl.DateTimeFormat('en-CA', { timeZone:'America/New_York' }).format(new Date(sec * 1000)); }
+// what the engine sees: stale GEX data is moved out of the main list (it becomes "previous" levels)
+function computeNow(){
+  if (gexStale()) {
+    const g = st.data.gex, z = g.zero || g.full;
+    st.prevView = { date: etDateOf(z.timestamp), zero: g.zero, full: g.full, stale: true };
+    st.res = A.compute({ ...st.data, gex: {} }, S);
+    if (st.res) { st.res.gexTs = z.timestamp; st.res.regime = 0; st.res.info.majors = []; }
+  } else {
+    st.prevView = st.prev;
+    st.res = A.compute(st.data, S);
+  }
+}
+
 function showSrc(err){
   const el = $('src');
   if (st.demo) { el.textContent = 'DEMO'; el.className = 'badge'; return; }
@@ -291,7 +310,7 @@ function showSrc(err){
   else if (st.liveSrc === 'stale') {
     const ts = st.res && st.res.gexTs;
     const when = ts ? new Date(ts * 1000).toLocaleString('cs-CZ', { weekday:'short', hour:'2-digit', minute:'2-digit' }) : '?';
-    el.textContent = `GEX z ${when} · trh zavřen · Yahoo`;
+    el.textContent = `GEXbot čeká na RTH 15:30 · poslední data ${when}`;
     el.className = 'badge neg';
   }
   else { el.textContent = 'Yahoo ~10 min'; el.className = 'badge'; if (err) el.title = err; }
@@ -347,7 +366,7 @@ async function refresh(full){
       await Promise.all(jobs);
       if (S.showPrev) await loadPrev().catch(() => {});
     }
-    st.res = A.compute(st.data, S);
+    computeNow();
     render();
     setLive(errs.length ? 'err' : 'ok', errs.length ? 'částečně: ' + errs.join(', ') : null);
     if (!st.demo) checkAlerts();
@@ -413,7 +432,7 @@ function render(){
     for (const e of [m.weak, -m.weak]) st.lines.push(series.createPriceLine({ price:m.price + e, color:'#c9a66b44', lineWidth:1, lineStyle:1, axisLabelVisible:false, title:'' }));
   }
   // yesterday's options levels: grey dotted, orientation only
-  const pv = (S.showPrev && st.prev && !st.demo) ? A.prevLevels(st.prev, r.last, S) : [];
+  const pv = (S.showPrev && st.prevView && !st.demo) ? A.prevLevels(st.prevView, r.last, S) : [];
   for (const l of pv) {
     st.lines.push(series.createPriceLine({
       price:l.price, color:'#8b919a', lineWidth:1, lineStyle:1, axisLabelVisible:false,
@@ -446,6 +465,7 @@ function render(){
   if (st.filter === 'opt') lv = lv.filter(l => l.srcs.includes('opt') || l.srcs.includes('qqq'));
   if (st.filter === 'fresh') lv = lv.filter(l => l.status.key === 'untested');
   let html = '', pxDone = false;
+  if (gexStale()) html += `<div class="empty" style="padding:14px 16px;border-bottom:1px solid var(--line)">GEXbot počítá jen v RTH. Čerstvé call/put walls se objeví v 15:30 – do té doby jsou poslední walls dole v šedé sekci.</div>`;
   if (!lv.length) html = '<div class="empty">Žádné levely pro tento filtr.</div>';
   for (const l of lv) {
     if (!pxDone && l.price < r.last) { html += `<div class="pxrow">NQ ${fmtP(r.last)}</div>`; pxDone = true; }
@@ -469,10 +489,10 @@ function render(){
 
   // yesterday section
   if (S.showPrev && !st.demo) {
-    const d = st.prev && st.prev.date;
+    const d = st.prevView && st.prevView.date;
     html += `<div class="prevhd">Včerejší levely${d ? ' · ' + d : ''} <span>jen orientace, nepočítají se do skóre</span></div>`;
     if (!pv.length) {
-      html += `<div class="empty">${st.prev ? 'Zatím žádný snapshot. Worker ho uloží po dnešním close (nebo spusť /snap).' : 'Načítám…'}</div>`;
+      html += `<div class="empty">${st.prevView ? 'Zatím žádný snapshot. Worker ho uloží po dnešním close (nebo spusť /snap).' : 'Načítám…'}</div>`;
     }
     let pxd = false;
     for (const l of pv) {
