@@ -16,6 +16,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script src="levels.js?v=18"></script>
+<script src="bias.js?v=1"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -138,6 +139,18 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .btns .pri{background:var(--text);color:var(--bg);border-color:var(--text)}
 .hint{font-size:11px;color:var(--muted);line-height:1.6;margin-top:6px}
 
+.bhero{display:flex;align-items:center;gap:14px;padding:14px;border:1px solid var(--line2);border-radius:10px;background:var(--bg);margin-bottom:10px}
+.bhero .side{font-family:var(--sans);font-size:26px;font-weight:800;letter-spacing:.04em}
+.bhero.bull .side{color:var(--long)} .bhero.bear .side{color:var(--short)} .bhero.flat .side{color:var(--muted)}
+.bhero .pc{font-size:22px;font-weight:700} .bhero .sub{font-size:11px;color:var(--muted);line-height:1.5}
+.pbar{position:relative;height:8px;border-radius:4px;background:linear-gradient(90deg,var(--short),#2a2e36 50%,var(--long));margin:6px 0 2px}
+.pbar i{position:absolute;top:-4px;width:3px;height:16px;border-radius:2px;background:var(--text);transform:translateX(-1px)}
+.pbar b{position:absolute;top:-2px;width:1px;height:12px;background:var(--muted)}
+.bcom{font-size:12px;line-height:1.7;color:var(--text);margin:8px 0 4px}
+.btab td .ar{font-weight:700} .btab td .ar.u{color:var(--long)} .btab td .ar.d{color:var(--short)} .btab td .ar.n{color:var(--dim)}
+.btab td.g{color:var(--muted);font-size:10px;letter-spacing:.06em}
+.bfresh{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:11px;color:var(--muted);margin-top:10px}
+#biasBadge.bull{color:var(--long);border-color:rgba(47,197,159,.5)} #biasBadge.bear{color:var(--short);border-color:rgba(240,90,110,.5)}
 #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(120px);
   background:var(--panel2);border:1px solid var(--gold);color:var(--text);padding:10px 14px;border-radius:8px;font-size:12px;
   transition:transform .25s;z-index:30;max-width:92vw;visibility:hidden}
@@ -149,6 +162,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 <header>
   <div class="brand">ALGO<span>LEVELS</span></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
+  <button id="biasBtn" class="hbtn" aria-label="Bias" style="font-size:12px;font-weight:700">B</button>
   <button id="statsBtn" class="hbtn" aria-label="Statistiky levelů">▦</button>
   <a id="help" href="guide.html" aria-label="Jak to funguje">?</a>
   <button id="gear" aria-label="Nastavení">⚙</button>
@@ -160,6 +174,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <span>σ <b id="mSig">—</b></span>
   <span>pPOC <b id="mPoc">—</b></span>
   <span>QQQ×<b id="mRatio">—</b></span>
+  <span id="biasBadge" class="badge" style="cursor:pointer" hidden>Bias —</span>
 </div>
 <div id="majors" class="majors"></div>
 <div id="chartWrap" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><div id="zones" class="zones"></div><button id="now" class="nowbtn" hidden>Teď ▸</button></div>
@@ -183,6 +198,13 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <div id="sDay"></div>
   <div class="btns"><button id="sClose">Zavřít</button></div>
   <p class="hint">Reakce = do 15 svíček pohyb ≥ 15 b. ve směru fade bez close za levelem. Průraz = close &gt; 6 b. za levelem. Zbytek = chop. Ø reakce / Ø proti = průměrný max. pohyb ve směru / proti fade (b.). Levely se ukládají každých 15 min během RTH, vyhodnocení po close.</p>
+</div></div>
+<div id="bias" class="sheet"><div class="box">
+  <h3>BIAS · FED LIKVIDITA + COT</h3>
+  <div class="sfil" id="bHor"><button data-h="1" class="on">NY session</button><button data-h="5">Týden (5 sessions)</button></div>
+  <div id="bBody"><p class="hint">Načítám data (FRED, CFTC, QQQ 5 let)…</p></div>
+  <div class="btns"><button id="bReload">Obnovit data</button><button id="bClose2">Zavřít</button></div>
+  <p class="hint">Každý faktor se počítá jen z dat, která byla v daný den ráno už veřejná (H.4.1 od pátku, RRP a HY od dalšího dne, COT od pondělí). Pro každý stav faktoru se na ~5 letech QQQ (RTH open→close) změří, jak často session skončila nahoru, a sloučí se to v log-odds. Útlum λ se volí na posledních 35 % dní, na kterých se model netrénoval. Je to statistická výhoda, ne jistota.</p>
 </div></div>
 <div id="settings" class="sheet"><div class="box">
   <h3>NASTAVENÍ</h3>
@@ -788,6 +810,94 @@ $('bAlerts').onclick = async () => {
 };
 $('bDemo').onclick = () => { $('settings').classList.remove('show'); startDemo(); };
 $('gear').onclick = openSettings;
+
+
+// ───────── Bias tab (Fed liquidity + COT → NY session probability)
+const bs = { raw:null, h:1, at:0, busy:false };
+async function apiText(path){
+  const base = S.worker.trim().replace(/\/$/,'');
+  const r = await fetch(base + path + (S.token ? (path.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(S.token) : ''), {cache:'no-store'});
+  if (!r.ok) throw new Error(`${path} → ${r.status}`);
+  return r.text();
+}
+async function loadBias(force){
+  if (bs.busy) return; if (bs.raw && !force && Date.now() - bs.at < 3600e3) return;
+  bs.busy = true;
+  try {
+    const ids = ['WALCL','WTREGEN','RRPONTSYD','WRESBAL','BAMLH0A0HYM2'];
+    const cotUrl = "https://publicreporting.cftc.gov/resource/gpe5-46if.json?$select=report_date_as_yyyy_mm_dd,lev_money_positions_long,lev_money_positions_short,asset_mgr_positions_long,asset_mgr_positions_short,open_interest_all&$where=cftc_contract_market_code='209742'&$order=report_date_as_yyyy_mm_dd&$limit=2000";
+    const [fr, cot, q] = await Promise.all([
+      Promise.all(ids.map(id => apiText('/fred/' + id).then(Bias.parseFred))),
+      fetch(cotUrl).then(r => { if (!r.ok) throw new Error('CFTC → ' + r.status); return r.json(); }),
+      api('/yf/QQQ?interval=1d&range=5y'),
+    ]);
+    const fred = { WALCL:fr[0], WTREGEN:fr[1], RRPONTSYD:fr[2], WRESBAL:fr[3], HY:fr[4] };
+    const empty = ids.filter((id, i) => !fr[i].length);
+    bs.raw = { fred, cot:Bias.parseCot(cot), qqq:A.parseYF(q), empty };
+    bs.at = Date.now();
+  } finally { bs.busy = false; }
+}
+function biasResult(h){ return Bias.build({ ...bs.raw, now:Date.now() / 1000, horizon:h }); }
+function showBiasBadge(){
+  if (!bs.raw) return;
+  try {
+    const r = biasResult(1), el = $('biasBadge');
+    const pct = Math.round((r.side === 'bear' ? 1 - r.p : r.p) * 100);
+    el.textContent = `Bias ${r.side === 'bull' ? '▲' : r.side === 'bear' ? '▼' : '='} ${pct} %`;
+    el.className = 'badge ' + (r.lam === 0 || r.side === 'flat' ? '' : r.side); el.hidden = false;
+  } catch(e){}
+}
+function renderBias(){
+  const B = $('bBody');
+  if (!bs.raw) return;
+  let r; try { r = biasResult(bs.h); } catch(e) { B.innerHTML = `<p class="hint">Chyba výpočtu: ${esc(e.message)}</p>`; return; }
+  const cls = r.lam === 0 ? 'flat' : r.side;
+  const pct = Math.round((r.side === 'bear' ? 1 - r.p : r.p) * 100);
+  const dt = r.target.slice(5).split('-').reverse().join('.');
+  const fv = (v, u) => v == null || !Number.isFinite(v) ? '—' : (Math.abs(v) >= 100 ? Math.round(v).toLocaleString('cs-CZ') : v.toFixed(1)) + ' ' + u;
+  let h = `<div class="bhero ${cls}"><div><div class="side">${r.side === 'bull' ? 'BULLISH' : r.side === 'bear' ? 'BEARISH' : 'NEUTRÁL'}</div>
+      <div class="sub">${r.horizon === 1 ? 'NY session' : 'týden od'} ${dt}</div></div>
+    <div style="flex:1"><div class="pc">${pct} %</div>
+      <div class="pbar"><b style="left:${r.base * 100}%"></b><i style="left:${r.p * 100}%"></i></div>
+      <div class="sub">pravděpodobnost ${r.side === 'bear' ? 'down' : 'up'} close · bílá = model, šedá čárka = normál ${Math.round(r.base * 100)} % dní nahoru</div></div></div>`;
+  h += `<p class="bcom">${esc(Bias.commentary(r))}</p>`;
+  h += '<div style="overflow-x:auto"><table class="stab btab"><tr><th>Faktor</th><th>Hodnota</th><th>Stav</th><th>Hist. nahoru</th><th>n</th><th>Příspěvek</th></tr>';
+  let g = '';
+  for (const f of [...r.factors].sort((a, b) => a.grp.localeCompare(b.grp))) {
+    if (f.grp !== g) { g = f.grp; h += `<tr><td class="g" colspan="6">${esc(g.toUpperCase())}</td></tr>`; }
+    const ar = f.state == null ? '<span class="ar n">·</span>' : f.state > 0 ? '<span class="ar u">▲</span>' : f.state < 0 ? '<span class="ar d">▼</span>' : '<span class="ar n">=</span>';
+    const c = f.contrib, w = Math.min(60, Math.abs(c) * 600);
+    h += `<tr title="${esc(f.hint || '')}"><td>${esc(f.name)}</td><td>${fv(f.value, f.unit)}</td><td>${ar}</td>`
+       + `<td>${Number.isFinite(f.up) ? Math.round(f.up * 100) + ' %' : '—'}</td><td>${f.n || '—'}</td>`
+       + `<td><span class="bar ${c < 0 ? 'r' : ''}" style="width:${w}px"></span>${c >= 0 ? '+' : ''}${(c * 100).toFixed(1)}</td></tr>`;
+  }
+  h += '</table></div>';
+  const o = r.oos;
+  h += `<p class="hint" style="margin-top:10px">Test mimo trénink (${o.n} ${r.horizon === 1 ? 'sessions' : 'oken'} od ${o.from || '—'}): `
+     + (r.lam === 0 ? 'faktory nepřinesly lepší odhad než samotný základ → pravděpodobnost = základ.'
+        : `útlum λ=${o.lam}, model se vyjádřil v ${o.calls} případech, trefil ${Math.round(o.hit * 100)} % (vždy-majoritní strana by trefila ${Math.round(o.hitBase * 100)} %).`)
+     + ` Vzorek celkem ${r.samples} dní od ${r.from}.</p>`;
+  const F = r.fresh, d = x => x ? x.slice(5).split('-').reverse().join('.') : '—';
+  h += `<div class="bfresh"><span>H.4.1 ${d(F.h41)}</span><span>RRP ${d(F.rrp)}</span><span>TGA ${d(F.tga)}</span><span>HY OAS ${d(F.hy)}</span><span>COT ${d(F.cot)}</span></div>`;
+  if (bs.raw.empty.length) h += `<p class="hint" style="color:var(--short)">Chybí data: ${bs.raw.empty.join(', ')}</p>`;
+  B.innerHTML = h;
+}
+async function openBias(force){
+  $('bias').classList.add('show');
+  if (!S.worker) { $('bBody').innerHTML = '<p class="hint">Nejdřív nastav Worker v ⚙.</p>'; return; }
+  if (!bs.raw || force) $('bBody').innerHTML = '<p class="hint">Načítám data (FRED, CFTC, QQQ 5 let)…</p>';
+  try { await loadBias(force); renderBias(); showBiasBadge(); }
+  catch (e) { $('bBody').innerHTML = `<p class="hint">Chyba: ${esc(e.message)}. Pokud jde o /fred, je potřeba aktualizovat Worker.</p>`; }
+}
+$('biasBtn').onclick = () => openBias(false);
+$('biasBadge').onclick = () => openBias(false);
+$('bReload').onclick = () => openBias(true);
+$('bClose2').onclick = () => $('bias').classList.remove('show');
+$('bias').onclick = e => { if (e.target.id === 'bias') $('bias').classList.remove('show'); };
+$('bHor').onclick = e => { const b = e.target.closest('button'); if (!b) return; bs.h = +b.dataset.h;
+  [...$('bHor').children].forEach(x => x.classList.toggle('on', x === b)); renderBias(); };
+setTimeout(() => { if (S.worker && !st.demo) loadBias().then(showBiasBadge).catch(() => {}); }, 6000);
+setInterval(() => { if (S.worker && !st.demo && document.visibilityState === 'visible') loadBias().then(showBiasBadge).catch(() => {}); }, 3600e3);
 
 // ───────── level statistics (journal from the Worker)
 const KIND_ORDER = ['★CW','★PW','0DTE CW1','0DTE CW2','0DTE CW3','0DTE PW1','0DTE PW2','0DTE PW3','0DTE ZG','CW1','PW1','ZG','QQQ 0/5','EM Ref','EM ±½','EM ±1','EM ±1.5'];

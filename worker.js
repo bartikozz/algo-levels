@@ -31,7 +31,7 @@ const GEX_SUBS = new Set(['majors', 'maxchange']);
 
 const YF_SYMBOLS = new Set(['NQ=F', 'ES=F', '^VIX', '^VXN', 'QQQ', 'SPY']);
 const YF_INTERVALS = new Set(['1m', '2m', '5m', '15m', '1d']);
-const YF_RANGES = new Set(['1d', '2d', '5d', '1mo', '3mo', '6mo', '1y']);
+const YF_RANGES = new Set(['1d', '2d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y']);
 
 // per-isolate memory cache
 const MEM = new Map();
@@ -313,6 +313,8 @@ export default {
         }, cors, sub === 'majors' ? 1 : 20); // majors = live price tick; GEXbot recomputes once per second
       }
 
+      // ── FRED (no key: public graph CSV) — Fed liquidity series for the Bias tab
+      if (parts[0] === 'fred') { const id = parts[1] || ''; if (!['WALCL', 'WTREGEN', 'RRPONTSYD', 'WRESBAL', 'BAMLH0A0HYM2'].includes(id)) return json({ error: 'route not allowed' }, 400, cors); return proxy([`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}`], { 'User-Agent': 'Mozilla/5.0', Accept: 'text/csv' }, cors, 3600); }
       // ── Yahoo chart
       if (parts[0] === 'yf') {
         const sym = parts[1] || '';
