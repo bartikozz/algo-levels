@@ -310,7 +310,7 @@ export default {
           Authorization: `Bearer ${env.GEXBOT_API_KEY}`,
           'User-Agent': 'algo-levels/1.0',
           Accept: 'application/json',
-        }, cors, sub === 'majors' ? 4 : 20); // majors = small payload, used as live price tick
+        }, cors, sub === 'majors' ? 1 : 20); // majors = live price tick; GEXbot recomputes once per second
       }
 
       // ── Yahoo chart
@@ -343,9 +343,12 @@ async function proxy(targets, headers, cors, ttlSec) {
   const hit = MEM.get(key);
   if (hit && now - hit.at < ttlSec * 1000) return out(hit.body, hit.status, cors, 'HIT');
 
+  // after an upstream 429 serve the cached copy for 30 s instead of hammering the API
+  if (hit && hit.coolUntil && now < hit.coolUntil) return out(hit.body, hit.status, cors, 'STALE');
   let last = null;
   for (const t of targets) {
     const up = await fetch(t, { headers });
+    if (up.status === 429 && hit) { hit.coolUntil = now + 30000; return out(hit.body, hit.status, cors, 'STALE'); }
     const body = await up.text();
     last = { body, status: up.status };
     if (up.ok) {

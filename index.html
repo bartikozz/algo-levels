@@ -388,14 +388,26 @@ async function liveTick(){
     const px = m.spot;   // NQ_NDX spot is already front-month NQ — use as is (no basis vs delayed Yahoo)
     if (!Number.isFinite(px)) throw new Error('majors bez spot');
     st.liveAge = Date.now() / 1000 - ts;
-    if (st.liveAge > 120) { st.liveSrc = 'stale'; showSrc(); return; }
-    st.liveSrc = 'live';
+    if (st.liveAge > 120) { st.liveSrc = 'stale'; st.liveMs = 5000; showSrc(); return; }
+    st.liveSrc = 'live'; st.liveMs = 1000;
+    if (ts === st.lastTs) { showSrc(); return; } // GEXbot recomputes once per second — nothing new
+    st.lastTs = ts;
     if (gexStale() && !st.gexKick) { st.gexKick = true; loadGex().then(() => { st.gexKick = false; computeNow(); render(); }).catch(() => { st.gexKick = false; }); }
     const k = Math.floor(ts / 60) * 60;
     const b = st.live.get(k);
     if (b) { b.h = Math.max(b.h, px); b.l = Math.min(b.l, px); b.c = px; }
     else st.live.set(k, { t:k, o:px, h:px, l:px, c:px, v:0 });
     mergeBars();
+    // fast path (every second): only move the last candle + header; full recompute every ~5 s or on a new minute
+    const now = Date.now();
+    if (st.res && st.lastFull && now - st.lastFull < 4500 && k === st.lastFullK) {
+      const x = st.live.get(k);
+      try { series.update({ time:A.et(x.t).disp, open:x.o, high:x.h, low:x.l, close:x.c }); } catch(e){}
+      $('px').textContent = fmtP(px);
+      showSrc();
+      return;
+    }
+    st.lastFull = now; st.lastFullK = k;
     if (st.data.bars.length) {
       computeNow();
       render();
@@ -403,10 +415,12 @@ async function liveTick(){
       showSrc();
     }
   } catch (e) {
-    st.liveSrc = 'err';
+    st.liveSrc = 'err'; st.liveMs = 5000; // back off on errors (e.g. rate limit)
     showSrc(e.message);
   } finally { st.liveBusy = false; }
 }
+function liveLoop(){ Promise.resolve().then(liveTick).catch(() => {}).finally(() => setTimeout(liveLoop, st.liveMs || 1000)); }
+setTimeout(liveLoop, 2000);
 // GEXbot only computes during RTH; data older than 15 min = last close, not live
 function gexStale(){
   const z = st.data.gex && (st.data.gex.zero || st.data.gex.full);
@@ -843,7 +857,6 @@ $('list').addEventListener('click', e => {
 // ───────── go
 if (S.worker) refresh(true); else renderEmpty();
 setInterval(() => { if (!st.demo && document.visibilityState === 'visible') refresh(false); }, 30000);
-setInterval(liveTick, 5000);
 showSrc();
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { goNow(); if (!st.demo) refresh(true); } });
 $('now').onclick = goNow;
