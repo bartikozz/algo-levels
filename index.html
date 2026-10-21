@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=13"></script>
+<script src="levels.js?v=14"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -165,7 +165,6 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
     <div class="f"><label>Lookahead (bary)</label><input id="sLook" type="number" step="1"></div>
   </div>
   <label class="cb"><input id="sRTH" type="checkbox"> Status počítat jen z RTH (jinak celý Globex den)</label>
-  <label class="cb"><input id="sPrev" type="checkbox"> Ukazovat včerejší levely (šedě, jen orientace)</label>
   <h4>EXPECTED MOVE</h4>
   <div class="f"><label>Volatility index</label>
     <select id="sVol" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line2);border-radius:6px;padding:8px;font:inherit;font-size:13px">
@@ -206,6 +205,7 @@ function load(){ try{ const s=JSON.parse(localStorage.getItem('algoLevels.v1')||
   return {...DEF,...s,layers:{...DEF.layers,...(s.layers||{})}}; }catch(e){ return structuredClone(DEF); } }
 function save(){ try{ localStorage.setItem('algoLevels.v1', JSON.stringify(S)); }catch(e){} }
 const S = load();
+S.showPrev = false; // previous-session GEX levels are not shown (clean view)
 // one-tap setup from a link: index.html#w=<worker url>&t=<token> (hash is never sent to a server)
 try {
   const h = new URLSearchParams(location.hash.slice(1));
@@ -230,7 +230,6 @@ const chart = LightweightCharts.createChart($('chart'), {
   rightPriceScale:{ borderColor:'#1b1f26' },
   timeScale:{ borderColor:'#1b1f26', timeVisible:true, secondsVisible:false, rightOffset:8 },
   crosshair:{ mode:0 },
-  handleScroll:{ mouseWheel:true, pressedMouseMove:true, horzTouchDrag:true, vertTouchDrag:false },
 });
 const series = chart.addCandlestickSeries({
   upColor:'#e6e8eb', downColor:'#4a505a', borderVisible:false, wickUpColor:'#9ca3af', wickDownColor:'#4a505a',
@@ -508,7 +507,6 @@ function render(){
   if (st.filter === 'opt') lv = lv.filter(l => l.srcs.includes('opt') || l.srcs.includes('qqq'));
   if (st.filter === 'fresh') lv = lv.filter(l => l.status.key === 'untested');
   let html = '', pxDone = false;
-  if (gexStale()) html += `<div class="empty" style="padding:14px 16px;border-bottom:1px solid var(--line)">GEXbot počítá jen v RTH. Čerstvé call/put walls se objeví v 15:30 – do té doby jsou poslední walls dole v šedé sekci.</div>`;
   if (!lv.length) html = '<div class="empty">Žádné levely pro tento filtr.</div>';
   for (const l of lv) {
     if (!pxDone && l.price < r.last) { html += `<div class="pxrow">NQ ${fmtP(r.last)}</div>`; pxDone = true; }
@@ -615,7 +613,7 @@ function openSettings(){
   $('sWorker').value = S.worker; $('sToken').value = S.token;
   $('sTol').value = S.tol; $('sMin').value = S.minScore; $('sRange').value = S.range;
   $('sTouch').value = S.touch; $('sBrk').value = S.brk; $('sReact').value = S.react; $('sLook').value = S.lookahead;
-  $('sRTH').checked = S.scanRTH; $('sPrev').checked = S.showPrev; $('sVol').value = S.volIndex || 'VXN'; $('sStr').checked = S.emStraddle !== false; $('sAD').value = S.alertDist; $('sAS').value = S.alertScore; $('sMS').value = S.majorStrong; $('sMA').checked = S.majorAlerts;
+  $('sRTH').checked = S.scanRTH; $('sVol').value = S.volIndex || 'VXN'; $('sStr').checked = S.emStraddle !== false; $('sAD').value = S.alertDist; $('sAS').value = S.alertScore; $('sMS').value = S.majorStrong; $('sMA').checked = S.majorAlerts;
   $('layers').innerHTML = LAYERS.map(([k,n]) => `<label class="cb"><input type="checkbox" data-l="${k}" ${S.layers[k] ? 'checked' : ''}> ${n}</label>`).join('');
   $('settings').classList.add('show');
 }
@@ -630,7 +628,7 @@ $('bSave').onclick = () => {
   S.touch = num('sTouch',S.touch); S.brk = num('sBrk',S.brk); S.react = num('sReact',S.react);
   S.lookahead = Math.max(1, Math.round(num('sLook',S.lookahead)));
   const volChanged = S.volIndex !== $('sVol').value;
-  S.scanRTH = $('sRTH').checked; S.showPrev = $('sPrev').checked; S.volIndex = $('sVol').value; S.emStraddle = $('sStr').checked;
+  S.scanRTH = $('sRTH').checked; S.volIndex = $('sVol').value; S.emStraddle = $('sStr').checked;
   if (volChanged) st.data.vix = []; S.alertDist = num('sAD',S.alertDist); S.alertScore = num('sAS',S.alertScore); S.majorStrong = num('sMS',S.majorStrong); S.majorAlerts = $('sMA').checked;
   document.querySelectorAll('#layers input').forEach(c => S.layers[c.dataset.l] = c.checked);
   save();

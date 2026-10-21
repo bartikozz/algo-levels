@@ -125,7 +125,7 @@
       info.qqqRef = qRef;
       const q05 = g.qqq ? (g.qqq.strikes || []).filter(x => Math.round(x[0] * 100) % 500 === 0) : [];
       info.majors = [];
-      if (q05.length) {
+      if (q05.length && !S.gexStale) { // no stars from yesterday's data
         const mw = walls({ strikes: q05 }, 1, 1); // idx 1 = GEX by volume
         if (mw.pos[0]) info.majors.push({ type: 'CW', qqq: mw.pos[0][0], gex: mw.pos[0][1], price: mw.pos[0][0] * k });
         if (mw.neg[0]) info.majors.push({ type: 'PW', qqq: mw.neg[0][0], gex: mw.neg[0][1], price: mw.neg[0][0] * k });

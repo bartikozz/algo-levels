@@ -101,7 +101,7 @@ footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);f
 <nav class="toc">
   <a href="#prehled">Přehled</a><a href="#architektura">Architektura</a><a href="#den">Den v praxi</a>
   <a href="#vrstvy">Vrstvy levelů</a><a href="#skore">Skóre &amp; stav</a><a href="#major">★ Hlavní walls</a>
-  <a href="#em">Expected move</a><a href="#vcera">Včerejší levely</a><a href="#tv">TradingView</a>
+  <a href="#em">Expected move</a><a href="#vcera">Před 15:30</a><a href="#tv">TradingView</a>
   <a href="#sleeve">Multi-sleeve algo</a><a href="#limity">Limity</a><a href="#odkazy">Odkazy</a>
 </nav>
 
@@ -181,7 +181,7 @@ footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);f
     <div class="tl"><div class="t">ráno – 15:30</div><div class="h">Orientace</div>
       <p>GEX data jsou ze včerejšího close (badge <code>GEX z … · trh zavřen</code>). 0DTE walls už expirovaly – ber je jen orientačně. EM platí ze včerejšího RTH openu. Spolehlivé: full-chain walls, σ, pPOC, EM.</p></div>
     <div class="tl"><div class="t">15:30</div><div class="h">RTH open</div>
-      <p>Badge přepne na <code>LIVE</code>, přijdou čerstvé 0DTE levely, EM se přepočítá na dnešní RTH open, včerejší GEX přejde do šedé sekce. Klikni „⧉ TradingView“ a vlož levely do TV.</p></div>
+      <p>Badge přepne na <code>LIVE</code>, přijdou čerstvé GEX walls a ★, EM se přepočítá na dnešní RTH open.</p></div>
     <div class="tl"><div class="t">15:30 – 22:00</div><div class="h">Obchodování</div>
       <p>Cena se obnovuje každých 5 s. Alerty: level se skóre ≥ 4 do 8 b., a vždy ★ hlavní QQQ walls. Kolem poledne NY (18:00) znovu exportuj do TV – 0DTE walls se hýbou.</p></div>
     <div class="tl"><div class="t">22:10 / 23:10</div><div class="h">Snapshot</div>
@@ -270,9 +270,9 @@ footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);f
 </section>
 
 <section id="vcera">
-  <h2><span class="n">08</span>Včerejší levely</h2>
-  <p>Dole pod seznamem šedá sekce a v grafu šedé tečkované čáry: 0DTE a full-chain walls + zero gamma z předchozí session. <strong>Do skóre se nepočítají</strong> – jen orientace, kde včera stály dealerské pozice.</p>
-  <p>Data pochází ze snapshotu, který Worker ukládá v pracovní dny ve 22:10 a 23:10 (Cloudflare cron <code>10 20,21 * * 2-6</code> v UTC; Cloudflare čísluje dny od neděle). Snapshoty se drží 45 dní.</p>
+  <h2><span class="n">08</span>Před 15:30</h2>
+  <p>GEXbot počítá jen v RTH, takže před 15:30 terminál <strong>žádné GEX walls neukazuje</strong> – ani včerejší. Zůstává jen to, co je platné: EM (z včerejšího RTH openu), QQQ main levely 0/5 posunuté podle aktuální ceny, σ a volume profile. Hvězdičky ★ a alerty na hlavní walls naskočí s prvními živými daty po 15:30.</p>
+  <p>Worker si dál po close ukládá snapshot do KV (cron <code>10 20,21 * * 2-6</code>), kdyby se včerejší levely někdy hodily.</p>
 </section>
 
 <section id="tv">
