@@ -140,14 +140,15 @@
     if (L.em && vix && vix.length) {
       const v = [...vix].reverse().find(b => et(b.t).date < calToday);
       if (v && v.c > 5 && v.c < 100) {
-        const anchor = rthBars.length ? rthBars[0].o : last;
+        // RTH open anchor once RTH has started; before that a provisional anchor at the Globex open
+        // (fixed for the session, so the levels don't follow price)
+        const pre = !rthBars.length;
+        const anchor = !pre ? rthBars[0].o : (todayBars.length ? todayBars[0].o : last);
         const em = anchor * v.c / 100 / 15.87;
-        info.em = { anchor, em, vix: v.c, provisional: !rthBars.length };
-        // before the RTH open the anchor would follow price, so EM levels only count once RTH has opened
-        if (rthBars.length) {
-          [[-1, 'EM −1'], [-0.5, 'EM −½'], [0.5, 'EM +½'], [1, 'EM +1']]
-            .forEach(([m, t]) => add(anchor + m * em, t, 1.5, 'em'));
-        }
+        info.em = { anchor, em, vix: v.c, provisional: pre };
+        const sfx = pre ? ' (pre)' : '';
+        [[-1, 'EM −1'], [-0.5, 'EM −½'], [0.5, 'EM +½'], [1, 'EM +1']]
+          .forEach(([m, t]) => add(anchor + m * em, t + sfx, pre ? 1 : 1.5, 'em'));
       }
     }
 
@@ -259,7 +260,7 @@
     const scan = (S.scanRTH && rth.length) ? rth : todayBars;
 
     const levels = cluster(cands.filter(x => x.p > lo && x.p < hi), S.tol)
-      .filter(l => l.score >= S.minScore)
+      .filter(l => l.score >= S.minScore || l.srcs.includes('em')) // EM levels are always shown
       .map(l => {
         const ev = statusOf(l.price, last, scan, S);
         return {

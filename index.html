@@ -373,7 +373,9 @@ function render(){
   rg.className = 'badge ' + (r.regime > 0 ? 'pos' : r.regime < 0 ? 'neg' : '');
   rg.textContent = r.regime > 0 ? '+γ · fade' : r.regime < 0 ? '−γ · trend' : 'γ —';
   const i = r.info;
-  $('mEm').textContent = i.em ? `±${i.em.em.toFixed(0)} (VIX ${i.em.vix.toFixed(1)}${i.em.provisional ? ', pre-open' : ''})` : '—';
+  $('mEm').textContent = i.em
+    ? `±${i.em.em.toFixed(0)} @ ${fmtP(i.em.anchor)} (VIX ${i.em.vix.toFixed(1)}, ${i.em.provisional ? 'Globex open – do 9:30' : 'RTH open'})`
+    : '—';
   $('mSig').textContent = i.sigma ? `${i.sigma.pts.toFixed(0)} b.` : '—';
   $('mPoc').textContent = i.vp ? fmtP(i.vp.poc) : '—';
   $('mRatio').textContent = i.ratio ? i.ratio.toFixed(2) : '—';
