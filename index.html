@@ -5,10 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#07080a">
 <title>Algo Levels</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Algo Levels">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=8"></script>
+<script src="levels.js?v=9"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -197,6 +204,15 @@ function load(){ try{ const s=JSON.parse(localStorage.getItem('algoLevels.v1')||
   return {...DEF,...s,layers:{...DEF.layers,...(s.layers||{})}}; }catch(e){ return structuredClone(DEF); } }
 function save(){ try{ localStorage.setItem('algoLevels.v1', JSON.stringify(S)); }catch(e){} }
 const S = load();
+// one-tap setup from a link: index.html#w=<worker url>&t=<token> (hash is never sent to a server)
+try {
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get('w')) {
+    S.worker = h.get('w'); if (h.get('t')) S.token = h.get('t');
+    save();
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+} catch(e){}
 
 const st = { data:{bars:[],daily:[],vix:[],gex:{}}, res:null, demo:false, tick:0, lines:[], alerted:{}, majorZone:{}, filter:'all',
   audio:null, open:new Set(), busy:false, yf:[], live:new Map(), liveSrc:null, liveAge:NaN, basis:NaN, liveBusy:false };
