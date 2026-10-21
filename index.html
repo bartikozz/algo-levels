@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=7"></script>
+<script src="levels.js?v=8"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -163,7 +163,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
       <option value="VXN">VXN (NQ)</option><option value="VIX">VIX (ES)</option></select></div>
   <label class="cb"><input id="sStr" type="checkbox"> Převést σ na straddle EM (×0.8)</label>
   <h4>ALERTY</h4>
-  <label class="cb"><input id="sMA" type="checkbox"> ★ Vždy alert u největší QQQ call/put wall (strike 0/5) – slabá ±0.5 QQQ, silná ±N b.</label>
+  <label class="cb"><input id="sMA" type="checkbox"> ★ Vždy alert u největší QQQ call/put wall podle volume (strike 0/5) – slabá ±0.5 QQQ, silná ±N b.</label>
   <div class="grid2">
     <div class="f"><label>Vzdálenost (b.)</label><input id="sAD" type="number" step="1"></div>
     <div class="f"><label>Min skóre</label><input id="sAS" type="number" step="0.5"></div>

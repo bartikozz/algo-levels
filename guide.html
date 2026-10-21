@@ -202,7 +202,7 @@ footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);f
       <tr><td>Full chain zero gamma</td><td><span class="chip zg">ZG</span></td><td class="w">2.5</td><td>gex_full</td></tr>
       <tr><td>Major OI walls</td><td><span class="chip call">OI CW</span><span class="chip put">OI PW</span></td><td class="w">2</td><td>gex_full</td></tr>
       <tr><td>Největší změna GEX za 15 min</td><td><span class="chip chg">ΔGEX 15m</span></td><td class="w">1.5</td><td>gex_zero/maxchange</td></tr>
-      <tr><td>QQQ walls (jen strike 0/5)</td><td><span class="chip qqq">QQQ CW 715</span></td><td class="w">2 · 1</td><td>QQQ gex_full × živý poměr NQ/QQQ</td></tr>
+      <tr><td>QQQ walls (jen strike 0/5)</td><td><span class="chip qqq">QQQ CW 715</span></td><td class="w">2 · 1</td><td>QQQ gex_full, GEX z objemu × živý poměr NQ/QQQ</td></tr>
       <tr><td>QQQ main levely 0/5</td><td><span class="chip qqq">QQQ 710</span></td><td class="w">1</td><td>±2 % od spotu</td></tr>
       <tr><td>Expected move</td><td><span class="chip vol">EM Ref</span><span class="chip vol">EM +½</span><span class="chip vol">EM −1.5</span></td><td class="w">1.5 · ±1.5: 1</td><td>VXN × 0.8, RTH open</td></tr>
       <tr><td>σ Grid</td><td><span class="chip vol">σ +1</span><span class="chip vol">σ −½</span></td><td class="w">1.5 · 1</td><td>20denní σ log-výnosů, Globex open</td></tr>
@@ -240,7 +240,7 @@ footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);f
 <section id="major">
   <h2><span class="n">06</span>★ Hlavní QQQ walls</h2>
   <p class="sub">Stejná logika jako tvůj indikátor „QQQ → NQ Main Levels“.</p>
-  <p>Z QQQ chainu se vezme <strong>největší call wall a největší put wall</strong> podle OI GEX – ale jen ze strikes končících na <strong>0 nebo 5</strong> (710, 715, 720…). Převedou se na NQ živým poměrem NQ/QQQ (~41.5) a dostanou dvě zóny:</p>
+  <p>Z QQQ chainu se vezme <strong>největší call wall a největší put wall</strong> podle <strong>volume GEX</strong> (ne OI) – ale jen ze strikes končících na <strong>0 nebo 5</strong> (710, 715, 720…). Převedou se na NQ živým poměrem NQ/QQQ (~41.5) a dostanou dvě zóny:</p>
   <div class="zone" aria-label="Schéma zón kolem hlavní wall">
     <div class="w"></div><div class="s"></div><div class="m"></div>
     <span class="lbl" style="top:6px;color:#b4bac3">slabá zóna ±0.5 QQQ ≈ ±21 b.</span>
@@ -250,6 +250,7 @@ footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);f
   <ul>
     <li><strong>Alert vždy</strong>, bez ohledu na skóre: při vstupu do slabé zóny jedno pípnutí, do silné dvojité + notifikace, která zůstane na obrazovce.</li>
     <li>Znovu se ozve, až cena zónu opustí a vrátí se (max. jednou za 5 min na zónu).</li>
+    <li>Volume GEX se přes den mění, takže hlavní wall se může přesunout na jiný strike – terminál to sleduje průběžně. Před 15:30 jde o včerejší objem.</li>
     <li>Pruh pod hlavičkou ukazuje obě walls a vzdálenost; v zóně se rozsvítí zlatě. V grafu tlustá zlatá čára + hrany zón.</li>
     <li>Vypnout nebo změnit šířku silné zóny: ⚙ → Alerty.</li>
   </ul>
