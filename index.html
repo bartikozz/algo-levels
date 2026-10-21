@@ -254,7 +254,7 @@ try {
 } catch(e){}
 
 const st = { data:{bars:[],daily:[],vix:[],gex:{}}, res:null, demo:false, tick:0, lines:[], alerted:{}, majorZone:{}, filter:'all',
-  audio:null, open:new Set(), busy:false, yf:[], live:new Map(), liveSrc:null, liveAge:NaN, basis:NaN, liveBusy:false };
+  audio:null, open:new Set(), busy:false, yf:[], live:new Map(), liveSrc:null, liveAge:NaN, liveBusy:false };
 const $ = id => document.getElementById(id);
 const fmtP = n => Number.isFinite(n) ? n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
 
@@ -320,9 +320,19 @@ function mergeBars(){
   const fill = new Map();
   const qb = st.data.qqqBars || [];
   const kr = A.alignedRatio(yf, qb, 100).k;
-  if (kr > 0) for (const b of qb) {
-    if (b.t <= yfLast || b.t % 60 !== 0) continue;
-    fill.set(b.t, { t:b.t, o:b.o * kr, h:b.h * kr, l:b.l * kr, c:b.c * kr, v:0, synth:true });
+  // QQQ×k differs from NQ by a small drifting basis — anchor the synthetic tail so it joins
+  // seamlessly: to the live GEXbot spot when we have it, otherwise to Yahoo's last NQ close.
+  let off = 0;
+  if (kr > 0) {
+    const qAt = new Map(qb.map(b => [b.t, b.c]));
+    const lv = [...st.live.values()].sort((a, b) => b.t - a.t);
+    const anchor = lv.find(b => qAt.has(b.t)) || (yf.length && qAt.has(yfLast) ? yf[yf.length - 1] : null);
+    if (anchor) off = anchor.c - qAt.get(anchor.t) * kr;
+    if (Math.abs(off) > 60) off = 0;
+    for (const b of qb) {
+      if (b.t <= yfLast || b.t % 60 !== 0) continue;
+      fill.set(b.t, { t:b.t, o:b.o * kr + off, h:b.h * kr + off, l:b.l * kr + off, c:b.c * kr + off, v:0, synth:true });
+    }
   }
   for (const [k, b] of st.live) fill.set(k, b);
   const tail = [...fill.values()].sort((a, b) => a.t - b.t);
@@ -334,14 +344,8 @@ async function liveTick(){
   try {
     const m = await api('/gex/NQ_NDX/classic/gex_zero/majors');
     const ts = Number.isFinite(m.timestamp) ? m.timestamp : Date.now() / 1000;
-    let px = m.spot;
+    const px = m.spot;   // NQ_NDX spot is already front-month NQ — use as is (no basis vs delayed Yahoo)
     if (!Number.isFinite(px)) throw new Error('majors bez spot');
-    // NQ_NDX should be in NQ terms; if it is NDX index, shift by basis vs futures
-    const yfLast = st.yf && st.yf.length ? st.yf[st.yf.length - 1].c : NaN;
-    if (Number.isFinite(yfLast) && Math.abs(px - yfLast) > 40) {
-      if (!Number.isFinite(st.basis) || Math.abs(px + st.basis - yfLast) > 40) st.basis = yfLast - px;
-      px += st.basis;
-    }
     st.liveAge = Date.now() / 1000 - ts;
     if (st.liveAge > 120) { st.liveSrc = 'stale'; showSrc(); return; }
     st.liveSrc = 'live';
@@ -700,7 +704,7 @@ $('bSave').onclick = () => {
   save();
   $('settings').classList.remove('show');
   if (S.worker && (st.demo || S.worker !== wasWorker)) {
-    st.demo = false; st.data = {bars:[],daily:[],vix:[],gex:{}}; st.yf = []; st.live.clear(); st.basis = NaN; fitted = false;
+    st.demo = false; st.data = {bars:[],daily:[],vix:[],gex:{}}; st.yf = []; st.live.clear(); fitted = false;
   }
   refresh(true);
 };
