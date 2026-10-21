@@ -47,6 +47,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .dotlive{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dim);margin-right:5px;vertical-align:middle}
 .dotlive.ok{background:var(--long)} .dotlive.err{background:var(--short)}
 
+#gexp{position:absolute;left:0;top:0;pointer-events:none;z-index:1}
 .zones{position:absolute;left:0;top:0;bottom:0;pointer-events:none;overflow:hidden;z-index:2}
 .zw{position:absolute;left:0;right:0;background:rgba(150,156,166,.16);border-top:1px solid rgba(190,196,206,.35);border-bottom:1px solid rgba(190,196,206,.35)}
 .zs{position:absolute;left:0;right:0;background:rgba(190,196,206,.26)}
@@ -161,7 +162,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <span>QQQ×<b id="mRatio">—</b></span>
 </div>
 <div id="majors" class="majors"></div>
-<div id="chartWrap" style="position:relative"><div id="chart"></div><div id="zones" class="zones"></div><button id="now" class="nowbtn" hidden>Teď ▸</button></div>
+<div id="chartWrap" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><div id="zones" class="zones"></div><button id="now" class="nowbtn" hidden>Teď ▸</button></div>
 <div id="grip" class="grip" role="separator" aria-label="Velikost grafu"><span></span></div>
 <div class="tabs">
   <button data-f="all" class="on">Vše</button>
@@ -232,7 +233,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 const A = window.AlgoLevels;
 const LAYERS = [
   ['gex0','0DTE GEX'],['gex1','1DTE GEX'],['gexFull','Full chain GEX'],['maxchg','ΔGEX 15m'],
-  ['qqq','QQQ walls (0/5)'],['qqqMain','QQQ 0/5 levely'],['em','EM (VXN/VIX)'],['sigma','σ Grid'],['vp','Prev VP']
+  ['qqq','QQQ walls (0/5)'],['qqqMain','QQQ 0/5 levely'],['gexProf','GEX profil (gexbot)'],['em','EM (VXN/VIX)'],['sigma','σ Grid'],['vp','Prev VP']
 ];
 const DEF = { worker:'', token:'', tol:10, minScore:3, range:3, touch:3, brk:6, react:15, lookahead:15,
   scanRTH:true, alertDist:8, alertScore:4, showPrev:true, volIndex:'VXN', emStraddle:true, majorAlerts:true, majorStrong:10, layers:Object.fromEntries(LAYERS.map(l=>[l[0],true])) };
@@ -293,7 +294,47 @@ function drawZones(){
   }
   if (box._h !== html) { box.innerHTML = html; box._h = html; }
 }
-(function loop(){ try { drawZones(); } catch(e){} requestAnimationFrame(loop); })();
+// GEXbot-style strike profile: QQQ 0DTE GEX by volume per strike (×k into NQ), green = +γ, red = −γ,
+// blue dots = 1/5/10/15/30 min ago, dashed major +/− and zero gamma lines.
+const PRI_C = ['#a9dcff','#6cbcff','#3b8fe6','#2766b8','#1b467f'];
+function drawProfile(){
+  const cv = $('gexp'); if (!cv) return;
+  const q = st.data.gex && st.data.gex.qqq, k = st.res && st.res.info && st.res.info.ratio;
+  const on = S.layers.gexProf && q && Array.isArray(q.strikes) && k > 0 && !gexStale();
+  let w = 0, h = 0; try { w = chart.timeScale().width(); h = $('chart').clientHeight - 26; } catch(e){}
+  const y0 = series.priceToCoordinate(30000), y1 = series.priceToCoordinate(31000);
+  const key = on ? [w, h, y0, y1, k.toFixed(4), q.timestamp, q.strikes.length].join('|') : 'off';
+  if (cv._k === key) return; cv._k = key;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  }
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+  if (!on || !(w > 0) || y0 === null || y1 === null) return;
+  const vis = q.strikes.map(r => ({ s:r[0], v:r[1], pr:Array.isArray(r[3]) ? r[3] : [], y:series.priceToCoordinate(r[0] * k) }))
+    .filter(r => r.y !== null && r.y > -10 && r.y < h + 10);
+  if (!vis.length) return;
+  const mx = Math.max(1e-9, ...vis.map(r => Math.max(Math.abs(r.v), ...r.pr.map(Math.abs))));
+  const gap = Math.abs(series.priceToCoordinate(0) - series.priceToCoordinate(k)) || 20;
+  const th = Math.max(2, Math.min(6, gap * 0.3)), x0 = 30, L = (w - x0) * 0.6;
+  c.font = '10px JetBrains Mono, monospace'; c.textBaseline = 'middle';
+  for (const r of vis) {
+    const len = Math.abs(r.v) / mx * L;
+    c.fillStyle = r.v >= 0 ? 'rgba(52,211,90,.55)' : 'rgba(244,67,54,.55)';
+    if (len > 0.5) c.fillRect(x0, r.y - th / 2, len, th);
+    r.pr.forEach((p, i) => { if (!Number.isFinite(p) || !p) return;
+      c.fillStyle = PRI_C[i] || PRI_C[4]; c.beginPath(); c.arc(x0 + Math.abs(p) / mx * L, r.y, Math.min(2.6, th / 2 + .6), 0, 7); c.fill(); });
+    if (gap >= 11) { c.fillStyle = r.s % 5 === 0 ? '#c9ccd2' : '#6b727c'; c.fillText(String(r.s), 3, r.y); }
+  }
+  const dash = (val, col, txt) => { if (!Number.isFinite(val)) return; const y = series.priceToCoordinate(val * k); if (y === null) return;
+    c.save(); c.strokeStyle = col; c.setLineDash([6, 5]); c.lineWidth = 1; c.beginPath(); c.moveTo(x0, y); c.lineTo(w, y); c.stroke(); c.restore();
+    const t = `${txt} ${val.toFixed(2)}`, tw = c.measureText(t).width + 8;
+    c.fillStyle = col; c.fillRect(w - tw - 2, y - 7, tw, 14); c.fillStyle = '#07080a'; c.fillText(t, w - tw + 2, y); };
+  dash(q.zero_gamma, '#f0a020', 'ZG');
+  dash(q.major_pos_vol, '#34d35a', '+γ');
+  dash(q.major_neg_vol, '#f44336', '−γ');
+}
+(function loop(){ try { drawZones(); } catch(e){} try { drawProfile(); } catch(e){} requestAnimationFrame(loop); })();
 const goNow = () => { try { chart.timeScale().scrollToRealTime(); } catch(e){} };
 chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
   try { $('now').hidden = chart.timeScale().scrollPosition() > -3; } catch(e){}
@@ -416,7 +457,7 @@ async function loadGex(){
   if (L.gex0 || L.maxchg) jobs.zero = api('/gex/NQ_NDX/classic/gex_zero');
   if (L.gex1) jobs.one = api('/gex/NQ_NDX/classic/gex_one');
   if (L.gexFull) jobs.full = api('/gex/NQ_NDX/classic/gex_full');
-  if (L.qqq || L.qqqMain) jobs.qqq = api('/gex/QQQ/classic/gex_zero'); // 0DTE only
+  if (L.qqq || L.qqqMain || L.gexProf) jobs.qqq = api('/gex/QQQ/classic/gex_zero'); // 0DTE only
   if (L.maxchg) jobs.mx = api('/gex/NQ_NDX/classic/gex_zero/maxchange');
   const keys = Object.keys(jobs);
   const res = await Promise.allSettled(keys.map(k => jobs[k]));
