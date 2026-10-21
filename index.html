@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=10"></script>
+<script src="levels.js?v=11"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -82,6 +82,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .row.open .more{display:block}
 .chip{font-size:11px;padding:3px 6px;border:1px solid var(--line2);border-radius:3px;color:var(--muted);white-space:nowrap}
 .chip.call{color:var(--call)} .chip.put{color:var(--put)} .chip.zg{color:var(--zg)}
+.chip.qqq.star,.chip.star{color:#1d1709;background:var(--gold);border-color:var(--gold);font-weight:700}
 .chip.vol{color:var(--vol)} .chip.vp{color:var(--vp)} .chip.qqq{color:var(--qqq)} .chip.chg{color:#e7895a}
 .pxrow{display:flex;align-items:center;gap:10px;padding:8px 16px;font-size:12px;color:var(--gold);border-bottom:1px solid var(--line)}
 .pxrow::before,.pxrow::after{content:"";flex:1;height:1px;background:rgba(201,166,107,.35)}
@@ -295,8 +296,8 @@ function computeNow(){
   if (gexStale()) {
     const g = st.data.gex, z = g.zero || g.full;
     st.prevView = { date: etDateOf(z.timestamp), zero: g.zero, full: g.full, stale: true };
-    st.res = A.compute({ ...st.data, gex: {} }, S);
-    if (st.res) { st.res.gexTs = z.timestamp; st.res.regime = 0; st.res.info.majors = []; }
+    st.res = A.compute({ ...st.data, gex: { qqq: g.qqq } }, { ...S, gexStale: true });
+    if (st.res) { st.res.gexTs = z.timestamp; st.res.regime = 0; }
   } else {
     st.prevView = st.prev;
     st.res = A.compute(st.data, S);
@@ -314,6 +315,10 @@ function showSrc(err){
     el.className = 'badge neg';
   }
   else { el.textContent = 'Yahoo ~10 min'; el.className = 'badge'; if (err) el.title = err; }
+}
+async function loadQqqPx(){
+  const b = A.parseYF(await api('/yf/QQQ?interval=1m&range=1d'));
+  if (b.length) st.data.qqqPx = b[b.length - 1].c;
 }
 async function loadDaily(){
   const want = S.volIndex || 'VXN';
@@ -360,7 +365,7 @@ async function refresh(full){
     let errs = [];
     if (!st.demo) {
       if (!S.worker) { renderEmpty(); return; }
-      const jobs = [loadBars()];
+      const jobs = [loadBars(), loadQqqPx().catch(() => {})];
       if (full || st.tick % 2 === 0) jobs.push(loadGex().then(e => { errs = e; }));
       if (full || st.tick % 20 === 0 || !st.data.daily.length || !st.data.vix.length) jobs.push(loadDaily().catch(e => errs.push(e.message)));
       await Promise.all(jobs);
@@ -385,6 +390,7 @@ function setLive(cls, msg){
 // ───────── render
 function chipClass(t){
   if (/ΔGEX/.test(t)) return 'chg';
+  if (/★/.test(t)) return 'qqq star';
   if (/^QQQ/.test(t)) return 'qqq';
   if (/ZG/.test(t)) return 'zg';
   if (/CW/.test(t)) return 'call';
@@ -454,8 +460,8 @@ function render(){
   $('mRatio').textContent = i.ratio ? i.ratio.toFixed(2) : '—';
   $('majors').innerHTML = (i.majors || []).map(m => {
     const z = majorZone(m, r.last), d = m.price - r.last;
-    const zt = z === 'strong' ? 'V SILNÉ ZÓNĚ' : z === 'weak' ? 've slabé zóně' : `${d > 0 ? '+' : ''}${d.toFixed(0)} b.`;
-    return `<div class="mj ${m.type.toLowerCase()} ${z}"><span class="t">★ ${m.type === 'CW' ? 'CALL WALL' : 'PUT WALL'}</span>
+    const zt = (m.stale ? 'vč. objem · ' : '') + (z === 'strong' ? 'V SILNÉ ZÓNĚ' : z === 'weak' ? 've slabé zóně' : `${d > 0 ? '+' : ''}${d.toFixed(0)} b.`);
+    return `<div class="mj ${m.type.toLowerCase()} ${m.stale ? '' : z}"><span class="t">★ ${m.type === 'CW' ? 'CALL WALL' : 'PUT WALL'}</span>
       <b>QQQ ${m.qqq}</b><span>→ ${fmtP(m.price)}</span><span class="z">${zt}</span></div>`;
   }).join('');
 
@@ -534,6 +540,7 @@ function checkMajorAlerts(){
   const r = st.res; if (!r || !S.majorAlerts) return;
   const now = Date.now();
   for (const m of (r.info.majors || [])) {
+    if (m.stale) continue;
     const key = m.type + m.qqq;
     const z = majorZone(m, r.last);
     const prev = st.majorZone[key] || 'out';

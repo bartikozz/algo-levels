@@ -114,30 +114,34 @@
     if (L.maxchg && g.mx && Array.isArray(g.mx.fifteen) && Number.isFinite(g.mx.fifteen[0])) {
       add(g.mx.fifteen[0] + off(g.zero || g.full), 'ΔGEX 15m', 1.5, 'opt');
     }
-    // QQQ → NQ (live ratio), walls only on 0/5 strikes
-    const kq = g.qqq && g.qqq.spot > 0 ? last / g.qqq.spot : NaN;
+    // QQQ → NQ: main levels = every QQQ strike ending in 0/5 around the current price,
+    // converted with the current NQ/QQQ ratio (Yahoo QQQ price incl. pre/post, else GEXbot QQQ spot).
+    // The biggest call wall and put wall (by volume GEX, 0/5 strikes only) get a ★.
+    const qRef = [ctx.qqqPx, g.qqq && g.qqq.spot].find(p => p > 0 && last / p > 20 && last / p < 80);
+    const kq = qRef > 0 ? last / qRef : NaN;
     if (kq > 20 && kq < 80) { // sanity: NQ/QQQ ≈ 41
       const k = kq;
       info.ratio = k;
-      const wallStrikes = new Set();
-      // Major walls: the single biggest QQQ call wall and put wall on 0/5 strikes (by volume GEX),
-      // with zones like the "QQQ → NQ Main Levels" indicator: weak ±0.5 QQQ, strong ±10 NQ pts.
-      {
-        const mw = walls({ strikes: (g.qqq.strikes || []).filter(x => Math.round(x[0] * 100) % 500 === 0) }, 1, 1); // idx 1 = GEX by volume
-        info.majors = [];
+      info.qqqRef = qRef;
+      const q05 = g.qqq ? (g.qqq.strikes || []).filter(x => Math.round(x[0] * 100) % 500 === 0) : [];
+      info.majors = [];
+      if (q05.length) {
+        const mw = walls({ strikes: q05 }, 1, 1); // idx 1 = GEX by volume
         if (mw.pos[0]) info.majors.push({ type: 'CW', qqq: mw.pos[0][0], gex: mw.pos[0][1], price: mw.pos[0][0] * k });
         if (mw.neg[0]) info.majors.push({ type: 'PW', qqq: mw.neg[0][0], gex: mw.neg[0][1], price: mw.neg[0][0] * k });
-        info.majors.forEach(m => { m.weak = 0.5 * k; m.strong = S.majorStrong || 10; });
+        info.majors.forEach(m => { m.weak = 0.5 * k; m.strong = S.majorStrong || 10; m.stale = !!S.gexStale; });
       }
-      if (L.qqq) {
-        const w = walls({ strikes: (g.qqq.strikes || []).filter(x => Math.round(x[0] * 100) % 500 === 0) }, 1, 2); // by volume
-        w.pos.forEach((x, i) => { wallStrikes.add(x[0]); add(x[0] * k, `QQQ CW ${x[0]}`, [2, 1][i], 'qqq'); });
-        w.neg.forEach((x, i) => { wallStrikes.add(x[0]); add(x[0] * k, `QQQ PW ${x[0]}`, [2, 1][i], 'qqq'); });
+      const star = {};
+      info.majors.forEach(m => { star[m.qqq] = m.type; });
+      if (L.qqq && q05.length && !S.gexStale) {
+        const w = walls({ strikes: q05 }, 1, 2); // by volume
+        w.pos.forEach((x, i) => add(x[0] * k, `QQQ CW ${x[0]}`, [2, 1][i], 'qqq'));
+        w.neg.forEach((x, i) => add(x[0] * k, `QQQ PW ${x[0]}`, [2, 1][i], 'qqq'));
       }
       if (L.qqqMain) {
-        const s = g.qqq.spot;
-        for (let q = Math.ceil(s * 0.98 / 5) * 5; q <= s * 1.02; q += 5) {
-          if (!wallStrikes.has(q)) add(q * k, `QQQ ${q}`, 1, 'qqq');
+        for (let q = Math.ceil(qRef * 0.98 / 5) * 5; q <= qRef * 1.02; q += 5) {
+          const st = star[q] ? ` ★${star[q]}${S.gexStale ? ' vč.' : ''}` : '';
+          add(q * k, `QQQ ${q}${st}`, star[q] && !S.gexStale ? 1.5 : 1, 'qqqm');
         }
       }
     }
@@ -270,7 +274,7 @@
     const scan = (S.scanRTH && rth.length) ? rth : todayBars;
 
     const levels = cluster(cands.filter(x => x.p > lo && x.p < hi), S.tol)
-      .filter(l => l.score >= S.minScore || l.srcs.includes('em')) // EM levels are always shown
+      .filter(l => l.score >= S.minScore || l.srcs.includes('em') || l.srcs.includes('qqqm')) // EM + QQQ main levels always shown
       .map(l => {
         const ev = statusOf(l.price, last, scan, S);
         return {
