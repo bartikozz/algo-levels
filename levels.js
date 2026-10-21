@@ -77,6 +77,18 @@
     };
   }
 
+  // ───────── NQ/QQQ ratio on time-aligned 1m bars, averaged over the last n matches
+  function alignedRatio(nqBars, qqqBars, n) {
+    if (!nqBars || !qqqBars || !nqBars.length || !qqqBars.length) return { k: NaN, n: 0 };
+    const qm = new Map(qqqBars.map(b => [b.t, b.c]));
+    const rs = [];
+    for (let i = nqBars.length - 1; i >= 0 && rs.length < (n || 100); i--) {
+      const b = nqBars[i], qc = qm.get(b.t);
+      if (qc > 0) { const r = b.c / qc; if (r > 20 && r < 80) rs.push(r); }
+    }
+    return rs.length >= 10 ? { k: rs.reduce((a, b) => a + b, 0) / rs.length, n: rs.length } : { k: NaN, n: rs.length };
+  }
+
   // ───────── Candidate levels from every layer
   function buildCandidates(ctx, S) {
     const { bars, daily, vix, gex: g, last, today } = ctx;
@@ -120,16 +132,9 @@
     // Ratio like the "accurate strike -> futures conversion" indicator: NQ/QQQ on time-aligned
     // 1m bars, smoothed over the last 100 bars (Level Smoothing 100). Fallback: instantaneous ratio.
     const qRef = [ctx.qqqPx, g.qqq && g.qqq.spot].find(p => p > 0 && last / p > 20 && last / p < 80);
-    let kq = NaN;
-    if (ctx.qqqBars && ctx.qqqBars.length && ctx.nqBars && ctx.nqBars.length) {
-      const qm = new Map(ctx.qqqBars.map(b => [b.t, b.c]));
-      const rs = [];
-      for (let i = ctx.nqBars.length - 1; i >= 0 && rs.length < (S.ratioSmooth || 100); i--) {
-        const b = ctx.nqBars[i], qc = qm.get(b.t);
-        if (qc > 0) { const r = b.c / qc; if (r > 20 && r < 80) rs.push(r); }
-      }
-      if (rs.length >= 10) { kq = rs.reduce((a, b) => a + b, 0) / rs.length; info.ratioN = rs.length; }
-    }
+    const ar = alignedRatio(ctx.nqBars, ctx.qqqBars, S.ratioSmooth || 100);
+    let kq = ar.k;
+    if (kq > 0) info.ratioN = ar.n;
     if (!(kq > 20 && kq < 80)) kq = qRef > 0 ? last / qRef : NaN;
     if (kq > 20 && kq < 80) { // sanity: NQ/QQQ ≈ 41
       const k = kq;
@@ -396,7 +401,7 @@
     };
   }
 
-  const API = { prevLevels, makeDemo, et, tdate, isRTH, hhmm, parseYF, volumeProfile, walls, buildCandidates, cluster, statusOf, summarize, compute };
+  const API = { alignedRatio, prevLevels, makeDemo, et, tdate, isRTH, hhmm, parseYF, volumeProfile, walls, buildCandidates, cluster, statusOf, summarize, compute };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else root.AlgoLevels = API;
 })(typeof window !== 'undefined' ? window : globalThis);
