@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=12"></script>
+<script src="levels.js?v=13"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -47,6 +47,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .dotlive{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dim);margin-right:5px;vertical-align:middle}
 .dotlive.ok{background:var(--long)} .dotlive.err{background:var(--short)}
 
+.nowbtn{position:absolute;right:76px;bottom:34px;z-index:3;font-size:12px;padding:6px 10px;border:1px solid var(--gold);border-radius:6px;background:#1d1709;color:var(--gold)}
 #chart{height:46dvh;min-height:280px;border-bottom:1px solid var(--line)}
 
 .majors{display:flex;flex-wrap:wrap;gap:8px;padding:8px 16px;border-bottom:1px solid var(--line);font-size:12px}
@@ -135,7 +136,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <span>QQQ×<b id="mRatio">—</b></span>
 </div>
 <div id="majors" class="majors"></div>
-<div id="chart"></div>
+<div id="chartWrap" style="position:relative"><div id="chart"></div><button id="now" class="nowbtn" hidden>Teď ▸</button></div>
 <div class="tabs">
   <button data-f="all" class="on">Vše</button>
   <button data-f="near">±100 b.</button>
@@ -229,11 +230,16 @@ const chart = LightweightCharts.createChart($('chart'), {
   rightPriceScale:{ borderColor:'#1b1f26' },
   timeScale:{ borderColor:'#1b1f26', timeVisible:true, secondsVisible:false, rightOffset:8 },
   crosshair:{ mode:0 },
+  handleScroll:{ mouseWheel:true, pressedMouseMove:true, horzTouchDrag:true, vertTouchDrag:false },
 });
 const series = chart.addCandlestickSeries({
   upColor:'#e6e8eb', downColor:'#4a505a', borderVisible:false, wickUpColor:'#9ca3af', wickDownColor:'#4a505a',
 });
 let fitted = false;
+const goNow = () => { try { chart.timeScale().scrollToRealTime(); } catch(e){} };
+chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+  try { $('now').hidden = chart.timeScale().scrollPosition() > -3; } catch(e){}
+});
 
 // ───────── data
 async function api(path){
@@ -424,6 +430,14 @@ function render(){
   st.lines.forEach(l => series.removePriceLine(l)); st.lines = [];
   for (const l of r.levels) {
     if (l.srcs.length === 1 && l.srcs[0] === 'em') continue; // EM-only levels are drawn TV-style below
+    const hasOpt = l.srcs.includes('opt') || l.srcs.includes('qqq');
+    if (!hasOpt) {
+      // no options content: QQQ main levels as thin gold dotted lines, σ/VP only in the list
+      const qt = l.tags.find(t => /^QQQ \d/.test(t));
+      if (qt && !/★/.test(qt)) st.lines.push(series.createPriceLine({
+        price:l.price, color:'#c9a66b77', lineWidth:1, lineStyle:1, axisLabelVisible:false, title:qt }));
+      continue;
+    }
     const col = l.dir < 0 ? '#f05a6e' : l.dir > 0 ? '#2fc59f' : '#c9a66b';
     const strong = l.score >= 5;
     st.lines.push(series.createPriceLine({
@@ -464,7 +478,7 @@ function render(){
   const pv = (S.showPrev && st.prevView && !st.demo) ? A.prevLevels(st.prevView, r.last, S) : [];
   for (const l of pv) {
     st.lines.push(series.createPriceLine({
-      price:l.price, color:'#8b919a', lineWidth:1, lineStyle:1, axisLabelVisible:false,
+      price:l.price, color:'#8b919a66', lineWidth:1, lineStyle:1, axisLabelVisible:false,
       title:`Y ${l.tags[0]}${l.tags.length > 1 ? ' +' + (l.tags.length-1) : ''}`,
     }));
   }
@@ -673,7 +687,8 @@ if (S.worker) refresh(true); else renderEmpty();
 setInterval(() => { if (!st.demo && document.visibilityState === 'visible') refresh(false); }, 30000);
 setInterval(liveTick, 5000);
 showSrc();
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !st.demo) refresh(true); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { goNow(); if (!st.demo) refresh(true); } });
+$('now').onclick = goNow;
 })();
 </script>
 </body>
