@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=11"></script>
+<script src="levels.js?v=12"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -423,6 +423,7 @@ function render(){
   // price lines
   st.lines.forEach(l => series.removePriceLine(l)); st.lines = [];
   for (const l of r.levels) {
+    if (l.srcs.length === 1 && l.srcs[0] === 'em') continue; // EM-only levels are drawn TV-style below
     const col = l.dir < 0 ? '#f05a6e' : l.dir > 0 ? '#2fc59f' : '#c9a66b';
     const strong = l.score >= 5;
     st.lines.push(series.createPriceLine({
@@ -431,6 +432,27 @@ function render(){
       title: `${l.score} ${l.tags[0]}${l.tags.length > 1 ? ' +' + (l.tags.length-1) : ''}`,
     }));
   }
+  // EM levels in the style of the TradingView "EM Levels" indicator:
+  // segments from the RTH open, ±1 solid, ±½ dotted, ±1.5 dashed, Ref grey
+  (st.emSeries || []).forEach(x => { try { chart.removeSeries(x); } catch(e){} });
+  st.emSeries = [];
+  const E = r.info.em;
+  if (E && out.length && Number.isFinite(E.t0)) {
+    const t0 = A.et(E.t0).disp, t1 = Math.max(out[out.length - 1].time, t0 + 60);
+    const defs = [
+      [1.5, '+1.5 EM', '#e6e8eb', 2], [1, '+1 EM', '#e6e8eb', 0], [0.5, '+½ EM', '#e6e8eb', 1],
+      [0, 'Ref', '#7b828c', 0],
+      [-0.5, '−½ EM', '#e6e8eb', 1], [-1, '−1 EM', '#e6e8eb', 0], [-1.5, '−1.5 EM', '#e6e8eb', 2],
+    ];
+    for (const [m, title, color, style] of defs) {
+      const pr = Math.round((E.anchor + m * E.em) * 4) / 4;
+      const ls = chart.addLineSeries({ color, lineWidth: 1, lineStyle: style, title,
+        priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, autoscaleInfoProvider: () => null });
+      ls.setData([{ time: t0, value: pr }, { time: t1, value: pr }]);
+      st.emSeries.push(ls);
+    }
+  }
+
   // major QQQ walls (0/5 strikes): thick gold line + weak/strong zone edges
   for (const m of (r.info.majors || [])) {
     const name = (m.type === 'CW' ? 'CW ' : 'PW ') + m.qqq;
