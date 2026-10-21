@@ -148,8 +148,8 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 <div id="settings" class="sheet"><div class="box">
   <h3>NASTAVENÍ</h3>
   <h4>PŘIPOJENÍ</h4>
-  <div class="f full"><input id="sWorker" type="text" placeholder="https://algo-levels.xxx.workers.dev" autocomplete="off"></div>
-  <div class="f full"><input id="sToken" type="password" placeholder="ACCESS_TOKEN" autocomplete="off"></div>
+  <div class="f full"><input id="sWorker" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://algo-levels.xxx.workers.dev" autocomplete="off"></div>
+  <div class="f full"><input id="sToken" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="ACCESS_TOKEN" autocomplete="off"></div>
   <h4>CONFLUENCE</h4>
   <div class="grid2">
     <div class="f"><label>Cluster tol. (b.)</label><input id="sTol" type="number" step="1"></div>
@@ -240,6 +240,7 @@ async function api(path){
   const base = S.worker.trim().replace(/\/$/,'');
   const sep = path.includes('?') ? '&' : '?';
   const r = await fetch(base + path + (S.token ? sep + 't=' + encodeURIComponent(S.token) : ''), {cache:'no-store'});
+  if (r.status === 401) throw new Error('Špatný token – zkontroluj velká/malá písmena v ⚙');
   if (!r.ok) throw new Error(`${path.split('?')[0]} → ${r.status}`);
   return r.json();
 }
@@ -585,7 +586,10 @@ function openSettings(){
 function num(id, d){ const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; }
 $('bSave').onclick = () => {
   const wasWorker = S.worker;
-  S.worker = $('sWorker').value.trim(); S.token = $('sToken').value.trim();
+  let w = $('sWorker').value.trim().replace(/\/+$/, '');
+  if (w && !/^https?:\/\//i.test(w)) w = 'https://' + w;
+  w = w.replace(/^https?:\/\/[^/]+/i, m => m.toLowerCase());  // scheme + host are case-insensitive
+  S.worker = w; S.token = $('sToken').value.trim();
   S.tol = num('sTol',S.tol); S.minScore = num('sMin',S.minScore); S.range = num('sRange',S.range);
   S.touch = num('sTouch',S.touch); S.brk = num('sBrk',S.brk); S.react = num('sReact',S.react);
   S.lookahead = Math.max(1, Math.round(num('sLook',S.lookahead)));
