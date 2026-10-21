@@ -283,6 +283,30 @@
     };
   }
 
+  // ───────── Previous-session options levels (orientation only, not scored with today)
+  function prevLevels(prev, last, S) {
+    if (!prev) return [];
+    const c = [];
+    const add = (p, tag, w) => { if (Number.isFinite(p) && p > 0) c.push({ p, tag, w, src: 'opt' }); };
+    // NQ_NDX is already adjusted to front-month futures by GEXbot
+    if (prev.zero) {
+      const w = walls(prev.zero, 1, 3);
+      w.pos.forEach((x, i) => add(x[0], `0DTE CW ${i + 1}`, [3, 2, 1.5][i]));
+      w.neg.forEach((x, i) => add(x[0], `0DTE PW ${i + 1}`, [3, 2, 1.5][i]));
+      add(prev.zero.zero_gamma, '0DTE ZG', 2);
+    }
+    if (prev.full) {
+      const w = walls(prev.full, 1, 3);
+      w.pos.forEach((x, i) => add(x[0], `CW ${i + 1}`, [2.5, 1.5, 1][i]));
+      w.neg.forEach((x, i) => add(x[0], `PW ${i + 1}`, [2.5, 1.5, 1][i]));
+      add(prev.full.zero_gamma, 'ZG', 2.5);
+    }
+    const lo = last * (1 - S.range / 100), hi = last * (1 + S.range / 100);
+    return cluster(c.filter(x => x.p > lo && x.p < hi), S.tol)
+      .map(l => ({ ...l, dist: l.price - last }))
+      .sort((a, b) => b.price - a.price);
+  }
+
   // ───────── Demo data (synthetic) to preview the UI without a worker
   function makeDemo(seed) {
     let s = seed || 7;
@@ -341,7 +365,7 @@
     };
   }
 
-  const API = { makeDemo, et, tdate, isRTH, hhmm, parseYF, volumeProfile, walls, buildCandidates, cluster, statusOf, summarize, compute };
+  const API = { prevLevels, makeDemo, et, tdate, isRTH, hhmm, parseYF, volumeProfile, walls, buildCandidates, cluster, statusOf, summarize, compute };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else root.AlgoLevels = API;
 })(typeof window !== 'undefined' ? window : globalThis);

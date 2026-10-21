@@ -68,6 +68,11 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .chip.vol{color:var(--vol)} .chip.vp{color:var(--vp)} .chip.qqq{color:var(--qqq)} .chip.chg{color:#e7895a}
 .pxrow{display:flex;align-items:center;gap:10px;padding:8px 16px;font-size:12px;color:var(--gold);border-bottom:1px solid var(--line)}
 .pxrow::before,.pxrow::after{content:"";flex:1;height:1px;background:rgba(201,166,107,.35)}
+.prevhd{padding:22px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px solid var(--line);text-transform:uppercase}
+.prevhd span{display:block;margin-top:4px;text-transform:none;letter-spacing:0;color:var(--dim)}
+.row.prev{cursor:default;opacity:.62}
+.row.prev .p{font-size:14px}
+.pxrow.dim{color:var(--muted);opacity:.6}
 .empty{padding:28px 16px;color:var(--muted);font-size:13px;line-height:1.6}
 .empty button{margin-top:12px;padding:8px 12px;border:1px solid var(--line2);border-radius:6px;color:var(--text)}
 
@@ -138,6 +143,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
     <div class="f"><label>Lookahead (bary)</label><input id="sLook" type="number" step="1"></div>
   </div>
   <label class="cb"><input id="sRTH" type="checkbox"> Status počítat jen z RTH (jinak celý Globex den)</label>
+  <label class="cb"><input id="sPrev" type="checkbox"> Ukazovat včerejší levely (šedě, jen orientace)</label>
   <h4>ALERTY</h4>
   <div class="grid2">
     <div class="f"><label>Vzdálenost (b.)</label><input id="sAD" type="number" step="1"></div>
@@ -164,7 +170,7 @@ const LAYERS = [
   ['qqq','QQQ walls (0/5)'],['qqqMain','QQQ 0/5 levely'],['em','VIX EM'],['sigma','σ Grid'],['vp','Prev VP']
 ];
 const DEF = { worker:'', token:'', tol:10, minScore:3, range:3, touch:3, brk:6, react:15, lookahead:15,
-  scanRTH:true, alertDist:8, alertScore:4, layers:Object.fromEntries(LAYERS.map(l=>[l[0],true])) };
+  scanRTH:true, alertDist:8, alertScore:4, showPrev:true, layers:Object.fromEntries(LAYERS.map(l=>[l[0],true])) };
 
 // ───────── settings (localStorage may be unavailable)
 function load(){ try{ const s=JSON.parse(localStorage.getItem('algoLevels.v1')||'{}');
@@ -273,6 +279,19 @@ async function loadGex(){
   return errs;
 }
 
+// previous session snapshot (from Worker KV) — orientation only
+async function loadPrev(){
+  const z = st.data.gex.zero || st.data.gex.full;
+  const before = z && Number.isFinite(z.timestamp)
+    ? new Intl.DateTimeFormat('en-CA', { timeZone:'America/New_York' }).format(new Date(z.timestamp * 1000))
+    : new Intl.DateTimeFormat('en-CA', { timeZone:'America/New_York' }).format(new Date());
+  if (st.prev && st.prev.before === before && Date.now() - st.prev.at < 30 * 60e3) return;
+  const get = c => api(`/prev/NQ_NDX/${c}?before=${before}`).catch(() => null);
+  const [zr, fr] = await Promise.all([get('gex_zero'), get('gex_full')]);
+  st.prev = { before, at: Date.now(), date: (zr && zr.date) || (fr && fr.date) || null,
+    zero: zr && zr.data, full: fr && fr.data };
+}
+
 async function refresh(full){
   if (st.busy) return;
   st.busy = true;
@@ -284,6 +303,7 @@ async function refresh(full){
       if (full || st.tick % 2 === 0) jobs.push(loadGex().then(e => { errs = e; }));
       if (full || st.tick % 20 === 0 || !st.data.daily.length) jobs.push(loadDaily().catch(e => errs.push(e.message)));
       await Promise.all(jobs);
+      if (S.showPrev) await loadPrev().catch(() => {});
     }
     st.res = A.compute(st.data, S);
     render();
@@ -338,6 +358,14 @@ function render(){
       title: `${l.score} ${l.tags[0]}${l.tags.length > 1 ? ' +' + (l.tags.length-1) : ''}`,
     }));
   }
+  // yesterday's options levels: grey dotted, orientation only
+  const pv = (S.showPrev && st.prev && !st.demo) ? A.prevLevels(st.prev, r.last, S) : [];
+  for (const l of pv) {
+    st.lines.push(series.createPriceLine({
+      price:l.price, color:'#8b919a', lineWidth:1, lineStyle:1, axisLabelVisible:false,
+      title:`Y ${l.tags[0]}${l.tags.length > 1 ? ' +' + (l.tags.length-1) : ''}`,
+    }));
+  }
 
   // header + meta
   $('px').textContent = fmtP(r.last);
@@ -355,9 +383,8 @@ function render(){
   if (st.filter === 'near') lv = lv.filter(l => Math.abs(l.dist) <= 100);
   if (st.filter === 'opt') lv = lv.filter(l => l.srcs.includes('opt') || l.srcs.includes('qqq'));
   if (st.filter === 'fresh') lv = lv.filter(l => l.status.key === 'untested');
-  if (!lv.length) { $('list').innerHTML = '<div class="empty">Žádné levely pro tento filtr.</div>'; return; }
-
   let html = '', pxDone = false;
+  if (!lv.length) html = '<div class="empty">Žádné levely pro tento filtr.</div>';
   for (const l of lv) {
     if (!pxDone && l.price < r.last) { html += `<div class="pxrow">NQ ${fmtP(r.last)}</div>`; pxDone = true; }
     const key = l.price.toFixed(2);
@@ -376,7 +403,26 @@ function render(){
       <div class="more">Tagy: ${l.tags.map(esc).join(', ')}<br>Události: ${esc(evs)}${r.regime < 0 ? '<br>−γ režim: fade jen s potvrzením, počítej s průrazem.' : ''}</div>
     </div>`;
   }
-  if (!pxDone) html += `<div class="pxrow">NQ ${fmtP(r.last)}</div>`;
+  if (!pxDone && lv.length) html += `<div class="pxrow">NQ ${fmtP(r.last)}</div>`;
+
+  // yesterday section
+  if (S.showPrev && !st.demo) {
+    const d = st.prev && st.prev.date;
+    html += `<div class="prevhd">Včerejší levely${d ? ' · ' + d : ''} <span>jen orientace, nepočítají se do skóre</span></div>`;
+    if (!pv.length) {
+      html += `<div class="empty">${st.prev ? 'Zatím žádný snapshot. Worker ho uloží po dnešním close (nebo spusť /snap).' : 'Načítám…'}</div>`;
+    }
+    let pxd = false;
+    for (const l of pv) {
+      if (!pxd && l.price < r.last) { html += `<div class="pxrow dim">NQ ${fmtP(r.last)}</div>`; pxd = true; }
+      html += `<div class="row prev">
+        <div class="p">${fmtP(l.price)}</div>
+        <div class="chips">${l.tags.slice(0,3).map(t => `<span class="chip">${esc(t)}</span>`).join('')}${l.tags.length > 3 ? `<span class="chip">+${l.tags.length-3}</span>` : ''}</div>
+        <div class="sc">${l.score}</div>
+        <div class="dist" style="grid-column:2/4">${l.dist > 0 ? '+' : ''}${l.dist.toFixed(1)} b.</div>
+      </div>`;
+    }
+  }
   $('list').innerHTML = html;
 }
 
@@ -417,7 +463,7 @@ function openSettings(){
   $('sWorker').value = S.worker; $('sToken').value = S.token;
   $('sTol').value = S.tol; $('sMin').value = S.minScore; $('sRange').value = S.range;
   $('sTouch').value = S.touch; $('sBrk').value = S.brk; $('sReact').value = S.react; $('sLook').value = S.lookahead;
-  $('sRTH').checked = S.scanRTH; $('sAD').value = S.alertDist; $('sAS').value = S.alertScore;
+  $('sRTH').checked = S.scanRTH; $('sPrev').checked = S.showPrev; $('sAD').value = S.alertDist; $('sAS').value = S.alertScore;
   $('layers').innerHTML = LAYERS.map(([k,n]) => `<label class="cb"><input type="checkbox" data-l="${k}" ${S.layers[k] ? 'checked' : ''}> ${n}</label>`).join('');
   $('settings').classList.add('show');
 }
@@ -428,7 +474,7 @@ $('bSave').onclick = () => {
   S.tol = num('sTol',S.tol); S.minScore = num('sMin',S.minScore); S.range = num('sRange',S.range);
   S.touch = num('sTouch',S.touch); S.brk = num('sBrk',S.brk); S.react = num('sReact',S.react);
   S.lookahead = Math.max(1, Math.round(num('sLook',S.lookahead)));
-  S.scanRTH = $('sRTH').checked; S.alertDist = num('sAD',S.alertDist); S.alertScore = num('sAS',S.alertScore);
+  S.scanRTH = $('sRTH').checked; S.showPrev = $('sPrev').checked; S.alertDist = num('sAD',S.alertDist); S.alertScore = num('sAS',S.alertScore);
   document.querySelectorAll('#layers input').forEach(c => S.layers[c.dataset.l] = c.checked);
   save();
   $('settings').classList.remove('show');

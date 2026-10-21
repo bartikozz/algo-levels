@@ -36,7 +36,50 @@ const YF_RANGES = new Set(['1d', '2d', '5d', '1mo', '3mo', '6mo', '1y']);
 // per-isolate memory cache
 const MEM = new Map();
 
+// what gets stored after each close (needs a KV binding named SNAP + a cron trigger)
+const SNAP_SET = [
+  ['NQ_NDX', 'gex_zero'],
+  ['NQ_NDX', 'gex_one'],
+  ['NQ_NDX', 'gex_full'],
+  ['QQQ', 'gex_full'],
+];
+
+function etDate(sec) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(sec * 1000));
+}
+
+async function takeSnapshots(env) {
+  const out = {};
+  for (const [t, c] of SNAP_SET) {
+    try {
+      const r = await fetch(`https://api.gex.bot/v2/${t}/classic/${c}`, {
+        headers: { Authorization: `Bearer ${env.GEXBOT_API_KEY}`, 'User-Agent': 'algo-levels/1.0', Accept: 'application/json' },
+      });
+      if (!r.ok) { out[`${t}:${c}`] = `HTTP ${r.status}`; continue; }
+      const j = await r.json();
+      if (!Number.isFinite(j.timestamp)) { out[`${t}:${c}`] = 'no timestamp'; continue; }
+      // keep only what the terminal needs (smaller than the full response)
+      const slim = {
+        timestamp: j.timestamp, ticker: j.ticker, spot: j.spot, zero_gamma: j.zero_gamma,
+        major_pos_oi: j.major_pos_oi, major_neg_oi: j.major_neg_oi,
+        sum_gex_vol: j.sum_gex_vol, sum_gex_oi: j.sum_gex_oi,
+        strikes: (j.strikes || []).map(s => [s[0], s[1], s[2]]),
+      };
+      const d = etDate(j.timestamp);
+      await env.SNAP.put(`snap:${t}:${c}:${d}`, JSON.stringify(slim), { expirationTtl: 60 * 60 * 24 * 45 });
+      out[`${t}:${c}`] = d;
+    } catch (e) {
+      out[`${t}:${c}`] = String(e && e.message || e);
+    }
+  }
+  return out;
+}
+
 export default {
+  async scheduled(event, env, ctx) {
+    if (env.SNAP && env.GEXBOT_API_KEY) ctx.waitUntil(takeSnapshots(env));
+  },
+
   async fetch(req, env) {
     const origin = req.headers.get('Origin') || '';
     const cors = {
@@ -51,7 +94,7 @@ export default {
     const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
 
     if (parts[0] === 'health') {
-      return json({ ok: true, key: !!env.GEXBOT_API_KEY, token: !!env.ACCESS_TOKEN }, 200, cors);
+      return json({ ok: true, key: !!env.GEXBOT_API_KEY, token: !!env.ACCESS_TOKEN, kv: !!env.SNAP }, 200, cors);
     }
 
     if (env.ACCESS_TOKEN && url.searchParams.get('t') !== env.ACCESS_TOKEN) {
@@ -59,6 +102,25 @@ export default {
     }
 
     try {
+      // ── daily snapshots (KV): /snap = take one now, /prev/{ticker}/{cat}?before=YYYY-MM-DD
+      if (parts[0] === 'snap') {
+        if (!env.SNAP) return json({ error: 'KV binding SNAP missing' }, 500, cors);
+        return json(await takeSnapshots(env), 200, cors);
+      }
+      if (parts[0] === 'prev') {
+        if (!env.SNAP) return json({ error: 'KV binding SNAP missing' }, 500, cors);
+        const [, ticker, cat] = parts;
+        if (!SNAP_SET.some(([t, c]) => t === ticker && c === cat)) return json({ error: 'route not allowed' }, 400, cors);
+        const before = url.searchParams.get('before') || etDate(Date.now() / 1000);
+        const prefix = `snap:${ticker}:${cat}:`;
+        const list = await env.SNAP.list({ prefix });
+        const dates = list.keys.map(k => k.name.slice(prefix.length)).filter(d => d < before).sort();
+        if (!dates.length) return json({ error: 'no snapshot yet', before }, 404, cors);
+        const date = dates[dates.length - 1];
+        const data = await env.SNAP.get(prefix + date, 'json');
+        return json({ date, data }, 200, cors);
+      }
+
       // ── GEXbot
       if (parts[0] === 'gex') {
         const [, ticker, pkg, cat, sub] = parts;
