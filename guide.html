@@ -281,6 +281,13 @@ footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);f
   <p>V terminálu tlačítko <strong>▦</strong>: tabulka podle typu levelu s filtrem +γ / −γ a deník po dnech. Data se drží 400 dní, takže za pár týdnů uvidíš, které levely v tvém frameworku opravdu drží.</p>
 </section>
 
+<section id="bias-sec">
+  <h2><span class="n">08c</span>Bias · Fed likvidita + COT</h2>
+  <p>Tlačítko <strong>B</strong> (nebo štítek „Bias“ v horním řádku) ukáže nejpravděpodobnější stranu pro dnešní / příští NY session a pro 5 sessions dopředu. Vstupy: net likvidita (rozvaha Fedu − TGA − RRP) za 1 a 4 týdny, rezervy bank (H.4.1), TGA z denního výkazu Treasury, ON RRP z NY Fed, HY spread (ICE BofA OAS) a COT na NQ (Leveraged Funds, Asset Managers – týdenní změna a 3letý index).</p>
+  <p>Každý faktor se bere <strong>jen z dat, která byla ten den ráno už venku</strong> (H.4.1 od pátku, RRP a HY od dalšího dne, TGA za 2 dny, COT od pondělí). Pro každý stav (▲ / = / ▼) se na ~5 letech QQQ změří, jak často RTH session skončila nahoru, vyhladí se k normálu a faktory se sečtou v log-odds. Útlum λ se volí na posledních 35 % dní, na kterých se model netrénoval – pokud faktory v tomhle testu nepomohou, model řekne „neutrál“ a ukáže jen základ.</p>
+  <p>Je to <strong>pomalý makro filtr</strong>, ne signál na vstup: typická výhoda je pár procentních bodů nad normálem. Nejlíp funguje jako kontext k levelům – bullish bias + PW pod cenou = fade long má vítr v zádech.</p>
+</section>
+
 <section id="tv">
   <h2><span class="n">09</span>TradingView</h2>
   <ol style="margin:0 0 14px 18px;color:var(--soft)">
