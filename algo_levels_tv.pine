@@ -1,0 +1,55 @@
+//@version=6
+indicator("Algo Levels (GEXbot)", shorttitle="Algo Levels", overlay=true, max_lines_count=100, max_labels_count=100)
+
+// Vlož řetězec z terminálu (tlačítko "⧉ TradingView").
+// Formát: cena;skóre;tag/tag/tag|cena;skóre;tagy|...
+raw     = input.text_area("", "Levely z terminálu")
+minSc   = input.float(3.0, "Min skóre", step=0.5)
+showLbl = input.bool(true, "Popisky")
+lblOff  = input.int(5, "Odsazení popisku (bary)", minval=0)
+colS    = input.color(#f05a6e, "Level nad cenou (short)")
+colL    = input.color(#2fc59f, "Level pod cenou (long)")
+alSc    = input.float(5.0, "Alert: min skóre", step=0.5, group="Alerty")
+alDist  = input.float(8.0, "Alert: vzdálenost (body)", step=1, group="Alerty")
+
+// ───────── parse once
+var float[]  lvP = array.new<float>()
+var float[]  lvS = array.new<float>()
+var string[] lvT = array.new<string>()
+if barstate.isfirst
+    for it in str.split(raw, "|")
+        f = str.split(it, ";")
+        if f.size() >= 2
+            p  = str.tonumber(f.get(0))
+            sc = str.tonumber(f.get(1))
+            if not na(p) and not na(sc) and sc >= minSc
+                lvP.push(p)
+                lvS.push(sc)
+                lvT.push(f.size() >= 3 ? f.get(2) : "")
+
+// ───────── draw (re-coloured live: above price = short, below = long)
+var line[]  ls  = array.new<line>()
+var label[] lbs = array.new<label>()
+if barstate.islast
+    for l in ls
+        line.delete(l)
+    for b in lbs
+        label.delete(b)
+    ls.clear()
+    lbs.clear()
+    for [i, p] in lvP
+        sc = lvS.get(i)
+        c  = p >= close ? colS : colL
+        ls.push(line.new(bar_index - 1, p, bar_index, p, extend=extend.both,
+             color=color.new(c, sc >= 5 ? 0 : 45), width=sc >= 7 ? 3 : sc >= 5 ? 2 : 1,
+             style=sc >= 5 ? line.style_solid : line.style_dashed))
+        if showLbl
+            lbs.push(label.new(bar_index + lblOff, p, str.tostring(sc) + " · " + lvT.get(i),
+                 style=label.style_label_left, color=color.new(color.black, 100), textcolor=c, size=size.small))
+
+// ───────── alerts: create one alert on this indicator with "Any alert() function call"
+if barstate.isrealtime
+    for [i, p] in lvP
+        if lvS.get(i) >= alSc and math.abs(close - p) <= alDist
+            dir = p >= close ? "SHORT" : "LONG"
+            alert(str.format("NQ {0} u levelu {1} {2} · skóre {3} · {4}", close, p, dir, lvS.get(i), lvT.get(i)), alert.freq_once_per_bar)

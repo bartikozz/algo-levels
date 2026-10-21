@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07080a">
+<title>Algo Levels</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script src="levels.js"></script>
+<style>
+:root{
+  --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
+  --text:#e6e8eb; --muted:#6b7280; --dim:#3f4550;
+  --short:#f05a6e; --long:#2fc59f; --gold:#c9a66b; --zg:#e3b341;
+  --call:#5fb3c6; --put:#c77dba; --vol:#8fa3d9; --vp:#9aa0a8; --qqq:#c9a66b;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,monospace; --sans:'Inter',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--text);font-family:var(--mono);-webkit-font-smoothing:antialiased}
+body{min-height:100dvh;padding-bottom:env(safe-area-inset-bottom)}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+
+header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
+  padding:calc(10px + env(safe-area-inset-top)) 16px 10px;background:rgba(7,8,10,.92);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.brand{font-family:var(--sans);font-weight:700;letter-spacing:.18em;font-size:13px}
+.brand span{color:var(--muted);font-weight:500;margin-left:6px}
+.quote{margin-left:auto;display:flex;align-items:center;gap:8px}
+#px{font-size:16px;font-weight:700}
+.badge{font-size:11px;padding:3px 7px;border:1px solid var(--line2);border-radius:4px;color:var(--muted)}
+.badge.pos{color:var(--long);border-color:rgba(47,197,159,.35)}
+.badge.neg{color:var(--short);border-color:rgba(240,90,110,.35)}
+#gear{width:34px;height:34px;border:1px solid var(--line2);border-radius:6px;font-size:15px}
+
+.meta{display:flex;flex-wrap:wrap;gap:6px 14px;padding:8px 16px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--line)}
+.meta b{color:var(--text);font-weight:500}
+.dotlive{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dim);margin-right:5px;vertical-align:middle}
+.dotlive.ok{background:var(--long)} .dotlive.err{background:var(--short)}
+
+#chart{height:46dvh;min-height:280px;border-bottom:1px solid var(--line)}
+
+.tabs{display:flex;flex-wrap:wrap;gap:6px;padding:10px 16px}
+#bTV{margin-left:auto;color:var(--gold);border-color:rgba(201,166,107,.4)}
+.tabs button{font-size:12px;padding:6px 10px;border:1px solid var(--line2);border-radius:6px;color:var(--muted)}
+.tabs button.on{background:var(--panel2);color:var(--text)}
+
+#list{padding:0 0 24px}
+.row{display:grid;grid-template-columns:auto 1fr auto;gap:6px 10px;padding:12px 16px;border-bottom:1px solid var(--line);cursor:pointer}
+.row:active{background:var(--panel)}
+.row.near{background:linear-gradient(90deg,rgba(201,166,107,.08),transparent)}
+.row .p{font-size:15px;font-weight:500;align-self:center}
+.row .chips{display:flex;flex-wrap:wrap;gap:5px;align-self:center}
+.row .sc{align-self:center;font-size:12px;color:var(--muted);text-align:right}
+.row .sc b{color:var(--text);font-size:14px}
+.row .dir{font-size:12px}
+.row .dir.s{color:var(--short)} .row .dir.l{color:var(--long)} .row .dir.a{color:var(--gold)}
+.row .dist{font-size:12px;color:var(--muted)}
+.row .st{font-size:12px;color:var(--muted);text-align:right}
+.st i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;background:var(--dim);vertical-align:middle}
+.st.reacted i{background:var(--gold)} .st.broken i{background:var(--short)} .st.testing i{background:var(--long);animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.25}}
+.row .more{grid-column:1/-1;display:none;font-size:11px;color:var(--muted);line-height:1.7}
+.row.open .more{display:block}
+.chip{font-size:11px;padding:3px 6px;border:1px solid var(--line2);border-radius:3px;color:var(--muted);white-space:nowrap}
+.chip.call{color:var(--call)} .chip.put{color:var(--put)} .chip.zg{color:var(--zg)}
+.chip.vol{color:var(--vol)} .chip.vp{color:var(--vp)} .chip.qqq{color:var(--qqq)} .chip.chg{color:#e7895a}
+.pxrow{display:flex;align-items:center;gap:10px;padding:8px 16px;font-size:12px;color:var(--gold);border-bottom:1px solid var(--line)}
+.pxrow::before,.pxrow::after{content:"";flex:1;height:1px;background:rgba(201,166,107,.35)}
+.empty{padding:28px 16px;color:var(--muted);font-size:13px;line-height:1.6}
+.empty button{margin-top:12px;padding:8px 12px;border:1px solid var(--line2);border-radius:6px;color:var(--text)}
+
+.sheet{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.6);display:none;align-items:flex-end;justify-content:center}
+.sheet.show{display:flex}
+.sheet .box{width:100%;max-width:560px;max-height:88dvh;overflow:auto;background:var(--panel);border:1px solid var(--line2);
+  border-radius:14px 14px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
+.box h3{font-family:var(--sans);font-size:14px;letter-spacing:.08em;margin-bottom:12px}
+.box h4{font-size:11px;color:var(--muted);letter-spacing:.1em;margin:16px 0 8px}
+.f{display:grid;grid-template-columns:1fr 110px;align-items:center;gap:8px;margin-bottom:8px;font-size:12px}
+.f.full{grid-template-columns:1fr}
+.f input[type=text],.f input[type=password],.f input[type=number]{width:100%;background:var(--bg);color:var(--text);
+  border:1px solid var(--line2);border-radius:6px;padding:8px;font:inherit;font-size:13px}
+.cb{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px}
+.cb input{accent-color:var(--gold);width:16px;height:16px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.btns button{padding:9px 12px;border:1px solid var(--line2);border-radius:6px;font-size:12px}
+.btns .pri{background:var(--text);color:var(--bg);border-color:var(--text)}
+.hint{font-size:11px;color:var(--muted);line-height:1.6;margin-top:6px}
+
+#toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(120px);
+  background:var(--panel2);border:1px solid var(--gold);color:var(--text);padding:10px 14px;border-radius:8px;font-size:12px;
+  transition:transform .25s;z-index:30;max-width:92vw;visibility:hidden}
+#toast.show{transform:translateX(-50%) translateY(0);visibility:visible}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">ALGO<span>LEVELS</span></div>
+  <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
+  <button id="gear" aria-label="Nastavení">⚙</button>
+</header>
+<div class="meta">
+  <span id="src" class="badge">—</span>
+  <span><i id="live" class="dotlive"></i><span id="upd">čekám na data</span></span>
+  <span>EM <b id="mEm">—</b></span>
+  <span>σ <b id="mSig">—</b></span>
+  <span>pPOC <b id="mPoc">—</b></span>
+  <span>QQQ×<b id="mRatio">—</b></span>
+</div>
+<div id="chart"></div>
+<div class="tabs">
+  <button data-f="all" class="on">Vše</button>
+  <button data-f="near">±100 b.</button>
+  <button data-f="opt">Jen s options</button>
+  <button data-f="fresh">Untested</button>
+  <button id="bTV">⧉ TradingView</button>
+</div>
+<div id="list"></div>
+
+<div id="settings" class="sheet"><div class="box">
+  <h3>NASTAVENÍ</h3>
+  <h4>PŘIPOJENÍ</h4>
+  <div class="f full"><input id="sWorker" type="text" placeholder="https://algo-levels.xxx.workers.dev" autocomplete="off"></div>
+  <div class="f full"><input id="sToken" type="password" placeholder="ACCESS_TOKEN" autocomplete="off"></div>
+  <h4>CONFLUENCE</h4>
+  <div class="grid2">
+    <div class="f"><label>Cluster tol. (b.)</label><input id="sTol" type="number" step="1"></div>
+    <div class="f"><label>Min skóre</label><input id="sMin" type="number" step="0.5"></div>
+    <div class="f"><label>Rozsah (± %)</label><input id="sRange" type="number" step="0.5"></div>
+  </div>
+  <h4>STAV LEVELU</h4>
+  <div class="grid2">
+    <div class="f"><label>Touch (b.)</label><input id="sTouch" type="number" step="0.5"></div>
+    <div class="f"><label>Break close (b.)</label><input id="sBrk" type="number" step="0.5"></div>
+    <div class="f"><label>Reakce (b.)</label><input id="sReact" type="number" step="1"></div>
+    <div class="f"><label>Lookahead (bary)</label><input id="sLook" type="number" step="1"></div>
+  </div>
+  <label class="cb"><input id="sRTH" type="checkbox"> Status počítat jen z RTH (jinak celý Globex den)</label>
+  <h4>ALERTY</h4>
+  <div class="grid2">
+    <div class="f"><label>Vzdálenost (b.)</label><input id="sAD" type="number" step="1"></div>
+    <div class="f"><label>Min skóre</label><input id="sAS" type="number" step="0.5"></div>
+  </div>
+  <h4>VRSTVY</h4>
+  <div class="grid2" id="layers"></div>
+  <div class="btns">
+    <button class="pri" id="bSave">Uložit</button>
+    <button id="bAlerts">Zapnout alerty</button>
+    <button id="bDemo">Demo data</button>
+    <button id="bClose">Zavřít</button>
+  </div>
+  <p class="hint">Klíč GEXbot je jen ve Workeru. Tady se ukládá URL Workeru a access token (v tomto prohlížeči).</p>
+</div></div>
+<div id="toast"></div>
+
+<script>
+(() => {
+'use strict';
+const A = window.AlgoLevels;
+const LAYERS = [
+  ['gex0','0DTE GEX'],['gex1','1DTE GEX'],['gexFull','Full chain GEX'],['maxchg','ΔGEX 15m'],
+  ['qqq','QQQ walls (0/5)'],['qqqMain','QQQ 0/5 levely'],['em','VIX EM'],['sigma','σ Grid'],['vp','Prev VP']
+];
+const DEF = { worker:'', token:'', tol:10, minScore:3, range:3, touch:3, brk:6, react:15, lookahead:15,
+  scanRTH:true, alertDist:8, alertScore:4, layers:Object.fromEntries(LAYERS.map(l=>[l[0],true])) };
+
+// ───────── settings (localStorage may be unavailable)
+function load(){ try{ const s=JSON.parse(localStorage.getItem('algoLevels.v1')||'{}');
+  return {...DEF,...s,layers:{...DEF.layers,...(s.layers||{})}}; }catch(e){ return structuredClone(DEF); } }
+function save(){ try{ localStorage.setItem('algoLevels.v1', JSON.stringify(S)); }catch(e){} }
+const S = load();
+
+const st = { data:{bars:[],daily:[],vix:[],gex:{}}, res:null, demo:false, tick:0, lines:[], alerted:{}, filter:'all',
+  audio:null, open:new Set(), busy:false, yf:[], live:new Map(), liveSrc:null, liveAge:NaN, basis:NaN, liveBusy:false };
+const $ = id => document.getElementById(id);
+const fmtP = n => Number.isFinite(n) ? n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+
+// ───────── chart
+const chart = LightweightCharts.createChart($('chart'), {
+  autoSize:true,
+  localization:{ locale:'en-US' },
+  layout:{ background:{type:'solid',color:'#07080a'}, textColor:'#7b828c', fontFamily:'JetBrains Mono', fontSize:11 },
+  grid:{ vertLines:{color:'#0f1216'}, horzLines:{color:'#0f1216'} },
+  rightPriceScale:{ borderColor:'#1b1f26' },
+  timeScale:{ borderColor:'#1b1f26', timeVisible:true, secondsVisible:false, rightOffset:8 },
+  crosshair:{ mode:0 },
+});
+const series = chart.addCandlestickSeries({
+  upColor:'#e6e8eb', downColor:'#4a505a', borderVisible:false, wickUpColor:'#9ca3af', wickDownColor:'#4a505a',
+});
+let fitted = false;
+
+// ───────── data
+async function api(path){
+  const base = S.worker.trim().replace(/\/$/,'');
+  const sep = path.includes('?') ? '&' : '?';
+  const r = await fetch(base + path + (S.token ? sep + 't=' + encodeURIComponent(S.token) : ''), {cache:'no-store'});
+  if (!r.ok) throw new Error(`${path.split('?')[0]} → ${r.status}`);
+  return r.json();
+}
+// ───────── bars = Yahoo history (delayed) + live 1m candles built from GEXbot spot
+async function loadBars(){ st.yf = A.parseYF(await api('/yf/NQ%3DF?interval=1m&range=5d')); mergeBars(); }
+function mergeBars(){
+  const yf = st.yf || [];
+  const yfLast = yf.length ? yf[yf.length - 1].t : 0;
+  for (const k of [...st.live.keys()]) if (k <= yfLast) st.live.delete(k);
+  const live = [...st.live.values()].sort((a, b) => a.t - b.t);
+  st.data.bars = yf.concat(live);
+}
+async function liveTick(){
+  if (st.demo || !S.worker || st.liveBusy || document.visibilityState !== 'visible') return;
+  st.liveBusy = true;
+  try {
+    const m = await api('/gex/NQ_NDX/classic/gex_zero/majors');
+    const ts = Number.isFinite(m.timestamp) ? m.timestamp : Date.now() / 1000;
+    let px = m.spot;
+    if (!Number.isFinite(px)) throw new Error('majors bez spot');
+    // NQ_NDX should be in NQ terms; if it is NDX index, shift by basis vs futures
+    const yfLast = st.yf && st.yf.length ? st.yf[st.yf.length - 1].c : NaN;
+    if (Number.isFinite(yfLast) && Math.abs(px - yfLast) > 40) {
+      if (!Number.isFinite(st.basis) || Math.abs(px + st.basis - yfLast) > 40) st.basis = yfLast - px;
+      px += st.basis;
+    }
+    st.liveAge = Date.now() / 1000 - ts;
+    if (st.liveAge > 120) { st.liveSrc = 'stale'; return; }
+    st.liveSrc = 'live';
+    const k = Math.floor(ts / 60) * 60;
+    const b = st.live.get(k);
+    if (b) { b.h = Math.max(b.h, px); b.l = Math.min(b.l, px); b.c = px; }
+    else st.live.set(k, { t:k, o:px, h:px, l:px, c:px, v:0 });
+    mergeBars();
+    if (st.data.bars.length) {
+      st.res = A.compute(st.data, S);
+      render();
+      checkAlerts();
+      showSrc();
+    }
+  } catch (e) {
+    st.liveSrc = 'err';
+    showSrc(e.message);
+  } finally { st.liveBusy = false; }
+}
+function showSrc(err){
+  const el = $('src');
+  if (st.demo) { el.textContent = 'DEMO'; el.className = 'badge'; return; }
+  if (st.liveSrc === 'live') { el.textContent = `LIVE ${Math.max(0, Math.round(st.liveAge))}s`; el.className = 'badge pos'; }
+  else if (st.liveSrc === 'stale') { el.textContent = 'GEX stale · Yahoo'; el.className = 'badge neg'; }
+  else { el.textContent = 'Yahoo ~10 min'; el.className = 'badge'; if (err) el.title = err; }
+}
+async function loadDaily(){
+  const [d,v] = await Promise.all([api('/yf/NQ%3DF?interval=1d&range=6mo'), api('/yf/%5EVIX?interval=1d&range=1mo')]);
+  st.data.daily = A.parseYF(d); st.data.vix = A.parseYF(v);
+}
+async function loadGex(){
+  const L = S.layers, jobs = {};
+  if (L.gex0 || L.maxchg) jobs.zero = api('/gex/NQ_NDX/classic/gex_zero');
+  if (L.gex1) jobs.one = api('/gex/NQ_NDX/classic/gex_one');
+  if (L.gexFull) jobs.full = api('/gex/NQ_NDX/classic/gex_full');
+  if (L.qqq || L.qqqMain) jobs.qqq = api('/gex/QQQ/classic/gex_full');
+  if (L.maxchg) jobs.mx = api('/gex/NQ_NDX/classic/gex_zero/maxchange');
+  const keys = Object.keys(jobs);
+  const res = await Promise.allSettled(keys.map(k => jobs[k]));
+  const g = {}, errs = [];
+  res.forEach((r,i) => r.status === 'fulfilled' ? (g[keys[i]] = r.value) : errs.push(r.reason.message));
+  st.data.gex = g;
+  return errs;
+}
+
+async function refresh(full){
+  if (st.busy) return;
+  st.busy = true;
+  try {
+    let errs = [];
+    if (!st.demo) {
+      if (!S.worker) { renderEmpty(); return; }
+      const jobs = [loadBars()];
+      if (full || st.tick % 2 === 0) jobs.push(loadGex().then(e => { errs = e; }));
+      if (full || st.tick % 20 === 0 || !st.data.daily.length) jobs.push(loadDaily().catch(e => errs.push(e.message)));
+      await Promise.all(jobs);
+    }
+    st.res = A.compute(st.data, S);
+    render();
+    setLive(errs.length ? 'err' : 'ok', errs.length ? 'částečně: ' + errs.join(', ') : null);
+    if (!st.demo) checkAlerts();
+  } catch (e) {
+    setLive('err', e.message);
+    if (!st.res) renderEmpty(e.message);
+  } finally { st.busy = false; st.tick++; }
+}
+
+function setLive(cls, msg){
+  $('live').className = 'dotlive ' + cls;
+  const t = new Date().toLocaleTimeString('cs-CZ',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  $('upd').textContent = (st.demo ? 'DEMO · ' : '') + (msg ? msg : 'aktualizováno ' + t);
+}
+
+// ───────── render
+function chipClass(t){
+  if (/ΔGEX/.test(t)) return 'chg';
+  if (/^QQQ/.test(t)) return 'qqq';
+  if (/ZG/.test(t)) return 'zg';
+  if (/CW/.test(t)) return 'call';
+  if (/PW/.test(t)) return 'put';
+  if (/^EM|^σ/.test(t)) return 'vol';
+  if (/POC|VAH|VAL/.test(t)) return 'vp';
+  return '';
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function render(){
+  const r = st.res; if (!r) return;
+  const b = st.data.bars;
+  // candles: today's session + tail of previous
+  const out = []; let prev = -Infinity;
+  for (const x of b.slice(-1400)) {
+    const t = A.et(x.t).disp;
+    if (t <= prev) continue; prev = t;
+    out.push({ time:t, open:x.o, high:x.h, low:x.l, close:x.c });
+  }
+  series.setData(out);
+  if (!fitted && out.length) { chart.timeScale().setVisibleLogicalRange({from:out.length-240,to:out.length+8}); fitted = true; }
+
+  // price lines
+  st.lines.forEach(l => series.removePriceLine(l)); st.lines = [];
+  for (const l of r.levels) {
+    const col = l.dir < 0 ? '#f05a6e' : l.dir > 0 ? '#2fc59f' : '#c9a66b';
+    const strong = l.score >= 5;
+    st.lines.push(series.createPriceLine({
+      price:l.price, color: strong ? col : col + '99', lineWidth: l.score >= 7 ? 2 : 1,
+      lineStyle: strong ? 0 : 2, axisLabelVisible: strong,
+      title: `${l.score} ${l.tags[0]}${l.tags.length > 1 ? ' +' + (l.tags.length-1) : ''}`,
+    }));
+  }
+
+  // header + meta
+  $('px').textContent = fmtP(r.last);
+  const rg = $('regime');
+  rg.className = 'badge ' + (r.regime > 0 ? 'pos' : r.regime < 0 ? 'neg' : '');
+  rg.textContent = r.regime > 0 ? '+γ · fade' : r.regime < 0 ? '−γ · trend' : 'γ —';
+  const i = r.info;
+  $('mEm').textContent = i.em ? `±${i.em.em.toFixed(0)} (VIX ${i.em.vix.toFixed(1)}${i.em.provisional ? ', pre-open' : ''})` : '—';
+  $('mSig').textContent = i.sigma ? `${i.sigma.pts.toFixed(0)} b.` : '—';
+  $('mPoc').textContent = i.vp ? fmtP(i.vp.poc) : '—';
+  $('mRatio').textContent = i.ratio ? i.ratio.toFixed(2) : '—';
+
+  // list
+  let lv = r.levels;
+  if (st.filter === 'near') lv = lv.filter(l => Math.abs(l.dist) <= 100);
+  if (st.filter === 'opt') lv = lv.filter(l => l.srcs.includes('opt') || l.srcs.includes('qqq'));
+  if (st.filter === 'fresh') lv = lv.filter(l => l.status.key === 'untested');
+  if (!lv.length) { $('list').innerHTML = '<div class="empty">Žádné levely pro tento filtr.</div>'; return; }
+
+  let html = '', pxDone = false;
+  for (const l of lv) {
+    if (!pxDone && l.price < r.last) { html += `<div class="pxrow">NQ ${fmtP(r.last)}</div>`; pxDone = true; }
+    const key = l.price.toFixed(2);
+    const near = Math.abs(l.dist) <= S.alertDist;
+    const dir = l.dir < 0 ? ['s','▼ Short'] : l.dir > 0 ? ['l','▲ Long'] : ['a','● U ceny'];
+    const shown = l.tags.slice(0,3).map(t => `<span class="chip ${chipClass(t)}">${esc(t)}</span>`).join('');
+    const extra = l.tags.length > 3 ? `<span class="chip">+${l.tags.length-3}</span>` : '';
+    const evs = l.events.map(e => `${e.type} ${A.hhmm(e.t)}`).join(' · ') || 'dnes bez dotyku';
+    html += `<div class="row${near ? ' near' : ''}${st.open.has(key) ? ' open' : ''}" data-k="${key}">
+      <div class="p">${fmtP(l.price)}</div>
+      <div class="chips">${shown}${extra}</div>
+      <div class="sc"><b>${l.score}</b></div>
+      <div class="dir ${dir[0]}">${dir[1]}</div>
+      <div class="dist">${l.dist > 0 ? '+' : ''}${l.dist.toFixed(1)} b.</div>
+      <div class="st ${l.status.key}"><i></i>${esc(l.status.text)}</div>
+      <div class="more">Tagy: ${l.tags.map(esc).join(', ')}<br>Události: ${esc(evs)}${r.regime < 0 ? '<br>−γ režim: fade jen s potvrzením, počítej s průrazem.' : ''}</div>
+    </div>`;
+  }
+  if (!pxDone) html += `<div class="pxrow">NQ ${fmtP(r.last)}</div>`;
+  $('list').innerHTML = html;
+}
+
+function renderEmpty(err){
+  $('list').innerHTML = `<div class="empty">${err ? 'Chyba: ' + esc(err) + '<br><br>' : ''}
+    Nastav URL Workeru a token v ⚙, nebo si nejdřív prohlédni demo.<br>
+    <button id="eSet">Otevřít nastavení</button> <button id="eDemo">Demo data</button></div>`;
+  $('eSet').onclick = openSettings; $('eDemo').onclick = startDemo;
+}
+
+// ───────── alerts
+function beep(){
+  try{
+    const a = st.audio; if (!a) return;
+    const o = a.createOscillator(), g = a.createGain();
+    o.frequency.value = 880; g.gain.setValueAtTime(.18, a.currentTime); g.gain.exponentialRampToValueAtTime(.001, a.currentTime + .35);
+    o.connect(g).connect(a.destination); o.start(); o.stop(a.currentTime + .36);
+  }catch(e){}
+}
+function toast(msg){ const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 6000); }
+function checkAlerts(){
+  const r = st.res; if (!r) return;
+  const now = Date.now();
+  for (const l of r.levels) {
+    if (l.score < S.alertScore || Math.abs(l.dist) > S.alertDist) continue;
+    const k = Math.round(l.price);
+    if (st.alerted[k] && now - st.alerted[k] < 10 * 60e3) continue;
+    st.alerted[k] = now;
+    const dir = l.dir < 0 ? 'SHORT' : l.dir > 0 ? 'LONG' : '';
+    const msg = `NQ ${fmtP(r.last)} → ${fmtP(l.price)} ${dir} · skóre ${l.score} · ${l.tags.slice(0,3).join(', ')}`;
+    toast(msg); beep();
+    try { if ('Notification' in window && Notification.permission === 'granted') new Notification('Algo level', { body:msg }); } catch(e){}
+  }
+}
+
+// ───────── settings UI
+function openSettings(){
+  $('sWorker').value = S.worker; $('sToken').value = S.token;
+  $('sTol').value = S.tol; $('sMin').value = S.minScore; $('sRange').value = S.range;
+  $('sTouch').value = S.touch; $('sBrk').value = S.brk; $('sReact').value = S.react; $('sLook').value = S.lookahead;
+  $('sRTH').checked = S.scanRTH; $('sAD').value = S.alertDist; $('sAS').value = S.alertScore;
+  $('layers').innerHTML = LAYERS.map(([k,n]) => `<label class="cb"><input type="checkbox" data-l="${k}" ${S.layers[k] ? 'checked' : ''}> ${n}</label>`).join('');
+  $('settings').classList.add('show');
+}
+function num(id, d){ const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; }
+$('bSave').onclick = () => {
+  const wasWorker = S.worker;
+  S.worker = $('sWorker').value.trim(); S.token = $('sToken').value.trim();
+  S.tol = num('sTol',S.tol); S.minScore = num('sMin',S.minScore); S.range = num('sRange',S.range);
+  S.touch = num('sTouch',S.touch); S.brk = num('sBrk',S.brk); S.react = num('sReact',S.react);
+  S.lookahead = Math.max(1, Math.round(num('sLook',S.lookahead)));
+  S.scanRTH = $('sRTH').checked; S.alertDist = num('sAD',S.alertDist); S.alertScore = num('sAS',S.alertScore);
+  document.querySelectorAll('#layers input').forEach(c => S.layers[c.dataset.l] = c.checked);
+  save();
+  $('settings').classList.remove('show');
+  if (S.worker && (st.demo || S.worker !== wasWorker)) {
+    st.demo = false; st.data = {bars:[],daily:[],vix:[],gex:{}}; st.yf = []; st.live.clear(); st.basis = NaN; fitted = false;
+  }
+  refresh(true);
+};
+$('bClose').onclick = () => $('settings').classList.remove('show');
+$('settings').onclick = e => { if (e.target.id === 'settings') $('settings').classList.remove('show'); };
+$('bAlerts').onclick = async () => {
+  try { st.audio = st.audio || new (window.AudioContext || window.webkitAudioContext)(); await st.audio.resume(); beep(); } catch(e){}
+  try { if ('Notification' in window && Notification.permission === 'default') await Notification.requestPermission(); } catch(e){}
+  toast('Alerty zapnuté (zvuk + notifikace, pokud je prohlížeč povolí).');
+};
+$('bDemo').onclick = () => { $('settings').classList.remove('show'); startDemo(); };
+$('gear').onclick = openSettings;
+
+function startDemo(){ st.demo = true; st.live.clear(); st.yf = []; st.data = A.makeDemo(Date.now() % 100000); fitted = false; showSrc(); refresh(true); }
+
+document.querySelectorAll('.tabs button[data-f]').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button[data-f]').forEach(x => x.classList.toggle('on', x === b));
+  st.filter = b.dataset.f; render();
+});
+
+// ───────── export for the TradingView "Algo Levels" Pine indicator
+function tvString(){
+  const r = st.res; if (!r) return '';
+  return r.levels.map(l => `${l.price};${l.score};${l.tags.join('/').replace(/[;|]/g, '')}`).join('|');
+}
+$('bTV').onclick = async () => {
+  const s = tvString();
+  if (!s) { toast('Zatím nejsou levely.'); return; }
+  let ok = false;
+  try { await navigator.clipboard.writeText(s); ok = true; } catch(e){}
+  if (!ok) {
+    const ta = document.createElement('textarea'); ta.value = s; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { ok = document.execCommand('copy'); } catch(e){}
+    ta.remove();
+  }
+  toast(ok ? `Zkopírováno ${st.res.levels.length} levelů → vlož do indikátoru Algo Levels v TradingView.` : 'Kopírování selhalo.');
+};
+$('list').addEventListener('click', e => {
+  const row = e.target.closest('.row'); if (!row) return;
+  const k = row.dataset.k;
+  st.open.has(k) ? st.open.delete(k) : st.open.add(k);
+  row.classList.toggle('open');
+});
+
+// ───────── go
+if (S.worker) refresh(true); else renderEmpty();
+setInterval(() => { if (!st.demo && document.visibilityState === 'visible') refresh(false); }, 30000);
+setInterval(liveTick, 5000);
+showSrc();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !st.demo) refresh(true); });
+})();
+</script>
+</body>
+</html>
