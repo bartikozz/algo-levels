@@ -275,6 +275,12 @@ footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);f
   <p>Worker si dál po close ukládá snapshot do KV (cron <code>10 20,21 * * 2-6</code>), kdyby se včerejší levely někdy hodily.</p>
 </section>
 
+<section id="stats-sec">
+  <h2><span class="n">08b</span>Deník a statistiky levelů</h2>
+  <p>Worker během RTH <strong>každých 15 minut</strong> uloží aktuální levely (★CW/★PW, 0DTE CW1–3/PW1–3, ZG, full-chain CW1/PW1/ZG, QQQ 0/5 ±1 %). Po close (22:10 / 23:10) je projde proti 1m svíčkám dne a k prvnímu dotyku každého levelu zapíše, co se stalo: <span class="chip" style="color:var(--gold)">reakce</span> (≥ 15 b. ve směru fade do 15 svíček), <span class="chip put">průraz</span> (close &gt; 6 b. za levelem) nebo chop, plus max. pohyb ve směru a proti. EM levely se vyhodnotí za celou session.</p>
+  <p>V terminálu tlačítko <strong>▦</strong>: tabulka podle typu levelu s filtrem +γ / −γ a deník po dnech. Data se drží 400 dní, takže za pár týdnů uvidíš, které levely v tvém frameworku opravdu drží.</p>
+</section>
+
 <section id="tv">
   <h2><span class="n">09</span>TradingView</h2>
   <ol style="margin:0 0 14px 18px;color:var(--soft)">

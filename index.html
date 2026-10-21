@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=17"></script>
+<script src="levels.js?v=18"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -109,6 +109,20 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .sheet.show{display:flex}
 .sheet .box{width:100%;max-width:560px;max-height:88dvh;overflow:auto;background:var(--panel);border:1px solid var(--line2);
   border-radius:14px 14px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
+.hbtn{width:34px;height:34px;border:1px solid var(--line2);border-radius:6px;font-size:15px;color:var(--text)}
+#stats .box{max-width:760px}
+.sfil{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 12px}
+.sfil button{font-size:12px;padding:6px 10px;border:1px solid var(--line2);border-radius:6px;color:var(--muted)}
+.sfil button.on{background:var(--panel2);color:var(--text)}
+.stab{width:100%;border-collapse:collapse;font-size:12px}
+.stab th,.stab td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+.stab th{color:var(--muted);font-weight:500;font-size:11px}
+.stab td:first-child,.stab th:first-child{text-align:left}
+.bar{display:inline-block;height:6px;border-radius:3px;background:var(--long);vertical-align:middle;margin-right:6px}
+.bar.r{background:var(--short)}
+.sev{display:grid;grid-template-columns:52px 1fr auto;gap:2px 10px;font-size:12px;padding:6px 0;border-bottom:1px solid var(--line)}
+.sev .k{color:var(--text)} .sev .m{color:var(--muted)}
+.res-reacted{color:var(--gold)} .res-broken{color:var(--short)} .res-chop{color:var(--muted)}
 .box h3{font-family:var(--sans);font-size:14px;letter-spacing:.08em;margin-bottom:12px}
 .box h4{font-size:11px;color:var(--muted);letter-spacing:.1em;margin:16px 0 8px}
 .f{display:grid;grid-template-columns:1fr 110px;align-items:center;gap:8px;margin-bottom:8px;font-size:12px}
@@ -134,6 +148,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 <header>
   <div class="brand">ALGO<span>LEVELS</span></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
+  <button id="statsBtn" class="hbtn" aria-label="Statistiky levelů">▦</button>
   <a id="help" href="guide.html" aria-label="Jak to funguje">?</a>
   <button id="gear" aria-label="Nastavení">⚙</button>
 </header>
@@ -157,6 +172,17 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 </div>
 <div id="list"></div>
 
+<div id="stats" class="sheet"><div class="box">
+  <h3>STATISTIKY LEVELŮ</h3>
+  <p class="hint" id="sMeta">Načítám…</p>
+  <div class="sfil" id="sReg"><button data-r="all" class="on">Vše</button><button data-r="1">+γ</button><button data-r="-1">−γ</button></div>
+  <div class="tw" style="overflow-x:auto"><table class="stab" id="sTab"></table></div>
+  <h4 id="sDayH">DENÍK</h4>
+  <div class="sfil" id="sDays"></div>
+  <div id="sDay"></div>
+  <div class="btns"><button id="sClose">Zavřít</button></div>
+  <p class="hint">Reakce = do 15 svíček pohyb ≥ 15 b. ve směru fade bez close za levelem. Průraz = close &gt; 6 b. za levelem. Zbytek = chop. Ø reakce / Ø proti = průměrný max. pohyb ve směru / proti fade (b.). Levely se ukládají každých 15 min během RTH, vyhodnocení po close.</p>
+</div></div>
 <div id="settings" class="sheet"><div class="box">
   <h3>NASTAVENÍ</h3>
   <h4>PŘIPOJENÍ</h4>
@@ -687,6 +713,55 @@ $('bAlerts').onclick = async () => {
 };
 $('bDemo').onclick = () => { $('settings').classList.remove('show'); startDemo(); };
 $('gear').onclick = openSettings;
+
+// ───────── level statistics (journal from the Worker)
+const KIND_ORDER = ['★CW','★PW','0DTE CW1','0DTE CW2','0DTE CW3','0DTE PW1','0DTE PW2','0DTE PW3','0DTE ZG','CW1','PW1','ZG','QQQ 0/5','EM Ref','EM ±½','EM ±1','EM ±1.5'];
+const ss = { data:null, reg:'all', day:null };
+function renderStats(){
+  const D = ss.data; if (!D) return;
+  const days = D.days || [];
+  const evs = days.flatMap(d => (d.events || []).map(e => ({ ...e, date:d.date })));
+  const f = ss.reg === 'all' ? evs : evs.filter(e => String(e.regime) === ss.reg);
+  $('sMeta').textContent = days.length
+    ? `${days.length} ${days.length === 1 ? 'den' : days.length < 5 ? 'dny' : 'dní'} · ${f.length} testů levelů · od ${days[0].date}`
+    : 'Zatím žádná data – první vyhodnocení proběhne po dnešním close (22:10).';
+  const by = new Map();
+  for (const e of f) { if (!by.has(e.kind)) by.set(e.kind, []); by.get(e.kind).push(e); }
+  const kinds = [...by.keys()].sort((a, b) => (KIND_ORDER.indexOf(a) + 99) % 99 - (KIND_ORDER.indexOf(b) + 99) % 99 || a.localeCompare(b));
+  const avg = (a, k) => a.length ? (a.reduce((s, x) => s + x[k], 0) / a.length).toFixed(1) : '–';
+  let h = '<tr><th>Level</th><th>Testů</th><th>Reakce</th><th>Průraz</th><th>Chop</th><th>Ø reakce</th><th>Ø proti</th></tr>';
+  for (const k of kinds) {
+    const a = by.get(k), n = a.length;
+    const r = a.filter(e => e.res === 'reacted').length, b = a.filter(e => e.res === 'broken').length;
+    const rp = Math.round(100 * r / n), bp = Math.round(100 * b / n);
+    h += `<tr><td>${esc(k)}</td><td>${n}</td><td><span class="bar" style="width:${rp * 0.5}px"></span>${rp} %</td>`
+       + `<td><span class="bar r" style="width:${bp * 0.5}px"></span>${bp} %</td><td>${100 - rp - bp} %</td>`
+       + `<td>${avg(a, 'mfe')}</td><td>${avg(a, 'mae')}</td></tr>`;
+  }
+  $('sTab').innerHTML = kinds.length ? h : '';
+  // day picker + journal
+  const recent = days.slice(-10).reverse();
+  if (!ss.day && recent.length) ss.day = recent[0].date;
+  $('sDays').innerHTML = recent.map(d => `<button data-d="${d.date}" class="${d.date === ss.day ? 'on' : ''}">${d.date.slice(5).split('-').reverse().join('.')}</button>`).join('');
+  const day = days.find(d => d.date === ss.day);
+  const de = day ? (ss.reg === 'all' ? day.events : day.events.filter(e => String(e.regime) === ss.reg)) : [];
+  $('sDay').innerHTML = de.length ? de.map(e => `<div class="sev"><span class="m">${A.hhmm(e.t)}</span>`
+      + `<span class="k">${esc(e.kind)} <span class="m">${fmtP(e.p)} · ${e.side === 'short' ? '▼' : '▲'} ${esc(e.tag !== e.kind ? e.tag : '')}</span></span>`
+      + `<span class="res-${e.res}">${e.res === 'reacted' ? 'reakce' : e.res === 'broken' ? 'průraz' : 'chop'} ${e.mfe}/${e.mae}</span></div>`).join('')
+    : '<p class="hint">Pro tento den nic.</p>';
+}
+async function openStats(){
+  $('stats').classList.add('show');
+  if (!S.worker) { $('sMeta').textContent = 'Nejdřív nastav Worker v ⚙.'; return; }
+  try { ss.data = await api('/stats'); renderStats(); }
+  catch (e) { $('sMeta').textContent = 'Chyba: ' + e.message; }
+}
+$('statsBtn').onclick = openStats;
+$('sClose').onclick = () => $('stats').classList.remove('show');
+$('stats').onclick = e => { if (e.target.id === 'stats') $('stats').classList.remove('show'); };
+$('sReg').onclick = e => { const b = e.target.closest('button'); if (!b) return; ss.reg = b.dataset.r;
+  [...$('sReg').children].forEach(x => x.classList.toggle('on', x === b)); renderStats(); };
+$('sDays').onclick = e => { const b = e.target.closest('button'); if (!b) return; ss.day = b.dataset.d; renderStats(); };
 
 function startDemo(){ st.demo = true; st.live.clear(); st.yf = []; st.data = A.makeDemo(Date.now() % 100000); fitted = false; showSrc(); refresh(true); }
 
