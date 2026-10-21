@@ -211,7 +211,7 @@ async function evaluateDay(env, date) {
     const regime = snaps.length ? snaps[0].regime : 0;
     for (const [m, kind] of [[0, 'EM Ref'], [0.5, 'EM ±½'], [-0.5, 'EM ±½'], [1, 'EM ±1'], [-1, 'EM ±1'], [1.5, 'EM ±1.5'], [-1.5, 'EM ±1.5']]) {
       const p = Math.round((ref + m * em) * 4) / 4;
-      const e = evalLevel(bars, 0, bars.length, p);
+      const e = evalLevel(bars, m === 0 ? Math.max(1, bars.findIndex(b => Math.abs(b.c - ref) > EV.react)) : 0, bars.length, p);
       if (e) events.push({ kind, tag: kind, p, regime, ...e });
     }
   } catch (e) { /* EM optional */ }
@@ -373,4 +373,3 @@ function json(o, status, cors) {
   });
 }
 
-export { evalLevel, buildLevels, etParts, topWalls };
