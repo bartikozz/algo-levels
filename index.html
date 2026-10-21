@@ -320,7 +320,7 @@ function drawProfile(){
   c.font = '10px JetBrains Mono, monospace'; c.textBaseline = 'middle';
   for (const r of vis) {
     const len = Math.abs(r.v) / mx * L;
-    c.fillStyle = r.v >= 0 ? 'rgba(52,211,90,.55)' : 'rgba(244,67,54,.55)';
+    c.fillStyle = r.v >= 0 ? 'rgba(52,211,90,.8)' : 'rgba(244,67,54,.8)';
     if (len > 0.5) c.fillRect(x0, r.y - th / 2, len, th);
     r.pr.forEach((p, i) => { if (!Number.isFinite(p) || !p) return;
       c.fillStyle = PRI_C[i] || PRI_C[4]; c.beginPath(); c.arc(x0 + Math.abs(p) / mx * L, r.y, Math.min(2.6, th / 2 + .6), 0, 7); c.fill(); });
