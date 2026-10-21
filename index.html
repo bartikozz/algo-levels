@@ -546,7 +546,7 @@ function render(){
   for (const l of r.levels) {
     if (l.srcs.length === 1 && l.srcs[0] === 'em') continue; // EM-only levels are drawn TV-style below
     const hasOpt = l.srcs.includes('opt') || l.srcs.includes('qqq');
-    if (!hasOpt) {
+    if (!hasOpt || S.layers.gexProf) { // with the GEX profile on, NQ cluster lines are hidden (list only) – clean chart
       // no options content: QQQ main levels as thin gold dotted lines, σ/VP only in the list
       continue; // QQQ main levels are drawn as zones (overlay), σ/VP only in the list
     }
