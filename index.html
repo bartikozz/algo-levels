@@ -48,7 +48,10 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .dotlive.ok{background:var(--long)} .dotlive.err{background:var(--short)}
 
 .nowbtn{position:absolute;right:76px;bottom:34px;z-index:3;font-size:12px;padding:6px 10px;border:1px solid var(--gold);border-radius:6px;background:#1d1709;color:var(--gold)}
-#chart{height:46dvh;min-height:280px;border-bottom:1px solid var(--line)}
+#chart{height:46dvh;min-height:200px}
+.grip{height:24px;display:flex;align-items:center;justify-content:center;cursor:ns-resize;touch-action:none;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--panel);user-select:none;-webkit-user-select:none}
+.grip span{width:48px;height:5px;border-radius:3px;background:var(--line2)}
+.grip:active span,.grip.drag span{background:var(--gold)}
 
 .majors{display:flex;flex-wrap:wrap;gap:8px;padding:8px 16px;border-bottom:1px solid var(--line);font-size:12px}
 .majors:empty{display:none}
@@ -137,6 +140,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 </div>
 <div id="majors" class="majors"></div>
 <div id="chartWrap" style="position:relative"><div id="chart"></div><button id="now" class="nowbtn" hidden>Teď ▸</button></div>
+<div id="grip" class="grip" role="separator" aria-label="Velikost grafu"><span></span></div>
 <div class="tabs">
   <button data-f="all" class="on">Vše</button>
   <button data-f="near">±100 b.</button>
@@ -687,6 +691,35 @@ setInterval(liveTick, 5000);
 showSrc();
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { goNow(); if (!st.demo) refresh(true); } });
 $('now').onclick = goNow;
+
+// resizable chart: drag the grip down to enlarge, tap to toggle normal/big
+(() => {
+  const el = $('chart'), grip = $('grip');
+  const maxH = () => Math.max(260, window.innerHeight - 150);
+  const normal = () => Math.round(window.innerHeight * 0.46);
+  const setH = h => { el.style.height = Math.round(Math.min(maxH(), Math.max(200, h))) + 'px'; };
+  if (S.chartH) setH(S.chartH);
+  let y0 = 0, h0 = 0, moved = false, down = false;
+  grip.addEventListener('pointerdown', e => {
+    down = true; moved = false; y0 = e.clientY; h0 = el.getBoundingClientRect().height;
+    grip.classList.add('drag'); grip.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  grip.addEventListener('pointermove', e => {
+    if (!down) return;
+    const dy = e.clientY - y0;
+    if (Math.abs(dy) > 4) moved = true;
+    if (moved) setH(h0 + dy);
+  });
+  const end = () => {
+    if (!down) return;
+    down = false; grip.classList.remove('drag');
+    const cur = el.getBoundingClientRect().height;
+    if (!moved) setH(cur > normal() + 40 ? normal() : maxH());   // tap = toggle
+    S.chartH = Math.round(el.getBoundingClientRect().height); save();
+  };
+  grip.addEventListener('pointerup', end);
+  grip.addEventListener('pointercancel', end);
+})();
 })();
 </script>
 </body>
