@@ -143,8 +143,11 @@
         const anchor = rthBars.length ? rthBars[0].o : last;
         const em = anchor * v.c / 100 / 15.87;
         info.em = { anchor, em, vix: v.c, provisional: !rthBars.length };
-        [[-1, 'EM −1'], [-0.5, 'EM −½'], [0.5, 'EM +½'], [1, 'EM +1']]
-          .forEach(([m, t]) => add(anchor + m * em, t, 1.5, 'em'));
+        // before the RTH open the anchor would follow price, so EM levels only count once RTH has opened
+        if (rthBars.length) {
+          [[-1, 'EM −1'], [-0.5, 'EM −½'], [0.5, 'EM +½'], [1, 'EM +1']]
+            .forEach(([m, t]) => add(anchor + m * em, t, 1.5, 'em'));
+        }
       }
     }
 

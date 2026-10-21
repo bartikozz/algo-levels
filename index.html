@@ -224,7 +224,7 @@ async function liveTick(){
       px += st.basis;
     }
     st.liveAge = Date.now() / 1000 - ts;
-    if (st.liveAge > 120) { st.liveSrc = 'stale'; return; }
+    if (st.liveAge > 120) { st.liveSrc = 'stale'; showSrc(); return; }
     st.liveSrc = 'live';
     const k = Math.floor(ts / 60) * 60;
     const b = st.live.get(k);
@@ -246,7 +246,12 @@ function showSrc(err){
   const el = $('src');
   if (st.demo) { el.textContent = 'DEMO'; el.className = 'badge'; return; }
   if (st.liveSrc === 'live') { el.textContent = `LIVE ${Math.max(0, Math.round(st.liveAge))}s`; el.className = 'badge pos'; }
-  else if (st.liveSrc === 'stale') { el.textContent = 'GEX stale · Yahoo'; el.className = 'badge neg'; }
+  else if (st.liveSrc === 'stale') {
+    const ts = st.res && st.res.gexTs;
+    const when = ts ? new Date(ts * 1000).toLocaleString('cs-CZ', { weekday:'short', hour:'2-digit', minute:'2-digit' }) : '?';
+    el.textContent = `GEX z ${when} · trh zavřen · Yahoo`;
+    el.className = 'badge neg';
+  }
   else { el.textContent = 'Yahoo ~10 min'; el.className = 'badge'; if (err) el.title = err; }
 }
 async function loadDaily(){
