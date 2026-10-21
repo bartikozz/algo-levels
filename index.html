@@ -185,7 +185,6 @@ const S = load();
 
 const st = { data:{bars:[],daily:[],vix:[],gex:{}}, res:null, demo:false, tick:0, lines:[], alerted:{}, filter:'all',
   audio:null, open:new Set(), busy:false, yf:[], live:new Map(), liveSrc:null, liveAge:NaN, basis:NaN, liveBusy:false };
-window.__algo = st; // debug handle
 const $ = id => document.getElementById(id);
 const fmtP = n => Number.isFinite(n) ? n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
 
