@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=14"></script>
+<script src="levels.js?v=15"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -47,6 +47,13 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .dotlive{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dim);margin-right:5px;vertical-align:middle}
 .dotlive.ok{background:var(--long)} .dotlive.err{background:var(--short)}
 
+.zones{position:absolute;left:0;top:0;bottom:0;pointer-events:none;overflow:hidden;z-index:2}
+.zw{position:absolute;left:0;right:0;background:rgba(150,156,166,.16);border-top:1px solid rgba(190,196,206,.35);border-bottom:1px solid rgba(190,196,206,.35)}
+.zs{position:absolute;left:0;right:0;background:rgba(190,196,206,.26)}
+.zl{position:absolute;left:0;right:0;text-align:center;font-size:10px;line-height:12px;color:rgba(20,22,26,.9);font-family:var(--mono);text-shadow:0 0 2px rgba(220,224,230,.6)}
+.zw.cw,.zw.pw{background:rgba(201,166,107,.18);border-color:rgba(201,166,107,.65)}
+.zs.cw,.zs.pw{background:rgba(201,166,107,.38)}
+.zl.cw,.zl.pw{color:#f3d9a4;font-weight:700;text-shadow:0 0 3px #000}
 .nowbtn{position:absolute;right:76px;bottom:34px;z-index:3;font-size:12px;padding:6px 10px;border:1px solid var(--gold);border-radius:6px;background:#1d1709;color:var(--gold)}
 #chart{height:46dvh;min-height:200px}
 .grip{height:24px;display:flex;align-items:center;justify-content:center;cursor:ns-resize;touch-action:none;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--panel);user-select:none;-webkit-user-select:none}
@@ -139,7 +146,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <span>QQQ×<b id="mRatio">—</b></span>
 </div>
 <div id="majors" class="majors"></div>
-<div id="chartWrap" style="position:relative"><div id="chart"></div><button id="now" class="nowbtn" hidden>Teď ▸</button></div>
+<div id="chartWrap" style="position:relative"><div id="chart"></div><div id="zones" class="zones"></div><button id="now" class="nowbtn" hidden>Teď ▸</button></div>
 <div id="grip" class="grip" role="separator" aria-label="Velikost grafu"><span></span></div>
 <div class="tabs">
   <button data-f="all" class="on">Vše</button>
@@ -239,6 +246,28 @@ const series = chart.addCandlestickSeries({
   upColor:'#e6e8eb', downColor:'#4a505a', borderVisible:false, wickUpColor:'#9ca3af', wickDownColor:'#4a505a',
 });
 let fitted = false;
+// QQQ 0/5 main levels as zones (like the TV "QQQ → NQ Main Levels" indicator): weak ±0.5 QQQ, strong ±10 NQ
+function drawZones(){
+  const box = $('zones'); if (!box) return;
+  const r = st.res, Z = r && r.info && r.info.qqqLevels;
+  if (!Z || !Z.length || !S.layers.qqqMain) { if (box.innerHTML) box.innerHTML = ''; return; }
+  let w = 0; try { w = chart.timeScale().width(); } catch(e){}
+  box.style.width = w + 'px';
+  let html = '';
+  for (const z of Z) {
+    const yc = series.priceToCoordinate(z.price);
+    const yw1 = series.priceToCoordinate(z.price + z.weak), yw2 = series.priceToCoordinate(z.price - z.weak);
+    const ys1 = series.priceToCoordinate(z.price + z.strong), ys2 = series.priceToCoordinate(z.price - z.strong);
+    if ([yc, yw1, yw2, ys1, ys2].some(v => v === null)) continue;
+    const c = z.star ? z.star.toLowerCase() : '';
+    const lbl = `${z.price.toFixed(2)} (${z.q})${z.star ? ' ★' + z.star : ''}`;
+    html += `<div class="zw ${c}" style="top:${yw1}px;height:${Math.max(1, yw2 - yw1)}px"></div>`
+          + `<div class="zs ${c}" style="top:${ys1}px;height:${Math.max(1, ys2 - ys1)}px"></div>`
+          + `<div class="zl ${c}" style="top:${yc - 6}px">${lbl}</div>`;
+  }
+  if (box._h !== html) { box.innerHTML = html; box._h = html; }
+}
+(function loop(){ try { drawZones(); } catch(e){} requestAnimationFrame(loop); })();
 const goNow = () => { try { chart.timeScale().scrollToRealTime(); } catch(e){} };
 chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
   try { $('now').hidden = chart.timeScale().scrollPosition() > -3; } catch(e){}
@@ -436,10 +465,7 @@ function render(){
     const hasOpt = l.srcs.includes('opt') || l.srcs.includes('qqq');
     if (!hasOpt) {
       // no options content: QQQ main levels as thin gold dotted lines, σ/VP only in the list
-      const qt = l.tags.find(t => /^QQQ \d/.test(t));
-      if (qt && !/★/.test(qt)) st.lines.push(series.createPriceLine({
-        price:l.price, color:'#c9a66b77', lineWidth:1, lineStyle:1, axisLabelVisible:false, title:qt }));
-      continue;
+      continue; // QQQ main levels are drawn as zones (overlay), σ/VP only in the list
     }
     const col = l.dir < 0 ? '#f05a6e' : l.dir > 0 ? '#2fc59f' : '#c9a66b';
     const strong = l.score >= 5;
@@ -473,9 +499,7 @@ function render(){
   // major QQQ walls (0/5 strikes): thick gold line + weak/strong zone edges
   for (const m of (r.info.majors || [])) {
     const name = (m.type === 'CW' ? 'CW ' : 'PW ') + m.qqq;
-    st.lines.push(series.createPriceLine({ price:m.price, color:'#c9a66b', lineWidth:3, lineStyle:0, axisLabelVisible:true, title:'★ QQQ ' + name }));
-    for (const e of [m.strong, -m.strong]) st.lines.push(series.createPriceLine({ price:m.price + e, color:'#c9a66b88', lineWidth:1, lineStyle:2, axisLabelVisible:false, title:'' }));
-    for (const e of [m.weak, -m.weak]) st.lines.push(series.createPriceLine({ price:m.price + e, color:'#c9a66b44', lineWidth:1, lineStyle:1, axisLabelVisible:false, title:'' }));
+    st.lines.push(series.createPriceLine({ price:m.price, color:'#c9a66b', lineWidth:1, lineStyle:0, lineVisible:false, axisLabelVisible:true, title:'★ QQQ ' + name }));
   }
   // yesterday's options levels: grey dotted, orientation only
   const pv = (S.showPrev && st.prevView && !st.demo) ? A.prevLevels(st.prevView, r.last, S) : [];

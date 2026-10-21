@@ -138,6 +138,10 @@
         w.pos.forEach((x, i) => add(x[0] * k, `QQQ CW ${x[0]}`, [2, 1][i], 'qqq'));
         w.neg.forEach((x, i) => add(x[0] * k, `QQQ PW ${x[0]}`, [2, 1][i], 'qqq'));
       }
+      info.qqqLevels = [];
+      for (let q = Math.ceil(qRef * 0.98 / 5) * 5; q <= qRef * 1.02; q += 5) {
+        info.qqqLevels.push({ q, price: q * k, star: star[q] || null, weak: 0.5 * k, strong: S.majorStrong || 10 });
+      }
       if (L.qqqMain) {
         for (let q = Math.ceil(qRef * 0.98 / 5) * 5; q <= qRef * 1.02; q += 5) {
           const st = star[q] ? ` ★${star[q]}${S.gexStale ? ' vč.' : ''}` : '';
