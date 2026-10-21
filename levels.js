@@ -145,8 +145,8 @@
       if (D && v && v.c > 5 && v.c < 100) {
         const open = bars.find(b => isRTH(b.t) && et(b.t).date === D);
         const anchor = open.o;
-        const em = anchor * v.c / 100 / 15.87;
-        info.em = { anchor, em, vix: v.c, date: D, fromPrev: D !== calToday };
+        const em = anchor * v.c / 100 / Math.sqrt(252) * (S.emStraddle === false ? 1 : 0.8);
+        info.em = { anchor, em, vix: v.c, sym: S.volIndex || 'VXN', date: D, fromPrev: D !== calToday };
         add(anchor, 'EM Ref', 1, 'em');
         [[-1.5, 'EM −1.5'], [-1, 'EM −1'], [-0.5, 'EM −½'], [0.5, 'EM +½'], [1, 'EM +1'], [1.5, 'EM +1.5']]
           .forEach(([m, t]) => add(anchor + m * em, t, Math.abs(m) === 1.5 ? 1 : 1.5, 'em'));

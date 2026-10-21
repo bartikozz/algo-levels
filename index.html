@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=5"></script>
+<script src="levels.js?v=6"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -144,6 +144,11 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   </div>
   <label class="cb"><input id="sRTH" type="checkbox"> Status počítat jen z RTH (jinak celý Globex den)</label>
   <label class="cb"><input id="sPrev" type="checkbox"> Ukazovat včerejší levely (šedě, jen orientace)</label>
+  <h4>EXPECTED MOVE</h4>
+  <div class="f"><label>Volatility index</label>
+    <select id="sVol" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line2);border-radius:6px;padding:8px;font:inherit;font-size:13px">
+      <option value="VXN">VXN (NQ)</option><option value="VIX">VIX (ES)</option></select></div>
+  <label class="cb"><input id="sStr" type="checkbox"> Převést σ na straddle EM (×0.8)</label>
   <h4>ALERTY</h4>
   <div class="grid2">
     <div class="f"><label>Vzdálenost (b.)</label><input id="sAD" type="number" step="1"></div>
@@ -167,10 +172,10 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 const A = window.AlgoLevels;
 const LAYERS = [
   ['gex0','0DTE GEX'],['gex1','1DTE GEX'],['gexFull','Full chain GEX'],['maxchg','ΔGEX 15m'],
-  ['qqq','QQQ walls (0/5)'],['qqqMain','QQQ 0/5 levely'],['em','VIX EM'],['sigma','σ Grid'],['vp','Prev VP']
+  ['qqq','QQQ walls (0/5)'],['qqqMain','QQQ 0/5 levely'],['em','EM (VXN/VIX)'],['sigma','σ Grid'],['vp','Prev VP']
 ];
 const DEF = { worker:'', token:'', tol:10, minScore:3, range:3, touch:3, brk:6, react:15, lookahead:15,
-  scanRTH:true, alertDist:8, alertScore:4, showPrev:true, layers:Object.fromEntries(LAYERS.map(l=>[l[0],true])) };
+  scanRTH:true, alertDist:8, alertScore:4, showPrev:true, volIndex:'VXN', emStraddle:true, layers:Object.fromEntries(LAYERS.map(l=>[l[0],true])) };
 
 // ───────── settings (localStorage may be unavailable)
 function load(){ try{ const s=JSON.parse(localStorage.getItem('algoLevels.v1')||'{}');
@@ -261,7 +266,13 @@ function showSrc(err){
   else { el.textContent = 'Yahoo ~10 min'; el.className = 'badge'; if (err) el.title = err; }
 }
 async function loadDaily(){
-  const [d,v] = await Promise.all([api('/yf/NQ%3DF?interval=1d&range=6mo'), api('/yf/%5EVIX?interval=1d&range=1mo')]);
+  const want = S.volIndex || 'VXN';
+  const [d,v] = await Promise.all([
+    api('/yf/NQ%3DF?interval=1d&range=6mo'),
+    api(`/yf/%5E${want}?interval=1d&range=1mo`)
+      .then(j => { st.volSym = want; return j; })
+      .catch(() => api('/yf/%5EVIX?interval=1d&range=1mo').then(j => { st.volSym = 'VIX'; return j; })), // fallback
+  ]);
   st.data.daily = A.parseYF(d); st.data.vix = A.parseYF(v);
 }
 async function loadGex(){
@@ -301,7 +312,7 @@ async function refresh(full){
       if (!S.worker) { renderEmpty(); return; }
       const jobs = [loadBars()];
       if (full || st.tick % 2 === 0) jobs.push(loadGex().then(e => { errs = e; }));
-      if (full || st.tick % 20 === 0 || !st.data.daily.length) jobs.push(loadDaily().catch(e => errs.push(e.message)));
+      if (full || st.tick % 20 === 0 || !st.data.daily.length || !st.data.vix.length) jobs.push(loadDaily().catch(e => errs.push(e.message)));
       await Promise.all(jobs);
       if (S.showPrev) await loadPrev().catch(() => {});
     }
@@ -379,7 +390,7 @@ function render(){
   rg.textContent = r.regime > 0 ? '+γ · fade' : r.regime < 0 ? '−γ · trend' : 'γ —';
   const i = r.info;
   $('mEm').textContent = i.em
-    ? `±${i.em.em.toFixed(0)} · Ref ${fmtP(i.em.anchor)} (VIX ${i.em.vix.toFixed(1)}, RTH open ${i.em.date.slice(5).split('-').reverse().join('.')}${i.em.fromPrev ? ' – platí do 9:30' : ''})`
+    ? `±${i.em.em.toFixed(0)} · Ref ${fmtP(i.em.anchor)} (${st.volSym || 'VXN'} ${i.em.vix.toFixed(2)}${S.emStraddle === false ? '' : ' ×0.8'}${st.volSym && st.volSym !== (S.volIndex || 'VXN') ? ' ⚠ náhradní' : ''}, RTH open ${i.em.date.slice(5).split('-').reverse().join('.')}${i.em.fromPrev ? ' – platí do 9:30' : ''})`
     : '—';
   $('mSig').textContent = i.sigma ? `${i.sigma.pts.toFixed(0)} b.` : '—';
   $('mPoc').textContent = i.vp ? fmtP(i.vp.poc) : '—';
@@ -470,7 +481,7 @@ function openSettings(){
   $('sWorker').value = S.worker; $('sToken').value = S.token;
   $('sTol').value = S.tol; $('sMin').value = S.minScore; $('sRange').value = S.range;
   $('sTouch').value = S.touch; $('sBrk').value = S.brk; $('sReact').value = S.react; $('sLook').value = S.lookahead;
-  $('sRTH').checked = S.scanRTH; $('sPrev').checked = S.showPrev; $('sAD').value = S.alertDist; $('sAS').value = S.alertScore;
+  $('sRTH').checked = S.scanRTH; $('sPrev').checked = S.showPrev; $('sVol').value = S.volIndex || 'VXN'; $('sStr').checked = S.emStraddle !== false; $('sAD').value = S.alertDist; $('sAS').value = S.alertScore;
   $('layers').innerHTML = LAYERS.map(([k,n]) => `<label class="cb"><input type="checkbox" data-l="${k}" ${S.layers[k] ? 'checked' : ''}> ${n}</label>`).join('');
   $('settings').classList.add('show');
 }
@@ -481,7 +492,9 @@ $('bSave').onclick = () => {
   S.tol = num('sTol',S.tol); S.minScore = num('sMin',S.minScore); S.range = num('sRange',S.range);
   S.touch = num('sTouch',S.touch); S.brk = num('sBrk',S.brk); S.react = num('sReact',S.react);
   S.lookahead = Math.max(1, Math.round(num('sLook',S.lookahead)));
-  S.scanRTH = $('sRTH').checked; S.showPrev = $('sPrev').checked; S.alertDist = num('sAD',S.alertDist); S.alertScore = num('sAS',S.alertScore);
+  const volChanged = S.volIndex !== $('sVol').value;
+  S.scanRTH = $('sRTH').checked; S.showPrev = $('sPrev').checked; S.volIndex = $('sVol').value; S.emStraddle = $('sStr').checked;
+  if (volChanged) st.data.vix = []; S.alertDist = num('sAD',S.alertDist); S.alertScore = num('sAS',S.alertScore);
   document.querySelectorAll('#layers input').forEach(c => S.layers[c.dataset.l] = c.checked);
   save();
   $('settings').classList.remove('show');

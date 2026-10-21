@@ -29,7 +29,7 @@ const GEX_CATS = new Set([
 ]);
 const GEX_SUBS = new Set(['majors', 'maxchange']);
 
-const YF_SYMBOLS = new Set(['NQ=F', 'ES=F', '^VIX', 'QQQ', 'SPY']);
+const YF_SYMBOLS = new Set(['NQ=F', 'ES=F', '^VIX', '^VXN', 'QQQ', 'SPY']);
 const YF_INTERVALS = new Set(['1m', '2m', '5m', '15m', '1d']);
 const YF_RANGES = new Set(['1d', '2d', '5d', '1mo', '3mo', '6mo', '1y']);
 
