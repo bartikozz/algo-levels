@@ -255,7 +255,8 @@ try {
 } catch(e){}
 
 const st = { data:{bars:[],daily:[],vix:[],gex:{}}, res:null, demo:false, tick:0, lines:[], alerted:{}, majorZone:{}, filter:'all',
-  audio:null, open:new Set(), busy:false, yf:[], live:new Map(), liveSrc:null, liveAge:NaN, liveBusy:false };
+  audio:null, open:new Set(), busy:false, yf:[], live:new Map(), liveSrc:null, liveAge:NaN, liveBusy:false, liveHist:new Map(), basis:(() => { try { const j = JSON.parse(localStorage.getItem('algoLevels.basis')); return j && Date.now() - j.at < 864e5 ? j.b : 0; } catch(e){ return 0; } })() };
+window.__al = st;
 const $ = id => document.getElementById(id);
 const fmtP = n => Number.isFinite(n) ? n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
 
@@ -351,31 +352,39 @@ async function api(path){
 }
 // ───────── bars = Yahoo history (delayed) + live 1m candles built from GEXbot spot
 async function loadBars(){ st.yf = A.parseYF(await api('/yf/NQ%3DF?interval=1m&range=5d')).filter(b => b.t % 60 === 0); mergeBars(); }
+const median = a => { const x = [...a].sort((p, q) => p - q), n = x.length; return n ? (n % 2 ? x[(n - 1) / 2] : (x[n / 2 - 1] + x[n / 2]) / 2) : NaN; };
 function mergeBars(){
   const yf = st.yf || [];
   st.data.nqBars = yf;
   const yfLast = yf.length ? yf[yf.length - 1].t : 0;
   for (const k of [...st.live.keys()]) if (k <= yfLast) st.live.delete(k);
-  // Yahoo NQ is ~10 min delayed; fill the gap after its last bar with QQQ (real-time on Yahoo,
-  // incl. pre/post) × smoothed NQ/QQQ ratio. Live GEXbot bars win wherever they exist.
+  // Yahoo NQ is ~10 min delayed; fill the gap after its last bar with QQQ (real-time on Yahoo) × smoothed
+  // NQ/QQQ ratio, anchored to Yahoo's last real NQ close (QQQ×k tracks NQ within ~1-2 pts).
   const fill = new Map();
   const qb = st.data.qqqBars || [];
   const kr = A.alignedRatio(yf, qb, 100).k;
-  // QQQ×k differs from NQ by a small drifting basis — anchor the synthetic tail so it joins
-  // seamlessly: to the live GEXbot spot when we have it, otherwise to Yahoo's last NQ close.
-  let off = 0;
-  if (kr > 0) {
-    const qAt = new Map(qb.map(b => [b.t, b.c]));
-    const lv = [...st.live.values()].sort((a, b) => b.t - a.t);
-    const anchor = lv.find(b => qAt.has(b.t)) || (yf.length && qAt.has(yfLast) ? yf[yf.length - 1] : null);
-    if (anchor) off = anchor.c - qAt.get(anchor.t) * kr;
-    if (Math.abs(off) > 60) off = 0;
-    for (const b of qb) {
-      if (b.t <= yfLast || b.t % 60 !== 0) continue;
-      fill.set(b.t, { t:b.t, o:b.o * kr + off, h:b.h * kr + off, l:b.l * kr + off, c:b.c * kr + off, v:0, synth:true });
-    }
+  const qAt = new Map(qb.map(b => [b.t, b.c]));
+  let offQ = 0;
+  if (kr > 0 && yf.length && qAt.has(yfLast)) offQ = yf[yf.length - 1].c - qAt.get(yfLast) * kr;
+  if (!(Math.abs(offQ) < 20)) offQ = 0;
+  if (kr > 0) for (const b of qb) {
+    if (b.t <= yfLast || b.t % 60 !== 0) continue;
+    fill.set(b.t, { t:b.t, o:b.o * kr + offQ, h:b.h * kr + offQ, l:b.l * kr + offQ, c:b.c * kr + offQ, v:0, synth:true });
   }
-  for (const [k, b] of st.live) fill.set(k, b);
+  // GEXbot NQ_NDX spot sits a few points off real NQ futures — measure that basis on finished minutes:
+  // 1) vs real Yahoo NQ closes where they overlap (best), 2) else vs QQQ×k, 3) else last known (saved).
+  const nowMin = Math.floor(Date.now() / 60000) * 60;
+  const yfm = new Map(yf.map(b => [b.t, b.c]));
+  const d1 = [], d2 = [];
+  for (const [t, c] of st.liveHist) {
+    if (t >= nowMin) continue;
+    if (yfm.has(t)) d1.push(yfm.get(t) - c);
+    else if (kr > 0 && qAt.has(t)) d2.push(qAt.get(t) * kr + offQ - c);
+  }
+  let basis = d1.length >= 3 ? median(d1.slice(-15)) : d2.length >= 2 ? median(d2.slice(-10)) : st.basis;
+  if (!Number.isFinite(basis) || Math.abs(basis) > 40) basis = 0;
+  if (basis !== st.basis) { st.basis = basis; try { localStorage.setItem('algoLevels.basis', JSON.stringify({ b:basis, at:Date.now() })); } catch(e){} }
+  for (const [k, b] of st.live) fill.set(k, { t:b.t, o:b.o + basis, h:b.h + basis, l:b.l + basis, c:b.c + basis, v:0 });
   const tail = [...fill.values()].sort((a, b) => a.t - b.t);
   st.data.bars = yf.concat(tail);
 }
@@ -385,7 +394,7 @@ async function liveTick(){
   try {
     const m = await api('/gex/NQ_NDX/classic/gex_zero/majors');
     const ts = Number.isFinite(m.timestamp) ? m.timestamp : Date.now() / 1000;
-    const px = m.spot;   // NQ_NDX spot is already front-month NQ — use as is (no basis vs delayed Yahoo)
+    const px = m.spot;   // raw GEXbot NQ_NDX spot; the measured basis to real NQ is added in mergeBars
     if (!Number.isFinite(px)) throw new Error('majors bez spot');
     st.liveAge = Date.now() / 1000 - ts;
     if (st.liveAge > 120) { st.liveSrc = 'stale'; st.liveMs = 5000; showSrc(); return; }
@@ -397,13 +406,15 @@ async function liveTick(){
     const b = st.live.get(k);
     if (b) { b.h = Math.max(b.h, px); b.l = Math.min(b.l, px); b.c = px; }
     else st.live.set(k, { t:k, o:px, h:px, l:px, c:px, v:0 });
+    st.liveHist.set(k, px); if (st.liveHist.size > 90) st.liveHist.delete(st.liveHist.keys().next().value);
     mergeBars();
     // fast path (every second): only move the last candle + header; full recompute every ~5 s or on a new minute
     const now = Date.now();
     if (st.res && st.lastFull && now - st.lastFull < 4500 && k === st.lastFullK) {
       const x = st.live.get(k);
-      try { series.update({ time:A.et(x.t).disp, open:x.o, high:x.h, low:x.l, close:x.c }); } catch(e){}
-      $('px').textContent = fmtP(px);
+      const bs = st.basis || 0;
+      try { series.update({ time:A.et(x.t).disp, open:x.o + bs, high:x.h + bs, low:x.l + bs, close:x.c + bs }); } catch(e){}
+      $('px').textContent = fmtP(px + bs);
       showSrc();
       return;
     }
