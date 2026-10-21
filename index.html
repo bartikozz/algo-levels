@@ -375,7 +375,7 @@ async function loadGex(){
   if (L.gex0 || L.maxchg) jobs.zero = api('/gex/NQ_NDX/classic/gex_zero');
   if (L.gex1) jobs.one = api('/gex/NQ_NDX/classic/gex_one');
   if (L.gexFull) jobs.full = api('/gex/NQ_NDX/classic/gex_full');
-  if (L.qqq || L.qqqMain) jobs.qqq = api('/gex/QQQ/classic/gex_full');
+  if (L.qqq || L.qqqMain) jobs.qqq = api('/gex/QQQ/classic/gex_zero'); // 0DTE only
   if (L.maxchg) jobs.mx = api('/gex/NQ_NDX/classic/gex_zero/maxchange');
   const keys = Object.keys(jobs);
   const res = await Promise.allSettled(keys.map(k => jobs[k]));
