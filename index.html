@@ -16,7 +16,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script src="levels.js?v=18"></script>
-<script src="bias.js?v=1"></script>
+<script src="bias.js?v=2"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -204,7 +204,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <div class="sfil" id="bHor"><button data-h="1" class="on">NY session</button><button data-h="5">Týden (5 sessions)</button></div>
   <div id="bBody"><p class="hint">Načítám data (FRED, CFTC, QQQ 5 let)…</p></div>
   <div class="btns"><button id="bReload">Obnovit data</button><button id="bClose2">Zavřít</button></div>
-  <p class="hint">Každý faktor se počítá jen z dat, která byla v daný den ráno už veřejná (H.4.1 od pátku, RRP a HY od dalšího dne, COT od pondělí). Pro každý stav faktoru se na ~5 letech QQQ (RTH open→close) změří, jak často session skončila nahoru, a sloučí se to v log-odds. Útlum λ se volí na posledních 35 % dní, na kterých se model netrénoval. Je to statistická výhoda, ne jistota.</p>
+  <p class="hint">Každý faktor se počítá jen z dat, která byla v daný den ráno už veřejná (H.4.1 od pátku, RRP a HY od dalšího dne, TGA za 2 dny, COT od pondělí). Pro každý stav faktoru se na ~5 letech QQQ (RTH open→close) změří, jak často session skončila nahoru, a sloučí se to v log-odds. Útlum λ se volí na posledních 35 % dní, na kterých se model netrénoval. Je to statistická výhoda, ne jistota.</p>
 </div></div>
 <div id="settings" class="sheet"><div class="box">
   <h3>NASTAVENÍ</h3>
@@ -824,16 +824,22 @@ async function loadBias(force){
   if (bs.busy) return; if (bs.raw && !force && Date.now() - bs.at < 3600e3) return;
   bs.busy = true;
   try {
-    const ids = ['WALCL','WTREGEN','RRPONTSYD','WRESBAL','BAMLH0A0HYM2'];
+    const ids = ['WALCL','WRESBAL','BAMLH0A0HYM2']; // via Worker (FRED); TGA + RRP come keyless from Treasury / NY Fed
+    const from = Bias.addDays(Bias.etDate(Date.now() / 1000), -365 * 5 - 60), to = Bias.etDate(Date.now() / 1000);
+    const tgaUrl = `https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/dts/operating_cash_balance?filter=record_date:gte:${from}&fields=record_date,account_type,open_today_bal,close_today_bal&page[size]=10000&sort=record_date`;
+    const rrpUrl = `https://markets.newyorkfed.org/api/rp/reverserepo/propositions/search.json?startDate=${from}&endDate=${to}`;
+    const getJ = (u, n) => fetch(u).then(r => { if (!r.ok) throw new Error(n + ' → ' + r.status); return r.json(); });
     const cotUrl = "https://publicreporting.cftc.gov/resource/gpe5-46if.json?$select=report_date_as_yyyy_mm_dd,lev_money_positions_long,lev_money_positions_short,asset_mgr_positions_long,asset_mgr_positions_short,open_interest_all&$where=cftc_contract_market_code='209742'&$order=report_date_as_yyyy_mm_dd&$limit=2000";
-    const [fr, cot, q] = await Promise.all([
-      Promise.all(ids.map(id => apiText('/fred/' + id).then(Bias.parseFred))),
-      fetch(cotUrl).then(r => { if (!r.ok) throw new Error('CFTC → ' + r.status); return r.json(); }),
+    const [fr, cot, q, tga, rrp] = await Promise.all([
+      Promise.all(ids.map(id => apiText('/fred/' + id).then(Bias.parseFred).catch(() => []))), // FRED optional
+      getJ(cotUrl, 'CFTC'),
       api('/yf/QQQ?interval=1d&range=5y'),
+      getJ(tgaUrl, 'Treasury').then(j => Bias.parseTga(j.data)),
+      getJ(rrpUrl, 'NY Fed').then(Bias.parseRrp),
     ]);
-    const fred = { WALCL:fr[0], WTREGEN:fr[1], RRPONTSYD:fr[2], WRESBAL:fr[3], HY:fr[4] };
+    const fred = { WALCL:fr[0], WRESBAL:fr[1], HY:fr[2] };
     const empty = ids.filter((id, i) => !fr[i].length);
-    bs.raw = { fred, cot:Bias.parseCot(cot), qqq:A.parseYF(q), empty };
+    bs.raw = { fred, tga, rrp, cot:Bias.parseCot(cot), qqq:A.parseYF(q), empty };
     bs.at = Date.now();
   } finally { bs.busy = false; }
 }
@@ -879,7 +885,7 @@ function renderBias(){
      + ` Vzorek celkem ${r.samples} dní od ${r.from}.</p>`;
   const F = r.fresh, d = x => x ? x.slice(5).split('-').reverse().join('.') : '—';
   h += `<div class="bfresh"><span>H.4.1 ${d(F.h41)}</span><span>RRP ${d(F.rrp)}</span><span>TGA ${d(F.tga)}</span><span>HY OAS ${d(F.hy)}</span><span>COT ${d(F.cot)}</span></div>`;
-  if (bs.raw.empty.length) h += `<p class="hint" style="color:var(--short)">Chybí data: ${bs.raw.empty.join(', ')}</p>`;
+  if (bs.raw.empty.length) h += `<p class="hint" style="color:var(--gold)">Z FRED zatím nejdou: ${bs.raw.empty.join(', ')} (rozvaha Fedu, rezervy, HY spread). Chybí FRED API klíč ve Workeru – zbytek modelu běží bez nich.</p>`;
   B.innerHTML = h;
 }
 async function openBias(force){

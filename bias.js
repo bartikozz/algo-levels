@@ -18,6 +18,10 @@
   // FRED graph CSV: "observation_date,ID\n2024-01-03,123.4\n" ('.' or '' = missing)
   function parseFred(csv) {
     const out = [];
+    if (/^\s*\{/.test(csv)) { // FRED API JSON {observations:[{date,value}]}
+      try { for (const o of JSON.parse(csv).observations || []) { const x = parseFloat(o.value); if (Number.isFinite(x)) out.push({ d: o.date, v: x }); } } catch (e) {}
+      return out;
+    }
     for (const line of String(csv || '').split(/\r?\n/).slice(1)) {
       const [d, v] = line.split(',');
       const x = parseFloat(v);
@@ -32,6 +36,30 @@
     const k = last > typicalBn * 50 ? 1 / 1000 : 1;
     return rows.map(r => ({ d: r.d, v: r.v * k }));
   };
+  // Treasury Daily Statement → TGA closing balance (bn); account naming changed over the years
+  function parseTga(rows) {
+    const by = new Map();
+    for (const r of rows || []) {
+      const d = r.record_date, t = r.account_type || '';
+      let v = null, pr = 0;
+      if (/TGA\) Closing Balance/.test(t)) { v = +r.open_today_bal; pr = 3; }
+      else if (t === 'Treasury General Account (TGA)') { v = +r.close_today_bal; pr = 2; }
+      else if (t === 'Federal Reserve Account') { v = +r.close_today_bal; pr = 1; }
+      if (!Number.isFinite(v) || !pr) continue;
+      const cur = by.get(d); if (!cur || pr > cur.pr) by.set(d, { v: v / 1000, pr });
+    }
+    return [...by].map(([d, x]) => ({ d, v: x.v })).sort((a, b) => a.d < b.d ? -1 : 1);
+  }
+  // NY Fed ON RRP operations → daily total accepted (bn)
+  function parseRrp(j) {
+    const by = new Map();
+    for (const o of (j && j.repo && j.repo.operations) || []) {
+      if (!/Reverse Repo/i.test(o.operationType || '')) continue;
+      const d = o.operationDate, v = +o.totalAmtAccepted;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d) && Number.isFinite(v)) by.set(d, (by.get(d) || 0) + v / 1e9);
+    }
+    return [...by].map(([d, v]) => ({ d, v })).sort((a, b) => a.d < b.d ? -1 : 1);
+  }
   function parseCot(rows) {
     return (rows || []).map(r => ({
       d: String(r.report_date_as_yyyy_mm_dd || '').slice(0, 10),
@@ -60,20 +88,23 @@
     const walcl = asOf(src.WALCL, 2), tga = asOf(src.WTREGEN, 2), rrp = asOf(src.RRPONTSYD, 1);
     const res = asOf(src.WRESBAL, 2), hy = asOf(src.HY, 1), cot = asOf(src.COT.map(r => ({ d: r.d, v: r })), 6);
     // net liquidity = Fed balance sheet − TGA − RRP (bn), evaluated as of a date
-    const netAt = S => { const a = walcl(S), b = tga(S), c = rrp(S); return a && b && c ? a.row.v - b.row.v - c.row.v : null; };
+    // (if WALCL is unavailable, the slow-moving Fed balance sheet is treated as constant)
+    const hasW = src.WALCL.length > 0;
+    const netAt = S => { const a = hasW ? walcl(S) : { row: { v: 0 } }, b = tga(S), c = rrp(S); return a && b && c ? a.row.v - b.row.v - c.row.v : null; };
+    const at = fn => S => { const h = fn(S); return h ? h.row.v : null; };
     const chg = (fn, S, days) => { const a = fn(S), b = fn(addDays(S, -days)); return a == null || b == null ? null : a - b; };
     const val = h => h ? h.row.v : null;
 
     F.push({ id: 'nl1w', name: 'Net likvidita 1 týden', unit: 'mld $', grp: 'Fed',
-      value: S => chg(netAt, S, 7), hint: 'WALCL − TGA − RRP, změna za 7 dní' });
+      value: S => chg(netAt, S, 7), hint: hasW ? 'WALCL − TGA − RRP, změna za 7 dní' : '− TGA − RRP (bez WALCL), změna za 7 dní' });
     F.push({ id: 'nl4w', name: 'Net likvidita 4 týdny', unit: 'mld $', grp: 'Fed',
       value: S => chg(netAt, S, 28), hint: 'trend likvidity za 4 týdny' });
     F.push({ id: 'res', name: 'Rezervy bank (H.4.1)', unit: 'mld $', grp: 'Fed',
       value: S => { const h = res(S), p = back(h, 1); return h && p ? h.row.v - p.v : null; }, hint: 'WRESBAL týden/týden' });
-    F.push({ id: 'rrp', name: 'Reverse repo 5 dní', unit: 'mld $', grp: 'Fed', invert: true,
-      value: S => { const h = rrp(S), p = back(h, 5); return h && p ? h.row.v - p.v : null; }, hint: 'pokles RRP = likvidita do trhu' });
-    F.push({ id: 'tga', name: 'TGA (účet Treasury)', unit: 'mld $', grp: 'Fed', invert: true,
-      value: S => { const h = tga(S), p = back(h, 1); return h && p ? h.row.v - p.v : null; }, hint: 'růst TGA = odčerpání likvidity' });
+    F.push({ id: 'rrp', name: 'Reverse repo 1 týden', unit: 'mld $', grp: 'Fed',
+      value: S => chg(at(rrp), S, 7), hint: 'NY Fed ON RRP; pokles = likvidita do trhu' });
+    F.push({ id: 'tga', name: 'TGA 1 týden', unit: 'mld $', grp: 'Fed',
+      value: S => chg(at(tga), S, 7), hint: 'Treasury DTS; růst TGA = odčerpání likvidity' });
     F.push({ id: 'hy5', name: 'HY spread 5 dní', unit: 'b.b.', grp: 'Kredit', invert: true,
       value: S => { const h = hy(S), p = back(h, 5); return h && p ? (h.row.v - p.v) * 100 : null; }, hint: 'ICE BofA HY OAS, rozšiřování = risk-off' });
     F.push({ id: 'hyl', name: 'HY spread vs 50d průměr', unit: 'b.b.', grp: 'Kredit', invert: true,
@@ -117,7 +148,7 @@
   function build(o) {
     const H = o.horizon || 1;
     const src = {
-      WALCL: toBn(o.fred.WALCL || [], 7000), WTREGEN: toBn(o.fred.WTREGEN || [], 800), RRPONTSYD: toBn(o.fred.RRPONTSYD || [], 500),
+      WALCL: toBn(o.fred.WALCL || [], 7000), WTREGEN: o.tga || toBn(o.fred.WTREGEN || [], 800), RRPONTSYD: o.rrp || toBn(o.fred.RRPONTSYD || [], 500),
       WRESBAL: toBn(o.fred.WRESBAL || [], 3000), HY: o.fred.HY || [], COT: o.cot || [],
     };
     const F = makeFactors(src);
@@ -176,8 +207,8 @@
       factors: factors.sort((a, b) => Math.abs(b.contrib) - Math.abs(a.contrib)),
       oos: { n: te.length, calls: nCall, hit: nCall ? hit / nCall : NaN, hitBase: nCall ? hitBase / nCall : NaN, lam, gain: llBase - best.ll, from: te.length ? samples[te[0]].S : null },
       samples: usable.length, from: usable.length ? samples[usable[0]].S : null,
-      fresh: { h41: last('WALCL'), rrp: last('RRPONTSYD'), tga: last('WTREGEN'), hy: last('HY'), cot: src.COT.length ? src.COT[src.COT.length - 1].d : null },
-      netLiq: (() => { const v = []; const wa = src.WALCL; for (const r of wa.slice(-60)) { const S = addDays(r.d, 2); const a = asOf(src.WALCL, 2)(S), b = asOf(src.WTREGEN, 2)(S), c = asOf(src.RRPONTSYD, 1)(S); if (a && b && c) v.push({ d: r.d, v: a.row.v - b.row.v - c.row.v }); } return v; })(),
+      fresh: { h41: last('WALCL') || last('WRESBAL'), rrp: last('RRPONTSYD'), tga: last('WTREGEN'), hy: last('HY'), cot: src.COT.length ? src.COT[src.COT.length - 1].d : null },
+      netLiq: (() => { const v = []; const wa = src.WALCL.length ? src.WALCL : src.WTREGEN.filter((r, i) => i % 5 === 0); for (const r of wa.slice(-60)) { const S = addDays(r.d, 2); const a = src.WALCL.length ? asOf(src.WALCL, 2)(S) : { row: { v: 0 } }, b = asOf(src.WTREGEN, 2)(S), c = asOf(src.RRPONTSYD, 1)(S); if (a && b && c) v.push({ d: r.d, v: a.row.v - b.row.v - c.row.v }); } return v; })(),
     };
   }
   function nextSession(S, afterClose) {
@@ -204,5 +235,5 @@
     return s;
   }
 
-  root.Bias = { parseFred, parseCot, build, commentary, etDate, addDays };
+  root.Bias = { parseFred, parseCot, parseTga, parseRrp, build, commentary, etDate, addDays };
 })(typeof window !== 'undefined' ? window : globalThis);

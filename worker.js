@@ -314,7 +314,7 @@ export default {
       }
 
       // ── FRED (no key: public graph CSV) — Fed liquidity series for the Bias tab
-      if (parts[0] === 'fred') { const id = parts[1] || ''; if (!['WALCL', 'WTREGEN', 'RRPONTSYD', 'WRESBAL', 'BAMLH0A0HYM2'].includes(id)) return json({ error: 'route not allowed' }, 400, cors); return proxy([`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}`], { 'User-Agent': 'Mozilla/5.0', Accept: 'text/csv' }, cors, 3600); }
+      if (parts[0] === 'fred') { const id = parts[1] || ''; if (!['WALCL', 'WTREGEN', 'RRPONTSYD', 'WRESBAL', 'BAMLH0A0HYM2'].includes(id)) return json({ error: 'route not allowed' }, 400, cors); return proxy([...(env.FRED_API_KEY ? [`https://api.stlouisfed.org/fred/series/observations?series_id=${id}&api_key=${env.FRED_API_KEY}&file_type=json`] : []), `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}`], { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36', Accept: '*/*' }, cors, 3600); }
       // ── Yahoo chart
       if (parts[0] === 'yf') {
         const sym = parts[1] || '';
