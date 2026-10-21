@@ -386,6 +386,12 @@ function mergeBars(){
   if (basis !== st.basis) { st.basis = basis; try { localStorage.setItem('algoLevels.basis', JSON.stringify({ b:basis, at:Date.now() })); } catch(e){} }
   for (const [k, b] of st.live) fill.set(k, { t:b.t, o:b.o + basis, h:b.h + basis, l:b.l + basis, c:b.c + basis, v:0 });
   const tail = [...fill.values()].sort((a, b) => a.t - b.t);
+  // continuous candles like GEXbot/TV: each tail bar opens at the previous close (no body gaps)
+  let pc = yf.length ? yf[yf.length - 1].c : NaN;
+  for (const b of tail) {
+    if (Number.isFinite(pc)) { b.o = pc; b.h = Math.max(b.h, pc); b.l = Math.min(b.l, pc); }
+    pc = b.c;
+  }
   st.data.bars = yf.concat(tail);
 }
 async function liveTick(){
@@ -411,10 +417,9 @@ async function liveTick(){
     // fast path (every second): only move the last candle + header; full recompute every ~5 s or on a new minute
     const now = Date.now();
     if (st.res && st.lastFull && now - st.lastFull < 4500 && k === st.lastFullK) {
-      const x = st.live.get(k);
-      const bs = st.basis || 0;
-      try { series.update({ time:A.et(x.t).disp, open:x.o + bs, high:x.h + bs, low:x.l + bs, close:x.c + bs }); } catch(e){}
-      $('px').textContent = fmtP(px + bs);
+      const x = st.data.bars[st.data.bars.length - 1]; // merged bar (basis + continuous open)
+      try { series.update({ time:A.et(x.t).disp, open:x.o, high:x.h, low:x.l, close:x.c }); } catch(e){}
+      $('px').textContent = fmtP(x.c);
       showSrc();
       return;
     }
