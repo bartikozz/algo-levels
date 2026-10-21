@@ -1,0 +1,278 @@
+//@version=6
+strategy("Multi-Sleeve Mean Reversion [NQ]", shorttitle="MSMR", overlay=true,
+     pyramiding=10, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract, commission_value=0.62,
+     slippage=1, close_entries_rule="ANY", max_bars_back=500)
+
+// ════════════════════════════════════════════════════════════════
+//  3 sleeves, each with its own trigger, holding time and exits:
+//   A — EM fade:     limit fade at ±k × VIX expected move (RTH-open anchor),
+//                     1 trade/day, trailing stop level by level
+//   B — σ Grid fade: limit fade at ±k × daily σ (Globex or RTH anchor),
+//                     only in a "good" volatility regime, fixed SL/TP
+//   C — VWAP fade:   rejection of a VWAP ±2SD band + volume spike,
+//                     target VWAP, max N trades/day
+//  Shared: daily loss limit, max contracts, no opposite-direction
+//  conflict, flatten at 15:55 ET.
+//  Recommended: NQ1!/MNQ1!, 1–5 min chart, Bar Magnifier on.
+// ════════════════════════════════════════════════════════════════
+
+const string TZ = "America/New_York"
+
+// ───────── Global
+const string gG = "Global / risk"
+entrySess  = input.session("0935-1530", "Entry window (ET)", group=gG)
+maxDayLoss = input.float(600.0, "Max daily loss ($, 0 = off)", minval=0, group=gG)
+maxCtr     = input.int(3, "Max total contracts", minval=1, group=gG)
+showLv     = input.bool(true, "Show levels", group=gG)
+
+// ───────── Sleeve A — EM fade
+const string gA = "Sleeve A — EM fade (VIX)"
+useA  = input.bool(true, "Enable", group=gA)
+qtyA  = input.int(1, "Contracts", minval=1, group=gA)
+emK   = input.float(0.5, "Fade level (× EM)", step=0.25, minval=0.25, group=gA)
+stepA = input.float(0.5, "Trail step (× EM)", step=0.25, minval=0.25, group=gA)
+stopA = input.float(20.0, "Initial stop (pts)", minval=1, group=gA)
+
+// ───────── Sleeve B — σ Grid fade
+const string gB = "Sleeve B — σ Grid fade"
+useB    = input.bool(true, "Enable", group=gB)
+qtyB    = input.int(1, "Contracts", minval=1, group=gB)
+anchorB = input.string("Globex 18:00", "Anchor", options=["Globex 18:00", "RTH 09:30"], group=gB)
+sigK    = input.float(1.0, "Fade level (× daily σ)", step=0.25, minval=0.25, group=gB)
+stopB   = input.float(15.0, "Stop (pts)", minval=1, group=gB)
+tpB     = input.float(0.5, "Target (fraction of distance back to anchor)", step=0.1, minval=0.1, maxval=1.0, group=gB)
+useReg  = input.bool(true, "Regime filter: ATR10/ATR50 in range", group=gB)
+regLo   = input.float(0.75, "  ATR ratio min", step=0.05, group=gB)
+regHi   = input.float(1.25, "  ATR ratio max", step=0.05, group=gB)
+useAdx  = input.bool(true, "Chop filter: ADX below", group=gB)
+adxMax  = input.float(25.0, "  ADX max", group=gB)
+
+// ───────── Sleeve C — VWAP band fade
+const string gC = "Sleeve C — VWAP band fade"
+useC    = input.bool(true, "Enable", group=gC)
+qtyC    = input.int(1, "Contracts", minval=1, group=gC)
+vwK     = input.float(2.0, "Band (× SD)", step=0.25, group=gC)
+volMult = input.float(1.5, "Volume > SMA20 ×", step=0.1, group=gC)
+stopC   = input.float(12.0, "Stop (pts)", minval=1, group=gC)
+maxC    = input.int(2, "Max trades / day", minval=1, group=gC)
+
+// ════════════════ Time
+inRTH    = not na(time(timeframe.period, "0930-1600", TZ))
+rthStart = inRTH and not inRTH[1]
+inGlx    = not na(time(timeframe.period, "1800-1700", TZ))
+glxStart = inGlx and not inGlx[1]
+inEntry  = not na(time(timeframe.period, entrySess, TZ))
+minsET   = hour(time, TZ) * 60 + minute(time, TZ)
+flatNow  = minsET >= 15 * 60 + 55 and minsET < 18 * 60
+
+// ════════════════ Data (no repaint: previous daily values)
+vixPrev = request.security("CBOE:VIX", "D", close[1], lookahead=barmerge.lookahead_on)
+[atr10, atr50, sdRet] = request.security(syminfo.tickerid, "D",
+     [ta.atr(10)[1], ta.atr(50)[1], ta.stdev(math.log(close / close[1]), 20)[1]],
+     lookahead=barmerge.lookahead_on)
+[diP, diM, adx] = ta.dmi(14, 14)
+[vw, vwU, vwL]  = ta.vwap(hlc3, rthStart, vwK)
+volOK = volume > ta.sma(volume, 20) * volMult
+
+// ════════════════ Daily state
+var float rthOpen = na
+var float em      = na
+var float ancB    = na
+var float sigPts  = na
+var bool  doneA   = false
+var bool  doneB   = false
+var int   cntC    = 0
+var float dayEq0  = 0.0
+var bool  halted  = false
+
+if rthStart
+    rthOpen := open
+    em      := rthOpen * vixPrev / 100.0 / 15.87
+    doneA   := false
+    doneB   := false
+    cntC    := 0
+    dayEq0  := strategy.netprofit
+    halted  := false
+
+if (anchorB == "Globex 18:00" ? glxStart : rthStart)
+    ancB   := open
+    sigPts := ancB * sdRet
+
+// ════════════════ Helpers
+sleevePos(string pre) =>
+    float s = 0.0
+    if strategy.opentrades > 0
+        for i = 0 to strategy.opentrades - 1
+            if str.startswith(strategy.opentrades.entry_id(i), pre)
+                s += strategy.opentrades.size(i)
+    s
+
+sleeveEntry(string pre) =>
+    float px = na
+    if strategy.opentrades > 0
+        for i = 0 to strategy.opentrades - 1
+            if na(px) and str.startswith(strategy.opentrades.entry_id(i), pre)
+                px := strategy.opentrades.entry_price(i)
+    px
+
+// no opposite-direction conflict + contract cap
+canL(float q) => strategy.position_size >= 0 and math.abs(strategy.position_size) + q <= maxCtr
+canS(float q) => strategy.position_size <= 0 and math.abs(strategy.position_size) + q <= maxCtr
+
+posA = sleevePos("A_")
+posB = sleevePos("B_")
+posC = sleevePos("C_")
+
+// ════════════════ Risk
+dayPnL = strategy.netprofit + strategy.openprofit - dayEq0
+if inRTH and not halted and maxDayLoss > 0 and dayPnL <= -maxDayLoss
+    halted := true
+killAll = halted or flatNow
+tradeOK = inEntry and not killAll
+
+// ════════════════ Sleeve A — EM fade
+upA = rthOpen + emK * em
+dnA = rthOpen - emK * em
+if posA != 0
+    doneA := true
+
+if useA and tradeOK and not doneA and posA == 0 and not na(em)
+    if close > dnA and canL(qtyA)
+        strategy.entry("A_L", strategy.long, qtyA, limit=dnA)
+        strategy.exit("A_Lx", from_entry="A_L", stop=dnA - stopA)
+    else
+        strategy.cancel("A_L")
+    if close < upA and canS(qtyA)
+        strategy.entry("A_S", strategy.short, qtyA, limit=upA)
+        strategy.exit("A_Sx", from_entry="A_S", stop=upA + stopA)
+    else
+        strategy.cancel("A_S")
+else
+    strategy.cancel("A_L")
+    strategy.cancel("A_S")
+
+// trailing: stop sits one EM step behind the furthest level reached
+var float extA = na
+if posA == 0
+    extA := na
+else if posA > 0
+    extA := na(extA) ? high : math.max(extA, high)
+else
+    extA := na(extA) ? low : math.min(extA, low)
+
+stepPts = stepA * em
+eIdx    = int(math.round(emK / stepA))
+if posA > 0 and stepPts > 0
+    entA = sleeveEntry("A_")
+    stp  = entA - stopA
+    k    = int(math.floor((extA - rthOpen) / stepPts))
+    if k - 1 >= -eIdx
+        stp := math.max(stp, rthOpen + (k - 1) * stepPts)
+    strategy.exit("A_Lx", from_entry="A_L", stop=stp)
+if posA < 0 and stepPts > 0
+    entA = sleeveEntry("A_")
+    stp  = entA + stopA
+    k    = int(math.ceil((extA - rthOpen) / stepPts))
+    if k + 1 <= eIdx
+        stp := math.min(stp, rthOpen + (k + 1) * stepPts)
+    strategy.exit("A_Sx", from_entry="A_S", stop=stp)
+
+// ════════════════ Sleeve B — σ Grid fade
+upB   = ancB + sigK * sigPts
+dnB   = ancB - sigK * sigPts
+tgtB  = tpB * sigK * sigPts
+ratio = atr50 > 0 ? atr10 / atr50 : na
+regOK = (not useReg or (ratio >= regLo and ratio <= regHi)) and (not useAdx or adx < adxMax)
+if posB != 0
+    doneB := true
+
+if useB and tradeOK and regOK and not doneB and posB == 0 and not na(sigPts)
+    if close > dnB and canL(qtyB)
+        strategy.entry("B_L", strategy.long, qtyB, limit=dnB)
+    else
+        strategy.cancel("B_L")
+    if close < upB and canS(qtyB)
+        strategy.entry("B_S", strategy.short, qtyB, limit=upB)
+    else
+        strategy.cancel("B_S")
+else
+    strategy.cancel("B_L")
+    strategy.cancel("B_S")
+
+if not na(sigPts)
+    strategy.exit("B_Lx", from_entry="B_L", stop=dnB - stopB, limit=dnB + tgtB)
+    strategy.exit("B_Sx", from_entry="B_S", stop=upB + stopB, limit=upB - tgtB)
+
+// ════════════════ Sleeve C — VWAP band fade
+longC  = low < vwL and close > vwL and volOK
+shortC = high > vwU and close < vwU and volOK
+if useC and tradeOK and posC == 0 and cntC < maxC
+    if longC and canL(qtyC)
+        strategy.entry("C_L", strategy.long, qtyC)
+        cntC += 1
+    else if shortC and canS(qtyC)
+        strategy.entry("C_S", strategy.short, qtyC)
+        cntC += 1
+
+strategy.exit("C_Lx", from_entry="C_L", loss=stopC / syminfo.mintick, limit=vw)
+strategy.exit("C_Sx", from_entry="C_S", loss=stopC / syminfo.mintick, limit=vw)
+
+// ════════════════ Kill switch (daily loss / EOD)
+if killAll
+    strategy.cancel_all()
+    if strategy.position_size != 0
+        strategy.close_all(comment = halted ? "Daily loss" : "EOD")
+
+// ════════════════ Plots
+plot(showLv and useA and inRTH ? upA : na, "A +EM", color.new(color.orange, 0), 1, plot.style_linebr)
+plot(showLv and useA and inRTH ? dnA : na, "A −EM", color.new(color.orange, 0), 1, plot.style_linebr)
+plot(showLv and useB ? upB : na, "B +σ", color.new(color.aqua, 0), 1, plot.style_linebr)
+plot(showLv and useB ? dnB : na, "B −σ", color.new(color.aqua, 0), 1, plot.style_linebr)
+plot(showLv and useC and inRTH ? vw  : na, "VWAP",   color.new(color.yellow, 0), 1, plot.style_linebr)
+plot(showLv and useC and inRTH ? vwU : na, "VWAP +", color.new(color.yellow, 60), 1, plot.style_linebr)
+plot(showLv and useC and inRTH ? vwL : na, "VWAP −", color.new(color.yellow, 60), 1, plot.style_linebr)
+bgcolor(halted ? color.new(color.red, 85) : na, title="Halted")
+
+// ════════════════ Per-sleeve stats
+sleeveStats(string pre) =>
+    int   n   = 0
+    int   w   = 0
+    float net = 0.0
+    float gw  = 0.0
+    float gl  = 0.0
+    if strategy.closedtrades > 0
+        for i = 0 to strategy.closedtrades - 1
+            if str.startswith(strategy.closedtrades.entry_id(i), pre)
+                p = strategy.closedtrades.profit(i)
+                n   += 1
+                net += p
+                if p > 0
+                    w  += 1
+                    gw += p
+                else
+                    gl -= p
+    [n, w, net, gw, gl]
+
+if barstate.islast
+    var table tb = table.new(position.top_right, 5, 5, bgcolor=color.new(color.black, 15), border_width=1)
+    hdr = array.from("Sleeve", "Trades", "Win %", "Net $", "PF")
+    for [c, h] in hdr
+        table.cell(tb, c, 0, h, text_color=color.white, bgcolor=color.new(color.gray, 40), text_size=size.small)
+    pres  = array.from("A_", "B_", "C_")
+    names = array.from("A · EM", "B · σ", "C · VWAP")
+    for [i, pre] in pres
+        [n, w, net, gw, gl] = sleeveStats(pre)
+        r = i + 1
+        table.cell(tb, 0, r, names.get(i), text_color=color.white, text_size=size.small)
+        table.cell(tb, 1, r, str.tostring(n), text_color=color.white, text_size=size.small)
+        table.cell(tb, 2, r, n > 0 ? str.tostring(100.0 * w / n, "#.0") + "%" : "–", text_color=color.white, text_size=size.small)
+        table.cell(tb, 3, r, str.tostring(net, "#,##0"), text_color=net >= 0 ? color.lime : color.red, text_size=size.small)
+        table.cell(tb, 4, r, gl > 0 ? str.tostring(gw / gl, "#.00") : "–", text_color=color.white, text_size=size.small)
+    totNet = strategy.netprofit
+    table.cell(tb, 0, 4, "Total", text_color=color.white, text_size=size.small)
+    table.cell(tb, 1, 4, str.tostring(strategy.closedtrades), text_color=color.white, text_size=size.small)
+    table.cell(tb, 2, 4, strategy.closedtrades > 0 ? str.tostring(100.0 * strategy.wintrades / strategy.closedtrades, "#.0") + "%" : "–", text_color=color.white, text_size=size.small)
+    table.cell(tb, 3, 4, str.tostring(totNet, "#,##0"), text_color=totNet >= 0 ? color.lime : color.red, text_size=size.small)
+    table.cell(tb, 4, 4, strategy.grossloss > 0 ? str.tostring(strategy.grossprofit / strategy.grossloss, "#.00") : "–", text_color=color.white, text_size=size.small)

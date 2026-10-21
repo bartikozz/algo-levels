@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07080a">
+<title>Algo Levels · Jak to funguje</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
+  --text:#e6e8eb; --soft:#b4bac3; --muted:#6b7280; --dim:#3f4550;
+  --short:#f05a6e; --long:#2fc59f; --gold:#c9a66b; --zg:#e3b341;
+  --call:#5fb3c6; --put:#c77dba; --vol:#8fa3d9; --vp:#9aa0a8; --chg:#e7895a;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,monospace; --sans:'Inter',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+body{font-family:var(--sans);font-size:15px;line-height:1.65;padding-bottom:env(safe-area-inset-bottom)}
+a{color:var(--gold);text-decoration:none;border-bottom:1px solid rgba(201,166,107,.35)}
+a:hover{border-bottom-color:var(--gold)}
+code,.mono{font-family:var(--mono);font-size:.88em}
+code{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--soft)}
+
+header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;
+  padding:calc(12px + env(safe-area-inset-top)) 16px 12px;background:rgba(7,8,10,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.brand{font-family:var(--mono);font-weight:700;letter-spacing:.18em;font-size:13px}
+.brand span{color:var(--muted);font-weight:500;margin-left:6px}
+header a.back{margin-left:auto;font-family:var(--mono);font-size:12px;border:1px solid var(--line2);border-radius:6px;padding:6px 10px;color:var(--text)}
+
+nav.toc{display:flex;gap:6px;overflow-x:auto;padding:10px 16px;border-bottom:1px solid var(--line);scrollbar-width:none}
+nav.toc::-webkit-scrollbar{display:none}
+nav.toc a{flex:none;font-family:var(--mono);font-size:12px;color:var(--muted);border:1px solid var(--line2);border-radius:6px;padding:5px 9px}
+nav.toc a:hover{color:var(--text)}
+
+main{max-width:880px;margin:0 auto;padding:0 16px 64px}
+.hero{padding:40px 0 28px;border-bottom:1px solid var(--line)}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--gold);text-transform:uppercase}
+h1{font-size:clamp(28px,6vw,40px);line-height:1.15;letter-spacing:-.02em;margin:10px 0 14px;font-weight:700}
+.lead{color:var(--soft);font-size:17px;max-width:680px}
+section{scroll-margin-top:110px;padding:40px 0 8px;border-bottom:1px solid var(--line)}
+section:last-of-type{border-bottom:0}
+h2{font-size:22px;letter-spacing:-.01em;margin-bottom:6px;font-weight:700}
+h2 .n{font-family:var(--mono);font-size:12px;color:var(--muted);font-weight:500;margin-right:10px;vertical-align:3px}
+.sub{color:var(--muted);margin-bottom:20px}
+h3{font-size:15px;margin:22px 0 8px;font-weight:700}
+p{margin-bottom:12px;color:var(--soft)}
+p strong,li strong{color:var(--text)}
+ul{margin:0 0 14px 18px;color:var(--soft)}
+li{margin-bottom:6px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin:14px 0 18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.card .k{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:6px}
+.card .v{font-size:15px;color:var(--text);font-weight:500}
+.card p{margin:6px 0 0;font-size:14px}
+
+.diagram{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin:14px 0 18px;overflow-x:auto}
+.diagram svg{display:block;min-width:640px;width:100%;height:auto}
+
+table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:14px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--muted);font-weight:500;text-transform:uppercase}
+td{color:var(--soft)}
+td.w{font-family:var(--mono);color:var(--text);white-space:nowrap}
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+.chip{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 6px;border:1px solid var(--line2);border-radius:3px;color:var(--muted);white-space:nowrap;margin:1px 2px 1px 0}
+.chip.call{color:var(--call)} .chip.put{color:var(--put)} .chip.zg{color:var(--zg)} .chip.vol{color:var(--vol)}
+.chip.vp{color:var(--vp)} .chip.qqq{color:var(--gold)} .chip.chg{color:var(--chg)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:1px}
+
+.timeline{position:relative;margin:16px 0 18px;padding-left:22px}
+.timeline:before{content:"";position:absolute;left:6px;top:6px;bottom:6px;width:1px;background:var(--line2)}
+.tl{position:relative;margin-bottom:16px}
+.tl:before{content:"";position:absolute;left:-20px;top:7px;width:9px;height:9px;border-radius:50%;background:var(--bg);border:2px solid var(--gold)}
+.tl .t{font-family:var(--mono);font-size:12px;color:var(--gold)}
+.tl .h{font-weight:700;color:var(--text);margin:2px 0}
+.tl p{margin:0;font-size:14px}
+
+.note{border-left:2px solid var(--gold);background:linear-gradient(90deg,rgba(201,166,107,.07),transparent);padding:12px 14px;border-radius:0 8px 8px 0;margin:14px 0 18px;color:var(--soft);font-size:14px}
+.note.warn{border-left-color:var(--short);background:linear-gradient(90deg,rgba(240,90,110,.07),transparent)}
+
+.zone{position:relative;height:120px;margin:12px 0 18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.zone .w{position:absolute;left:0;right:0;top:20px;height:80px;background:rgba(201,166,107,.08);border-top:1px dotted rgba(201,166,107,.5);border-bottom:1px dotted rgba(201,166,107,.5)}
+.zone .s{position:absolute;left:0;right:0;top:42px;height:36px;background:rgba(201,166,107,.16);border-top:1px dashed rgba(201,166,107,.8);border-bottom:1px dashed rgba(201,166,107,.8)}
+.zone .m{position:absolute;left:0;right:0;top:59px;height:3px;background:var(--gold)}
+.zone .lbl{position:absolute;right:10px;font-family:var(--mono);font-size:11px}
+.links{display:grid;gap:8px;margin:14px 0}
+.links a{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid var(--line2);border-radius:8px;padding:12px 14px;color:var(--text);background:var(--panel)}
+.links a span{font-family:var(--mono);font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">ALGO<span>LEVELS</span></div>
+  <a class="back" href="./">← Terminál</a>
+</header>
+<nav class="toc">
+  <a href="#prehled">Přehled</a><a href="#architektura">Architektura</a><a href="#den">Den v praxi</a>
+  <a href="#vrstvy">Vrstvy levelů</a><a href="#skore">Skóre &amp; stav</a><a href="#major">★ Hlavní walls</a>
+  <a href="#em">Expected move</a><a href="#vcera">Včerejší levely</a><a href="#tv">TradingView</a>
+  <a href="#sleeve">Multi-sleeve algo</a><a href="#limity">Limity</a><a href="#odkazy">Odkazy</a>
+</nav>
+
+<main>
+<div class="hero">
+  <div class="eyebrow">Dokumentace · říjen 2026</div>
+  <h1>Algo Levels: options levely pro NQ na jedné obrazovce</h1>
+  <p class="lead">Terminál, který každých 5 sekund spojí options data z GEXbotu s tvými vlastními vrstvami (VXN expected move, σ Grid, volume profile, QQQ strikes) do seznamu confluence levelů se směrem, stavem a alerty. Inspirace: tool od pendqnt. Postavené za jedno dopoledne.</p>
+</div>
+
+<section id="prehled">
+  <h2><span class="n">01</span>Co to dělá</h2>
+  <p class="sub">Čtyři otázky, na které terminál odpovídá v každém okamžiku.</p>
+  <div class="grid">
+    <div class="card"><div class="k">Kde</div><div class="v">Které ceny jsou důležité</div><p>GEX walls, zero gamma, EM, σ, POC a QQQ strikes slité do jednoho seznamu.</p></div>
+    <div class="card"><div class="k">Jak silné</div><div class="v">Confluence skóre</div><p>Čím víc vrstev se sejde do ±10 bodů, tím vyšší skóre.</p></div>
+    <div class="card"><div class="k">Kterým směrem</div><div class="v">▼ Short / ▲ Long</div><p>Level nad cenou = fade short, pod cenou = fade long. Badge ±γ říká, jestli fade vůbec dává smysl.</p></div>
+    <div class="card"><div class="k">Co se stalo</div><div class="v">Stav levelu</div><p>Untested → Testing → Reacted / Broken, s časem a počtem reakcí.</p></div>
+  </div>
+</section>
+
+<section id="architektura">
+  <h2><span class="n">02</span>Architektura</h2>
+  <p class="sub">Tři kusy, všechny zdarma kromě GEXbot předplatného.</p>
+  <div class="diagram" role="img" aria-label="GEXbot a Yahoo posílají data do Cloudflare Workeru, ten je předává terminálu na GitHub Pages; Worker každý den ukládá snapshot do KV.">
+    <svg viewBox="0 0 760 300" xmlns="http://www.w3.org/2000/svg" font-family="JetBrains Mono, monospace">
+      <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker></defs>
+      <g font-size="12">
+        <rect x="16" y="40" width="170" height="70" rx="10" fill="#12151a" stroke="#262b33"/>
+        <text x="32" y="68" fill="#e6e8eb" font-weight="700">GEXbot API</text>
+        <text x="32" y="90" fill="#6b7280" font-size="11">NQ_NDX 0DTE/1DTE/full</text>
+        <text x="32" y="104" fill="#6b7280" font-size="11">QQQ full · majors</text>
+        <rect x="16" y="150" width="170" height="70" rx="10" fill="#12151a" stroke="#262b33"/>
+        <text x="32" y="178" fill="#e6e8eb" font-weight="700">Yahoo</text>
+        <text x="32" y="200" fill="#6b7280" font-size="11">NQ 1m + denní</text>
+        <text x="32" y="214" fill="#6b7280" font-size="11">VXN · VIX denní</text>
+
+        <rect x="290" y="80" width="190" height="110" rx="10" fill="#12151a" stroke="#c9a66b"/>
+        <text x="306" y="108" fill="#c9a66b" font-weight="700">Cloudflare Worker</text>
+        <text x="306" y="130" fill="#b4bac3" font-size="11">API klíč jako secret</text>
+        <text x="306" y="146" fill="#b4bac3" font-size="11">CORS + whitelist</text>
+        <text x="306" y="162" fill="#b4bac3" font-size="11">cache 4–20 s</text>
+        <text x="306" y="178" fill="#b4bac3" font-size="11">access token</text>
+
+        <rect x="290" y="232" width="190" height="52" rx="10" fill="#12151a" stroke="#262b33"/>
+        <text x="306" y="256" fill="#e6e8eb" font-weight="700">KV algo-snap</text>
+        <text x="306" y="274" fill="#6b7280" font-size="11">snapshot po close (cron)</text>
+
+        <rect x="580" y="80" width="164" height="110" rx="10" fill="#12151a" stroke="#262b33"/>
+        <text x="596" y="108" fill="#e6e8eb" font-weight="700">Terminál</text>
+        <text x="596" y="130" fill="#b4bac3" font-size="11">GitHub Pages</text>
+        <text x="596" y="146" fill="#b4bac3" font-size="11">levels.js engine</text>
+        <text x="596" y="162" fill="#b4bac3" font-size="11">graf · seznam</text>
+        <text x="596" y="178" fill="#b4bac3" font-size="11">alerty · TV export</text>
+      </g>
+      <g stroke="#6b7280" stroke-width="1.4" fill="none" marker-end="url(#a)">
+        <path d="M186 75 C 240 75, 240 115, 288 115"/>
+        <path d="M186 185 C 240 185, 240 155, 288 155"/>
+        <path d="M480 135 L 578 135"/>
+        <path d="M385 190 L 385 230"/>
+      </g>
+      <text x="500" y="126" fill="#6b7280" font-size="10" font-family="JetBrains Mono, monospace">každých 5 s</text>
+      <text x="392" y="214" fill="#6b7280" font-size="10" font-family="JetBrains Mono, monospace">22:10 / 23:10</text>
+    </svg>
+  </div>
+  <ul>
+    <li><strong>Worker</strong> je jediné místo, kde žije GEXbot klíč. Do prohlížeče se nikdy nedostane; terminál se Workeru prokazuje <code>ACCESS_TOKEN</code>em.</li>
+    <li><strong>Terminál</strong> je statická stránka. Veškerý výpočet (shlukování, skóre, stav) běží v prohlížeči v <code>levels.js</code>.</li>
+    <li><strong>KV snapshot</strong>: v pracovní dny po close Worker uloží GEX levely dne, aby šly druhý den ukázat jako „včerejší“.</li>
+  </ul>
+</section>
+
+<section id="den">
+  <h2><span class="n">03</span>Den v praxi</h2>
+  <p class="sub">Časy v našem čase (CET/CEST, NY je o 6 h pozadu).</p>
+  <div class="timeline">
+    <div class="tl"><div class="t">ráno – 15:30</div><div class="h">Orientace</div>
+      <p>GEX data jsou ze včerejšího close (badge <code>GEX z … · trh zavřen</code>). 0DTE walls už expirovaly – ber je jen orientačně. EM platí ze včerejšího RTH openu. Spolehlivé: full-chain walls, σ, pPOC, EM.</p></div>
+    <div class="tl"><div class="t">15:30</div><div class="h">RTH open</div>
+      <p>Badge přepne na <code>LIVE</code>, přijdou čerstvé 0DTE levely, EM se přepočítá na dnešní RTH open, včerejší GEX přejde do šedé sekce. Klikni „⧉ TradingView“ a vlož levely do TV.</p></div>
+    <div class="tl"><div class="t">15:30 – 22:00</div><div class="h">Obchodování</div>
+      <p>Cena se obnovuje každých 5 s. Alerty: level se skóre ≥ 4 do 8 b., a vždy ★ hlavní QQQ walls. Kolem poledne NY (18:00) znovu exportuj do TV – 0DTE walls se hýbou.</p></div>
+    <div class="tl"><div class="t">22:10 / 23:10</div><div class="h">Snapshot</div>
+      <p>Worker uloží dnešní levely do KV. Zítra je uvidíš jako „Včerejší levely“.</p></div>
+  </div>
+</section>
+
+<section id="vrstvy">
+  <h2><span class="n">04</span>Vrstvy levelů</h2>
+  <p class="sub">Každý kandidát má váhu. Váhy se v clusteru sčítají do skóre.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Vrstva</th><th>Tag</th><th>Váha</th><th>Zdroj</th></tr></thead>
+    <tbody>
+      <tr><td>0DTE call / put walls 1–3</td><td><span class="chip call">0DTE CW 1</span><span class="chip put">0DTE PW 1</span></td><td class="w">3 · 2 · 1.5</td><td>NQ_NDX gex_zero, GEX z objemu</td></tr>
+      <tr><td>0DTE zero gamma</td><td><span class="chip zg">0DTE ZG</span></td><td class="w">2</td><td>gex_zero</td></tr>
+      <tr><td>1DTE walls 1–2</td><td><span class="chip call">1DTE CW 1</span></td><td class="w">2 · 1</td><td>gex_one</td></tr>
+      <tr><td>Full chain walls 1–3</td><td><span class="chip call">CW 1</span><span class="chip put">PW 1</span></td><td class="w">2.5 · 1.5 · 1</td><td>gex_full</td></tr>
+      <tr><td>Full chain zero gamma</td><td><span class="chip zg">ZG</span></td><td class="w">2.5</td><td>gex_full</td></tr>
+      <tr><td>Major OI walls</td><td><span class="chip call">OI CW</span><span class="chip put">OI PW</span></td><td class="w">2</td><td>gex_full</td></tr>
+      <tr><td>Největší změna GEX za 15 min</td><td><span class="chip chg">ΔGEX 15m</span></td><td class="w">1.5</td><td>gex_zero/maxchange</td></tr>
+      <tr><td>QQQ walls (jen strike 0/5)</td><td><span class="chip qqq">QQQ CW 715</span></td><td class="w">2 · 1</td><td>QQQ gex_full × živý poměr NQ/QQQ</td></tr>
+      <tr><td>QQQ main levely 0/5</td><td><span class="chip qqq">QQQ 710</span></td><td class="w">1</td><td>±2 % od spotu</td></tr>
+      <tr><td>Expected move</td><td><span class="chip vol">EM Ref</span><span class="chip vol">EM +½</span><span class="chip vol">EM −1.5</span></td><td class="w">1.5 · ±1.5: 1</td><td>VXN × 0.8, RTH open</td></tr>
+      <tr><td>σ Grid</td><td><span class="chip vol">σ +1</span><span class="chip vol">σ −½</span></td><td class="w">1.5 · 1</td><td>20denní σ log-výnosů, Globex open</td></tr>
+      <tr><td>Včerejší volume profile</td><td><span class="chip vp">pPOC</span><span class="chip vp">pVAH</span><span class="chip vp">pVAL</span></td><td class="w">1.5 · 1</td><td>RTH předchozího dne, 70 %</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>Proč NQ_NDX:</strong> GEXbot tenhle feed sám převádí na cenu front-month NQ futures (live basis model), takže strikes sedí rovnou na tvůj graf.</p>
+</section>
+
+<section id="skore">
+  <h2><span class="n">05</span>Skóre, směr a stav</h2>
+  <h3>Confluence</h3>
+  <p>Kandidáti do <strong>10 bodů</strong> od sebe tvoří jeden level (cluster max. 20 b. široký). Cena levelu = nejsilnější člen, při shodě vyhrává options strike. Skóre = součet vah. Zobrazuje se skóre ≥ 3; EM levely vždy.</p>
+  <div class="grid">
+    <div class="card"><div class="k">Skóre 3–5</div><p>Jedna silná vrstva nebo dvě slabší. Orientační.</p></div>
+    <div class="card"><div class="k">Skóre 5–7</div><p>Plná čára v grafu. Typicky wall + σ/EM.</p></div>
+    <div class="card"><div class="k">Skóre 7+</div><p>Tlustá čára. Více options vrstev + objem. Nejlepší místa pro fade s footprint potvrzením.</p></div>
+  </div>
+  <div class="note">Mimo trh může skóre vyletět (např. 20+), protože všechny GEX vrstvy jsou ze stejného close a slévají se. Hodnoť to až s živými daty.</div>
+  <h3>Režim gammy</h3>
+  <p>Badge vpravo nahoře podle znaménka net GEX 0DTE: <strong style="color:var(--long)">+γ · fade</strong> = dealeři tlumí pohyb, mean reversion platí. <strong style="color:var(--short)">−γ · trend</strong> = dealeři pohyb zesilují, fade jen s potvrzením a počítej s průrazem.</p>
+  <h3>Stav levelu (z dnešních RTH barů)</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Stav</th><th>Význam</th></tr></thead>
+    <tbody>
+      <tr><td><span class="dot" style="background:var(--dim)"></span>Untested</td><td>Cena se dnes do zóny ±3 b. nedostala.</td></tr>
+      <tr><td><span class="dot" style="background:var(--long)"></span>Testing</td><td>Cena je teď v zóně a ještě se nerozhodlo.</td></tr>
+      <tr><td><span class="dot" style="background:var(--gold)"></span>Reacted HH:MM ×N</td><td>Po dotyku do 15 barů odskok ≥ 15 b. bez close za levelem. ×N = kolikrát.</td></tr>
+      <tr><td><span class="dot" style="background:var(--short)"></span>Broken HH:MM</td><td>Close za levelem o víc než 6 b.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Všechny prahy (cluster, touch, break, reakce, lookahead) jdou změnit v ⚙.</p>
+</section>
+
+<section id="major">
+  <h2><span class="n">06</span>★ Hlavní QQQ walls</h2>
+  <p class="sub">Stejná logika jako tvůj indikátor „QQQ → NQ Main Levels“.</p>
+  <p>Z QQQ chainu se vezme <strong>největší call wall a největší put wall</strong> podle OI GEX – ale jen ze strikes končících na <strong>0 nebo 5</strong> (710, 715, 720…). Převedou se na NQ živým poměrem NQ/QQQ (~41.5) a dostanou dvě zóny:</p>
+  <div class="zone" aria-label="Schéma zón kolem hlavní wall">
+    <div class="w"></div><div class="s"></div><div class="m"></div>
+    <span class="lbl" style="top:6px;color:#b4bac3">slabá zóna ±0.5 QQQ ≈ ±21 b.</span>
+    <span class="lbl" style="top:28px;color:var(--gold)">silná zóna ±10 b.</span>
+    <span class="lbl" style="top:43px;left:10px;right:auto;color:var(--gold);font-weight:700">★ QQQ CW 715 → NQ</span>
+  </div>
+  <ul>
+    <li><strong>Alert vždy</strong>, bez ohledu na skóre: při vstupu do slabé zóny jedno pípnutí, do silné dvojité + notifikace, která zůstane na obrazovce.</li>
+    <li>Znovu se ozve, až cena zónu opustí a vrátí se (max. jednou za 5 min na zónu).</li>
+    <li>Pruh pod hlavičkou ukazuje obě walls a vzdálenost; v zóně se rozsvítí zlatě. V grafu tlustá zlatá čára + hrany zón.</li>
+    <li>Vypnout nebo změnit šířku silné zóny: ⚙ → Alerty.</li>
+  </ul>
+</section>
+
+<section id="em">
+  <h2><span class="n">07</span>Expected move</h2>
+  <p>Počítá se 1:1 jako tvůj TV indikátor <strong>EM Levels</strong>:</p>
+  <p class="mono" style="color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px">EM = Ref × VXN<sub>close den před</sub> / 100 / √252 × 0.8</p>
+  <ul>
+    <li><strong>Ref</strong> = open první RTH svíčky (9:30 ET). Levely platí až do dalšího RTH openu – ráno tedy vidíš včerejší EM, přesně jako v TV.</li>
+    <li><strong>×0.8</strong> převádí 1σ na straddle EM (√(2/π) ≈ 0.8).</li>
+    <li>Ukazuje se Ref, ±½, ±1 a ±1.5 EM. Ověřeno 21. 10.: Ref 29 594 přesně, ostatní do ±1.5 b. (rozdíl v close VXN mezi Yahoo a TV).</li>
+    <li>Pro ES přepni v ⚙ na VIX.</li>
+  </ul>
+</section>
+
+<section id="vcera">
+  <h2><span class="n">08</span>Včerejší levely</h2>
+  <p>Dole pod seznamem šedá sekce a v grafu šedé tečkované čáry: 0DTE a full-chain walls + zero gamma z předchozí session. <strong>Do skóre se nepočítají</strong> – jen orientace, kde včera stály dealerské pozice.</p>
+  <p>Data pochází ze snapshotu, který Worker ukládá v pracovní dny ve 22:10 a 23:10 (Cloudflare cron <code>10 20,21 * * 2-6</code> v UTC; Cloudflare čísluje dny od neděle). Snapshoty se drží 45 dní.</p>
+</section>
+
+<section id="tv">
+  <h2><span class="n">09</span>TradingView</h2>
+  <ol style="margin:0 0 14px 18px;color:var(--soft)">
+    <li>V TV přidej indikátor <code>algo_levels_tv.pine</code> (Pine Editor → Add to chart).</li>
+    <li>V terminálu klikni <strong>⧉ TradingView</strong> – zkopíruje všechny levely.</li>
+    <li>V nastavení indikátoru vlož do „Levely z terminálu“.</li>
+    <li>Alert: Create alert → Algo Levels → „Any alert() function call“.</li>
+  </ol>
+  <p>Barvy se přepočítávají živě (nad cenou červená, pod zelená). Protože Pine neumí stahovat data z internetu, je potřeba levely vkládat ručně 1–2× za session.</p>
+</section>
+
+<section id="sleeve">
+  <h2><span class="n">10</span>Multi-sleeve mean reversion</h2>
+  <p class="sub">Pine strategie <code>multi_sleeve_mr.pine</code> pro backtest.</p>
+  <div class="grid">
+    <div class="card"><div class="k">Sleeve A</div><div class="v">EM fade</div><p>Limit na ±½ EM, 1 obchod/den, stop 20 b., trailing level po levelu.</p></div>
+    <div class="card"><div class="k">Sleeve B</div><div class="v">σ Grid fade</div><p>Limit na ±1σ, jen při ATR10/ATR50 0.75–1.25 a ADX &lt; 25.</p></div>
+    <div class="card"><div class="k">Sleeve C</div><div class="v">VWAP band fade</div><p>Odmítnutí ±2SD + volume spike, cíl VWAP, max 2/den.</p></div>
+  </div>
+  <p>Společně: denní loss limit, max kontraktů, žádný sleeve proti otevřené pozici jiného, flat v 15:55 ET. Tabulka v grafu ukazuje výsledky každého sleeve zvlášť. Postup: nejdřív každý sleeve sám, pak kombinace.</p>
+</section>
+
+<section id="limity">
+  <h2><span class="n">11</span>Limity a co dál</h2>
+  <ul>
+    <li><strong>GEXbot počítá jen v RTH</strong> (15:30–22:00). Mimo to jede cena ze Yahoo se zpožděním ~10 min.</li>
+    <li><strong>Svíčky z 5s vzorků</strong> – knoty můžou být o pár bodů kratší než na burzovním grafu.</li>
+    <li><strong>Rate limit GEXbotu</strong> není veřejný. Kdyby přišlo HTTP 429, interval 5 s se prodlouží.</li>
+    <li><strong>Nevyužito:</strong> DEX u walls (call wall s negativní DEX = rezistence, s pozitivní = průraz) – podle tvého frameworku by šel přidat jako směrový filtr. IV wall / IV peak by potřebovaly State nebo Research balíček.</li>
+    <li><strong>Plně živé svíčky</strong> by šly přes Databento ($199/měs.) – zatím zbytečné.</li>
+  </ul>
+  <div class="note warn">Bezpečnost: <code>ACCESS_TOKEN</code> zazněl v chatu. Až bude chvíle, vyměň ho v Cloudflare (Settings → Variables and Secrets) a pak v ⚙ terminálu.</div>
+</section>
+
+<section id="odkazy">
+  <h2><span class="n">12</span>Odkazy</h2>
+  <div class="links">
+    <a href="./">Terminál <span>bartikozz.github.io/algo-levels</span></a>
+    <a href="https://github.com/bartikozz/algo-levels">Zdrojový kód <span>github.com/bartikozz/algo-levels</span></a>
+    <a href="https://algo-levels.hartig-bartolomej.workers.dev/health">Stav Workeru <span>/health</span></a>
+    <a href="https://dash.cloudflare.com/">Cloudflare dashboard <span>Workers &amp; Pages → algo-levels</span></a>
+    <a href="https://www.gexbot.com/user/connections">GEXbot API klíče <span>gexbot.com/user/connections</span></a>
+  </div>
+</section>
+</main>
+<footer>Algo Levels · postaveno 20.–21. 10. 2026 · data GEXbot (osobní použití), Yahoo Finance</footer>
+</body>
+</html>

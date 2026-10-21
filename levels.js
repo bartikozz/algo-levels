@@ -120,6 +120,15 @@
       const k = kq;
       info.ratio = k;
       const wallStrikes = new Set();
+      // Major walls: the single biggest QQQ call wall and put wall on 0/5 strikes (by OI GEX),
+      // with zones like the "QQQ → NQ Main Levels" indicator: weak ±0.5 QQQ, strong ±10 NQ pts.
+      {
+        const mw = walls({ strikes: (g.qqq.strikes || []).filter(x => Math.round(x[0] * 100) % 500 === 0) }, 2, 1);
+        info.majors = [];
+        if (mw.pos[0]) info.majors.push({ type: 'CW', qqq: mw.pos[0][0], gex: mw.pos[0][1], price: mw.pos[0][0] * k });
+        if (mw.neg[0]) info.majors.push({ type: 'PW', qqq: mw.neg[0][0], gex: mw.neg[0][1], price: mw.neg[0][0] * k });
+        info.majors.forEach(m => { m.weak = 0.5 * k; m.strong = S.majorStrong || 10; });
+      }
       if (L.qqq) {
         const w = walls({ strikes: (g.qqq.strikes || []).filter(x => Math.round(x[0] * 100) % 500 === 0) }, 2, 2);
         w.pos.forEach((x, i) => { wallStrikes.add(x[0]); add(x[0] * k, `QQQ CW ${x[0]}`, [2, 1][i], 'qqq'); });
