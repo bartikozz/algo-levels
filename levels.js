@@ -136,19 +136,20 @@
     const todayBars = bars.filter(b => tdate(b.t) === today);
     const rthBars = todayBars.filter(b => isRTH(b.t));
 
-    // VIX expected move, RTH-open anchor
+    // VIX expected move, anchored at the RTH open (same as the VIX EM indicator):
+    // the levels of the latest RTH session stay valid until the next RTH open.
     if (L.em && vix && vix.length) {
-      const v = [...vix].reverse().find(b => et(b.t).date < calToday);
-      if (v && v.c > 5 && v.c < 100) {
-        // RTH open anchor once RTH has started; before that a provisional anchor at the Globex open
-        // (fixed for the session, so the levels don't follow price)
-        const pre = !rthBars.length;
-        const anchor = !pre ? rthBars[0].o : (todayBars.length ? todayBars[0].o : last);
+      const rthDates = [...new Set(bars.filter(b => isRTH(b.t)).map(b => et(b.t).date))].sort();
+      const D = rthDates.filter(d => d <= calToday).pop();          // session whose open is the anchor
+      const v = D && [...vix].reverse().find(b => et(b.t).date < D); // VIX close of the day before
+      if (D && v && v.c > 5 && v.c < 100) {
+        const open = bars.find(b => isRTH(b.t) && et(b.t).date === D);
+        const anchor = open.o;
         const em = anchor * v.c / 100 / 15.87;
-        info.em = { anchor, em, vix: v.c, provisional: pre };
-        const sfx = pre ? ' (pre)' : '';
-        [[-1, 'EM −1'], [-0.5, 'EM −½'], [0.5, 'EM +½'], [1, 'EM +1']]
-          .forEach(([m, t]) => add(anchor + m * em, t + sfx, pre ? 1 : 1.5, 'em'));
+        info.em = { anchor, em, vix: v.c, date: D, fromPrev: D !== calToday };
+        add(anchor, 'EM Ref', 1, 'em');
+        [[-1.5, 'EM −1.5'], [-1, 'EM −1'], [-0.5, 'EM −½'], [0.5, 'EM +½'], [1, 'EM +1'], [1.5, 'EM +1.5']]
+          .forEach(([m, t]) => add(anchor + m * em, t, Math.abs(m) === 1.5 ? 1 : 1.5, 'em'));
       }
     }
 
