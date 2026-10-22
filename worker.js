@@ -298,24 +298,22 @@ Rules:
 - Never invent numbers. If something is unknown, say so.
 Write your analysis as plain notes: the side (bullish/bearish/neutral), conviction, the overall idea, bullish drivers, bearish drivers, key timed events today (ET), what changed vs the previous outlook (if given), what would invalidate the view, and how it relates to the GEX levels / overnight range.`;
 
-const OUTLOOK_TOOL = {
-  name: 'publish_outlook',
-  description: 'Publish the NY AM outlook card. All text in Czech (trading terms may stay English), concise and concrete.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      side: { type: 'string', enum: ['bullish', 'bearish', 'neutral'] },
-      conviction: { type: 'string', enum: ['low', 'medium', 'high'] },
-      idea: { type: 'string', description: '2-3 sentences, the overall thesis until 12:00 ET' },
-      drivers_bull: { type: 'array', items: { type: 'string' }, maxItems: 6 },
-      drivers_bear: { type: 'array', items: { type: 'string' }, maxItems: 6 },
-      key_events: { type: 'array', maxItems: 6, items: { type: 'object', properties: { time_et: { type: 'string' }, event: { type: 'string' }, why: { type: 'string' } }, required: ['event'] } },
-      what_changed: { type: 'string', description: 'vs. the previous outlook; empty string if none' },
-      invalidation: { type: 'string' },
-      levels_note: { type: 'string', description: '1 sentence linking the thesis to GEX levels / overnight range' },
-    },
-    required: ['side', 'conviction', 'idea', 'drivers_bull', 'drivers_bear', 'key_events', 'what_changed', 'invalidation', 'levels_note'],
+// JSON schema for structured outputs (no maxItems / string limits — not supported there)
+const OUTLOOK_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    side: { type: 'string', enum: ['bullish', 'bearish', 'neutral'] },
+    conviction: { type: 'string', enum: ['low', 'medium', 'high'] },
+    idea: { type: 'string', description: '2-3 sentences, the overall thesis until 12:00 ET' },
+    drivers_bull: { type: 'array', items: { type: 'string' } },
+    drivers_bear: { type: 'array', items: { type: 'string' } },
+    key_events: { type: 'array', items: { type: 'object', additionalProperties: false,
+      properties: { time_et: { type: 'string' }, event: { type: 'string' }, why: { type: 'string' } }, required: ['time_et', 'event', 'why'] } },
+    what_changed: { type: 'string' },
+    invalidation: { type: 'string' },
+    levels_note: { type: 'string' },
   },
+  required: ['side', 'conviction', 'idea', 'drivers_bull', 'drivers_bear', 'key_events', 'what_changed', 'invalidation', 'levels_note'],
 };
 
 async function anthropic(env, body) {
@@ -347,11 +345,12 @@ async function callClaude(env, userText) {
   const notes = (resp.content || []).filter(b => b.type === 'text').map(t => t.text).join('');
   if (!notes.trim()) throw new Error('model returned no analysis');
   const s2 = await anthropic(env, {
-    max_tokens: 2000, tools: [OUTLOOK_TOOL], tool_choice: { type: 'tool', name: 'publish_outlook' },
-    messages: [{ role: 'user', content: `Convert these analyst notes into the outlook card. Keep the analyst's side and conviction. Do not add facts that are not in the notes.\n\n${notes}` }],
+    max_tokens: 2500, output_config: { format: { type: 'json_schema', schema: OUTLOOK_SCHEMA } },
+    messages: [{ role: 'user', content: `Convert these analyst notes into the NY AM outlook card for NQ. All text in Czech (trading terms may stay English), concise and concrete: idea = 2-3 sentences; max 6 drivers per side; max 6 key events (time_et as HH:MM ET); what_changed = vs. previous outlook or empty string; levels_note = 1 sentence linking the thesis to GEX levels / overnight range. Keep the analyst's side and conviction. Do not add facts that are not in the notes.\n\n${notes}` }],
   });
-  const tu = (s2.content || []).find(b => b.type === 'tool_use');
-  if (!tu) throw new Error('no structured output');
+  const txt = (s2.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+  let tu;
+  try { tu = { input: JSON.parse(txt) }; } catch (e) { throw new Error('structured output parse: ' + e.message); }
   return { out: tu.input, sources: sources.slice(0, 12), searches, usage: resp.usage || null };
 }
 
