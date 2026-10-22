@@ -6,6 +6,8 @@
 //  Secrets (Workers → Settings → Variables and Secrets):
 //    GEXBOT_API_KEY  = gexbot_custom_xxxxxxxx   (full key incl. prefix)
 //    ACCESS_TOKEN    = any random string (the web app sends it as ?t=)
+//    ANTHROPIC_API_KEY = sk-ant-...  (NY AM Macro Outlook, optional)
+//    FRED_API_KEY    = FRED key (Bias tab: WALCL, WRESBAL, HY OAS; optional)
 //
 //  Routes:
 //    /health
@@ -229,15 +231,172 @@ async function statsAll(env, days) {
   return { days: docs.map(d => ({ date: d.date, snaps: d.snaps, events: d.events })) };
 }
 
+
+// ════════════════════════════════════════════════════════════════
+//  NY AM Macro Outlook — Claude (with live web search) writes the session
+//  thesis for NQ from news + our own data; stored per day, graded at noon.
+// ════════════════════════════════════════════════════════════════
+const OUTLOOK_MODEL = 'claude-sonnet-5-5';
+const OUTLOOK_SLOTS = [{ id: 'pre', from: 540, to: 554 }, { id: 'upd', from: 615, to: 629 }]; // 9:00 and 10:15 ET
+
+async function lastDaily(sym) {
+  const b = (await yfBars(sym, '1d', '5d')).filter(x => x.t % 1 === 0);
+  if (b.length < 2) return null;
+  const a = b[b.length - 1], p = b[b.length - 2];
+  return { last: a.c, prev: p.c, chg: a.c - p.c, pct: (a.c / p.c - 1) * 100 };
+}
+
+async function gatherContext(env) {
+  const now = Date.now() / 1000, et = etParts(now);
+  const ctx = { asof_et: `${et.date} ${String(Math.floor(et.min / 60)).padStart(2, '0')}:${String(et.min % 60).padStart(2, '0')} ET` };
+  const safe = (p, k) => p.then(v => { ctx[k] = v; }).catch(e => { ctx[k] = { error: String(e.message || e) }; });
+  await Promise.all([
+    safe((async () => {
+      const bars = (await yfBars('NQ=F', '1m', '2d')).filter(b => b.t % 60 === 0);
+      const today = bars.filter(b => etParts(b.t).date === et.date);
+      const prevRth = bars.filter(b => { const e = etParts(b.t); return e.date < et.date && e.min >= 570 && e.min < 960; });
+      const on = today.filter(b => etParts(b.t).min < 570);
+      return {
+        last_nq_yahoo_delayed_10min: bars.length ? bars[bars.length - 1].c : null,
+        prev_rth_close: prevRth.length ? prevRth[prevRth.length - 1].c : null,
+        prev_rth_high: prevRth.length ? Math.max(...prevRth.map(b => b.h)) : null,
+        prev_rth_low: prevRth.length ? Math.min(...prevRth.map(b => b.l)) : null,
+        overnight_high: on.length ? Math.max(...on.map(b => b.h)) : null,
+        overnight_low: on.length ? Math.min(...on.map(b => b.l)) : null,
+      };
+    })(), 'nq'),
+    safe((async () => {
+      const o = {};
+      for (const [k, sym] of [['ES', 'ES=F'], ['VIX', '^VIX'], ['VXN', '^VXN'], ['US10Y_yield', '^TNX'], ['DXY', 'DX-Y.NYB'], ['WTI', 'CL=F']]) o[k] = await lastDaily(sym).catch(() => null);
+      return o;
+    })(), 'cross_asset_daily'),
+    safe((async () => {
+      const [z, q] = await Promise.all([gx(env, 'NQ_NDX/classic/gex_zero'), gx(env, 'QQQ/classic/gex_zero').catch(() => null)]);
+      const net = Number.isFinite(z.sum_gex_vol) ? z.sum_gex_vol : z.net_gex_vol;
+      const lv = buildLevels(z, null, q);
+      return { gexbot_spot_nq: z.spot, data_age_min: Math.round((now - z.timestamp) / 60), zero_gamma: z.zero_gamma,
+        regime: net > 0 ? 'positive gamma (mean reversion)' : net < 0 ? 'negative gamma (trend / expansion)' : 'flat',
+        biggest_call_wall_0dte: (lv.find(l => l.kind === '★CW') || {}).p || null, biggest_put_wall_0dte: (lv.find(l => l.kind === '★PW') || {}).p || null,
+        note: 'GEX is computed only during RTH; before 09:30 ET it reflects the previous session.' };
+    })(), 'gex_0dte'),
+    safe((async () => {
+      const r = await fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.json', { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (!r.ok) throw new Error('calendar ' + r.status);
+      return (await r.json()).filter(e => e.country === 'USD' && ['High', 'Medium'].includes(e.impact) && String(e.date).slice(0, 10) === et.date)
+        .map(e => ({ time: e.date, title: e.title, impact: e.impact, forecast: e.forecast, previous: e.previous }));
+    })(), 'us_calendar_today'),
+  ]);
+  return ctx;
+}
+
+const OUTLOOK_SYSTEM = `You are a sell-side macro strategist writing a short pre-market / morning outlook for an intraday NQ (Nasdaq-100 E-mini) futures trader.
+Horizon: from now until 12:00 ET today (the NY AM session). The trader fades GEX levels (call/put walls, zero gamma) and uses this outlook only as directional context.
+Rules:
+- Use web search to find what actually moved or will move Nasdaq this morning: overnight/pre-market news, earnings of index heavyweights and AI/semis supply chain, US data releases and their actual vs forecast, Fed speakers, yields, dollar, oil, geopolitics. Prefer reputable sources (Reuters, Bloomberg, CNBC, WSJ, FT, MarketWatch, Investing.com, company IR). Only use information published before the cutoff time.
+- Combine it with the provided market data (cross-asset changes, overnight range, GEX regime and walls, calendar).
+- Be calibrated. Default conviction is LOW. Use MEDIUM only when several independent drivers clearly align; HIGH only for an obvious dominant catalyst. If drivers conflict, say neutral.
+- Never invent numbers. If something is unknown, say so.
+- Write in Czech (trading terms may stay in English). Be concise and concrete.
+Return ONLY a JSON object (no markdown fence) with keys:
+{"side":"bullish|bearish|neutral","conviction":"low|medium|high","idea":"2-3 sentences, the overall thesis","drivers_bull":["..."],"drivers_bear":["..."],"key_events":[{"time_et":"HH:MM","event":"...","why":"..."}],"what_changed":"vs. the previous outlook if provided, else empty string","invalidation":"what would flip the view (price level or event)","levels_note":"1 sentence linking the thesis to the GEX levels/overnight range"}`;
+
+async function callClaude(env, userText) {
+  const messages = [{ role: 'user', content: userText }];
+  const tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 6, user_location: { type: 'approximate', city: 'New York', region: 'New York', country: 'US', timezone: 'America/New_York' } }];
+  let resp, searches = 0;
+  for (let turn = 0; turn < 4; turn++) {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: OUTLOOK_MODEL, max_tokens: 2500, system: OUTLOOK_SYSTEM, messages, tools }),
+    });
+    resp = await r.json();
+    if (!r.ok) throw new Error('anthropic ' + r.status + ': ' + ((resp.error && resp.error.message) || ''));
+    searches += (resp.content || []).filter(b => b.type === 'server_tool_use').length;
+    if (resp.stop_reason !== 'pause_turn') break;
+    messages.push({ role: 'assistant', content: resp.content }); // continue the paused search turn unchanged
+  }
+  const texts = (resp.content || []).filter(b => b.type === 'text');
+  const sources = [], seen = new Set();
+  for (const b of resp.content || []) {
+    for (const c of b.citations || []) if (c.url && !seen.has(c.url)) { seen.add(c.url); sources.push({ title: c.title || c.url, url: c.url }); }
+  }
+  const raw = texts.map(t => t.text).join('');
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('no JSON in model output');
+  return { out: JSON.parse(m[0]), sources: sources.slice(0, 12), searches, usage: resp.usage || null };
+}
+
+async function makeOutlook(env, slot) {
+  if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY secret missing');
+  const now = Date.now() / 1000, et = etParts(now);
+  const key = `ol:${et.date}`;
+  const day = (await env.SNAP.get(key, 'json')) || { date: et.date, items: [] };
+  const prev = day.items[day.items.length - 1] || null;
+  const ctx = await gatherContext(env);
+  const prompt = `Cutoff: ${ctx.asof_et} (${new Date(now * 1000).toISOString()}).\nMarket data (JSON):\n${JSON.stringify(ctx)}\n\n`
+    + (prev ? `Previous outlook published today at ${prev.cutoff_et}:\n${JSON.stringify({ side: prev.side, conviction: prev.conviction, idea: prev.idea })}\n\n` : 'No previous outlook today.\n\n')
+    + 'Write the NY AM outlook for NQ now.';
+  const r = await callClaude(env, prompt);
+  const o = r.out, side = ['bullish', 'bearish', 'neutral'].includes(o.side) ? o.side : 'neutral';
+  const item = {
+    t: Math.round(now), slot, cutoff_et: ctx.asof_et, side, conviction: ['low', 'medium', 'high'].includes(o.conviction) ? o.conviction : 'low',
+    idea: String(o.idea || ''), drivers_bull: (o.drivers_bull || []).slice(0, 6), drivers_bear: (o.drivers_bear || []).slice(0, 6),
+    key_events: (o.key_events || []).slice(0, 6), what_changed: String(o.what_changed || ''), invalidation: String(o.invalidation || ''),
+    levels_note: String(o.levels_note || ''), sources: r.sources, searches: r.searches, ctx: { nq: ctx.nq, gex: ctx.gex_0dte, x: ctx.cross_asset_daily },
+  };
+  day.items.push(item);
+  await env.SNAP.put(key, JSON.stringify(day), { expirationTtl: 60 * 60 * 24 * 400 });
+  return item;
+}
+
+// grade every outlook of the day: NQ move from publish time to 12:00 ET
+async function gradeOutlooks(env, date) {
+  const key = `ol:${date}`, day = await env.SNAP.get(key, 'json');
+  if (!day || !day.items.length) return { date, graded: 0 };
+  const bars = (await yfBars('NQ=F', '1m', '5d')).filter(b => b.t % 60 === 0 && etParts(b.t).date === date);
+  const at = t => { const b = bars.find(x => x.t >= t); return b ? b.o : null; };
+  const noonBar = bars.filter(b => etParts(b.t).min < 720).pop();
+  if (!noonBar || etParts(noonBar.t).min < 715) return { date, graded: 0, error: 'noon not reached' };
+  let n = 0;
+  for (const it of day.items) {
+    const t0 = Math.max(it.t, bars.find(b => etParts(b.t).min >= 570) ? bars.find(b => etParts(b.t).min >= 570).t : it.t); // from publish or RTH open
+    const p0 = at(t0), p1 = noonBar.c;
+    if (p0 == null) continue;
+    const move = Math.round((p1 - p0) * 4) / 4, flat = Math.abs(move) < p0 * 0.0015; // < 0.15 % = flat
+    const hit = it.side === 'neutral' ? flat : flat ? null : (it.side === 'bullish') === (move > 0);
+    it.grade = { from: p0, to: p1, move, hit }; n++;
+  }
+  await env.SNAP.put(key, JSON.stringify(day), { expirationTtl: 60 * 60 * 24 * 400 });
+  return { date, graded: n };
+}
+
+async function outlookRecord(env, days) {
+  const list = await env.SNAP.list({ prefix: 'ol:' });
+  const keys = list.keys.map(k => k.name).sort().slice(-(days || 60));
+  const out = [];
+  for (const k of keys) { const d = await env.SNAP.get(k, 'json'); if (d) for (const it of d.items) out.push({ date: d.date, slot: it.slot, side: it.side, conviction: it.conviction, grade: it.grade || null }); }
+  return out;
+}
+
 export default {
   async scheduled(event, env, ctx) {
     if (!env.SNAP || !env.GEXBOT_API_KEY) return;
     if (String(event.cron).startsWith('*/15')) {
       ctx.waitUntil(captureLevels(env).catch(() => {}));
+      // NY AM outlook at 9:00 and 10:15 ET (weekdays), graded after noon
+      const et = etParts(Date.now() / 1000);
+      const slot = OUTLOOK_SLOTS.find(s => et.min >= s.from && et.min <= s.to);
+      if (slot && env.ANTHROPIC_API_KEY) ctx.waitUntil((async () => {
+        const day = await env.SNAP.get(`ol:${et.date}`, 'json');
+        if (!day || !day.items.some(i => i.slot === slot.id)) await makeOutlook(env, slot.id);
+      })().catch(() => {}));
+      if (et.min >= 720 && et.min < 765) ctx.waitUntil(gradeOutlooks(env, et.date).catch(() => {})); // Yahoo is ~10 min late
     } else {
       ctx.waitUntil((async () => {
         await takeSnapshots(env).catch(() => {});
         await evaluateDay(env, etParts(Date.now() / 1000).date).catch(() => {});
+        await gradeOutlooks(env, etParts(Date.now() / 1000).date).catch(() => {});
       })());
     }
   },
@@ -256,7 +415,7 @@ export default {
     const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
 
     if (parts[0] === 'health') {
-      return json({ ok: true, key: !!env.GEXBOT_API_KEY, token: !!env.ACCESS_TOKEN, kv: !!env.SNAP }, 200, cors);
+      return json({ ok: true, key: !!env.GEXBOT_API_KEY, token: !!env.ACCESS_TOKEN, kv: !!env.SNAP, ai: !!env.ANTHROPIC_API_KEY, fred: !!env.FRED_API_KEY }, 200, cors);
     }
 
     if (env.ACCESS_TOKEN && url.searchParams.get('t') !== env.ACCESS_TOKEN) {
@@ -284,6 +443,20 @@ export default {
         return json({ date: d, captures: list.keys.map(k => k.name.slice(-4)), evaluated: await env.SNAP.get(`ev:${d}`, 'json') }, 200, cors);
       }
       if (parts[0] === 'stats') return json(await statsAll(env, +url.searchParams.get('days') || 120), 200, cors);
+      // ── NY AM outlook: /outlook (today + track record), /outlook/new (generate now, max 1 per 20 min)
+      if (parts[0] === 'outlook') {
+        if (!env.SNAP) return json({ error: 'KV binding SNAP missing' }, 500, cors);
+        const d = url.searchParams.get('date') || etParts(Date.now() / 1000).date;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return json({ error: 'bad date' }, 400, cors);
+        if (parts[1] === 'new') {
+          const day = await env.SNAP.get(`ol:${d}`, 'json');
+          const last = day && day.items[day.items.length - 1];
+          if (last && Date.now() / 1000 - last.t < 1200) return json({ error: 'poslední outlook je mladší než 20 min', item: last }, 429, cors);
+          return json(await makeOutlook(env, 'manual'), 200, cors);
+        }
+        if (parts[1] === 'grade') return json(await gradeOutlooks(env, d), 200, cors);
+        return json({ ai: !!env.ANTHROPIC_API_KEY, day: await env.SNAP.get(`ol:${d}`, 'json'), record: await outlookRecord(env, 60) }, 200, cors);
+      }
       if (parts[0] === 'prev') {
         if (!env.SNAP) return json({ error: 'KV binding SNAP missing' }, 500, cors);
         const [, ticker, cat] = parts;

@@ -16,7 +16,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script src="levels.js?v=18"></script>
-<script src="bias.js?v=2"></script>
+<script src="bias.js?v=3"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -151,6 +151,18 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .btab td.g{color:var(--muted);font-size:10px;letter-spacing:.06em}
 .bfresh{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:11px;color:var(--muted);margin-top:10px}
 #biasBadge.bull{color:var(--long);border-color:rgba(47,197,159,.5)} #biasBadge.bear{color:var(--short);border-color:rgba(240,90,110,.5)}
+.olc{border:1px solid var(--line2);border-top:2px solid var(--long);border-radius:10px;padding:14px;background:var(--bg);margin-bottom:12px}
+.olc.bearish{border-top-color:var(--short)} .olc.neutral{border-top-color:var(--muted)}
+.olc .k{font-size:11px;letter-spacing:.12em;color:var(--muted);font-weight:700}
+.olc .sd{font-family:var(--sans);font-size:30px;font-weight:800;margin:6px 0 2px;display:flex;align-items:center;gap:10px}
+.olc.bullish .sd{color:var(--long)} .olc.bearish .sd{color:var(--short)} .olc.neutral .sd{color:var(--muted)}
+.olc .cv{font-size:13px;font-weight:700} .olc .co{font-size:11px;color:var(--muted);margin:2px 0 10px}
+.olc h5{font-size:11px;color:var(--muted);letter-spacing:.08em;margin:12px 0 4px;font-weight:700}
+.olc p,.olc li{font-size:12.5px;line-height:1.6} .olc ul{padding-left:16px}
+.olc .wc{border:1px solid var(--line2);border-left:3px solid var(--gold);border-radius:6px;padding:8px 10px;margin-top:10px}
+.olc .src a{color:var(--muted);font-size:11px;display:block;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.olc .ver{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.olc .ver button{font-size:11px;padding:4px 8px;border:1px solid var(--line2);border-radius:5px;color:var(--muted)} .olc .ver button.on{color:var(--text);background:var(--panel2)}
 #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(120px);
   background:var(--panel2);border:1px solid var(--gold);color:var(--text);padding:10px 14px;border-radius:8px;font-size:12px;
   transition:transform .25s;z-index:30;max-width:92vw;visibility:hidden}
@@ -200,7 +212,9 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <p class="hint">Reakce = do 15 svíček pohyb ≥ 15 b. ve směru fade bez close za levelem. Průraz = close &gt; 6 b. za levelem. Zbytek = chop. Ø reakce / Ø proti = průměrný max. pohyb ve směru / proti fade (b.). Levely se ukládají každých 15 min během RTH, vyhodnocení po close.</p>
 </div></div>
 <div id="bias" class="sheet"><div class="box">
-  <h3>BIAS · FED LIKVIDITA + COT</h3>
+  <h3>BIAS</h3>
+  <div id="olBox"></div>
+  <h4>MAKRO MODEL · FED LIKVIDITA + COT</h4>
   <div class="sfil" id="bHor"><button data-h="1" class="on">NY session</button><button data-h="5">Týden (5 sessions)</button></div>
   <div id="bBody"><p class="hint">Načítám data (FRED, CFTC, QQQ 5 let)…</p></div>
   <div class="btns"><button id="bReload">Obnovit data</button><button id="bClose2">Zavřít</button></div>
@@ -847,7 +861,7 @@ function biasResult(h){ return Bias.build({ ...bs.raw, now:Date.now() / 1000, ho
 function showBiasBadge(){
   if (!bs.raw) return;
   try {
-    const r = biasResult(1), el = $('biasBadge');
+    const r = biasResult(1), el = $('biasBadge'); if (el.dataset.ol) return;
     const pct = Math.round((r.side === 'bear' ? 1 - r.p : r.p) * 100);
     el.textContent = `Bias ${r.side === 'bull' ? '▲' : r.side === 'bear' ? '▼' : '='} ${pct} %`;
     el.className = 'badge ' + (r.lam === 0 || r.side === 'flat' ? '' : r.side); el.hidden = false;
@@ -890,6 +904,7 @@ function renderBias(){
 }
 async function openBias(force){
   $('bias').classList.add('show');
+  if (S.worker) loadOutlook();
   if (!S.worker) { $('bBody').innerHTML = '<p class="hint">Nejdřív nastav Worker v ⚙.</p>'; return; }
   if (!bs.raw || force) $('bBody').innerHTML = '<p class="hint">Načítám data (FRED, CFTC, QQQ 5 let)…</p>';
   try { await loadBias(force); renderBias(); showBiasBadge(); }
@@ -904,6 +919,65 @@ $('bHor').onclick = e => { const b = e.target.closest('button'); if (!b) return;
   [...$('bHor').children].forEach(x => x.classList.toggle('on', x === b)); renderBias(); };
 setTimeout(() => { if (S.worker && !st.demo) loadBias().then(showBiasBadge).catch(() => {}); }, 6000);
 setInterval(() => { if (S.worker && !st.demo && document.visibilityState === 'visible') loadBias().then(showBiasBadge).catch(() => {}); }, 3600e3);
+
+
+// ───────── NY AM Macro Outlook (Claude + web search in the Worker)
+const ol = { data:null, sel:-1, busy:false };
+const OL_CONV = { low:'Low Conviction', medium:'Medium Conviction', high:'High Conviction' };
+function olRecordLine(rec){
+  const g = (rec || []).filter(x => x.grade && x.grade.hit !== null && x.grade.hit !== undefined);
+  if (!g.length) return 'Track record: zatím nic vyhodnoceno (outlook se hodnotí podle pohybu NQ do 12:00 ET, pohyb pod 0.15 % se nepočítá).';
+  const by = c => { const a = g.filter(x => x.conviction === c); return a.length ? `${c} ${a.filter(x => x.grade.hit).length}/${a.length}` : null; };
+  return `Track record (do 12:00 ET): ${g.filter(x => x.grade.hit).length}/${g.length} trefeno · ` + ['low','medium','high'].map(by).filter(Boolean).join(' · ');
+}
+function renderOutlook(){
+  const box = $('olBox'); const D = ol.data;
+  if (!D) { box.innerHTML = '<p class="hint">Načítám outlook…</p>'; return; }
+  const items = (D.day && D.day.items) || [];
+  if (!D.ai) { box.innerHTML = `<div class="olc neutral"><div class="k">NEW YORK AM MACRO OUTLOOK</div><p style="margin-top:8px">Pro AI outlook je potřeba ve Workeru secret <b>ANTHROPIC_API_KEY</b>.</p></div>`; return; }
+  const genBtn = `<button id="olNew" class="pri" ${ol.busy ? 'disabled' : ''}>${ol.busy ? 'Píšu outlook… (~1 min)' : 'Vygenerovat teď'}</button>`;
+  if (!items.length) { box.innerHTML = `<div class="olc neutral"><div class="k">NEW YORK AM MACRO OUTLOOK · NQ</div><p style="margin-top:8px">Dnes ještě nevyšel. Automaticky vychází v 9:00 a 10:15 ET (15:00 / 16:15 u nás).</p><div class="btns">${genBtn}</div><p class="hint">${esc(olRecordLine(D.record))}</p></div>`; return; }
+  const i = ol.sel < 0 || ol.sel >= items.length ? items.length - 1 : ol.sel, it = items[i];
+  const arrow = it.side === 'bullish' ? '↗' : it.side === 'bearish' ? '↘' : '→';
+  const name = it.side === 'bullish' ? 'Bullish' : it.side === 'bearish' ? 'Bearish' : 'Neutral';
+  const li = a => (a || []).map(x => `<li>${esc(x)}</li>`).join('');
+  const t = new Date(it.t * 1000).toLocaleTimeString('cs-CZ', { hour:'2-digit', minute:'2-digit' });
+  let h = `<div class="olc ${it.side}"><div class="k">NEW YORK AM MACRO OUTLOOK</div><div class="k" style="margin-top:4px;color:var(--text)">NQ</div>
+    <div class="sd"><span>${arrow}</span>${name}</div><div class="cv">${OL_CONV[it.conviction] || ''}</div>
+    <div class="co">Evidence cutoff ${esc(it.cutoff_et)} (${t} u nás) · do 12:00 ET${it.slot === 'manual' ? ' · ručně' : ''}</div>
+    <h5>OVERALL IDEA</h5><p>${esc(it.idea)}</p>`;
+  if (it.what_changed) h += `<div class="wc"><h5 style="margin-top:0">WHAT CHANGED</h5><p>${esc(it.what_changed)}</p></div>`;
+  if ((it.drivers_bull || []).length) h += `<h5 style="color:var(--long)">PRO LONG</h5><ul>${li(it.drivers_bull)}</ul>`;
+  if ((it.drivers_bear || []).length) h += `<h5 style="color:var(--short)">PRO SHORT</h5><ul>${li(it.drivers_bear)}</ul>`;
+  if ((it.key_events || []).length) h += `<h5>KLÍČOVÉ UDÁLOSTI (ET)</h5><ul>${it.key_events.map(e => `<li><b>${esc(e.time_et || '')}</b> ${esc(e.event || '')}${e.why ? ' – ' + esc(e.why) : ''}</li>`).join('')}</ul>`;
+  if (it.levels_note) h += `<h5>LEVELY</h5><p>${esc(it.levels_note)}</p>`;
+  if (it.invalidation) h += `<h5>INVALIDACE</h5><p>${esc(it.invalidation)}</p>`;
+  if (it.grade) h += `<h5>VÝSLEDEK DO POLEDNE</h5><p>NQ ${it.grade.move >= 0 ? '+' : ''}${it.grade.move} b. → ${it.grade.hit === null ? 'bez výrazného pohybu' : it.grade.hit ? '✔ trefa' : '✘ mimo'}</p>`;
+  if ((it.sources || []).length) h += `<h5>ZDROJE</h5><div class="src">${it.sources.map(x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>`).join('')}</div>`;
+  if (items.length > 1) h += `<div class="ver">${items.map((x, j) => `<button data-i="${j}" class="${j === i ? 'on' : ''}">${new Date(x.t * 1000).toLocaleTimeString('cs-CZ', { hour:'2-digit', minute:'2-digit' })} ${x.side === 'bullish' ? '↗' : x.side === 'bearish' ? '↘' : '→'}</button>`).join('')}</div>`;
+  h += `<div class="btns">${genBtn}</div><p class="hint">${esc(olRecordLine(D.record))}</p></div>`;
+  box.innerHTML = h;
+}
+async function loadOutlook(){
+  try { ol.data = await api('/outlook'); } catch(e) { ol.data = null; $('olBox').innerHTML = `<p class="hint">Outlook: ${esc(e.message)}</p>`; return; }
+  renderOutlook(); showOutlookBadge();
+}
+function showOutlookBadge(){
+  const items = ol.data && ol.data.day && ol.data.day.items; if (!items || !items.length) return;
+  const it = items[items.length - 1], el = $('biasBadge');
+  el.textContent = `AM ${it.side === 'bullish' ? '↗ Bullish' : it.side === 'bearish' ? '↘ Bearish' : '→ Neutral'} · ${it.conviction}`;
+  el.className = 'badge ' + (it.side === 'bullish' ? 'bull' : it.side === 'bearish' ? 'bear' : ''); el.hidden = false; el.dataset.ol = '1';
+}
+$('olBox').onclick = async e => {
+  const v = e.target.closest('.ver button'); if (v) { ol.sel = +v.dataset.i; renderOutlook(); return; }
+  if (e.target.id !== 'olNew' || ol.busy) return;
+  ol.busy = true; renderOutlook();
+  try { await api('/outlook/new'); ol.sel = -1; }
+  catch (err) { toast('Outlook: ' + err.message); }
+  ol.busy = false; await loadOutlook();
+};
+setTimeout(() => { if (S.worker && !st.demo) loadOutlook(); }, 4000);
+setInterval(() => { if (S.worker && !st.demo && document.visibilityState === 'visible') loadOutlook(); }, 5 * 60e3);
 
 // ───────── level statistics (journal from the Worker)
 const KIND_ORDER = ['★CW','★PW','0DTE CW1','0DTE CW2','0DTE CW3','0DTE PW1','0DTE PW2','0DTE PW3','0DTE ZG','CW1','PW1','ZG','QQQ 0/5','EM Ref','EM ±½','EM ±1','EM ±1.5'];
