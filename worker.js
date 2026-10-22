@@ -296,35 +296,63 @@ Rules:
 - Combine it with the provided market data (cross-asset changes, overnight range, GEX regime and walls, calendar).
 - Be calibrated. Default conviction is LOW. Use MEDIUM only when several independent drivers clearly align; HIGH only for an obvious dominant catalyst. If drivers conflict, say neutral.
 - Never invent numbers. If something is unknown, say so.
-- Write in Czech (trading terms may stay in English). Be concise and concrete.
-Return ONLY a JSON object (no markdown fence) with keys:
-{"side":"bullish|bearish|neutral","conviction":"low|medium|high","idea":"2-3 sentences, the overall thesis","drivers_bull":["..."],"drivers_bear":["..."],"key_events":[{"time_et":"HH:MM","event":"...","why":"..."}],"what_changed":"vs. the previous outlook if provided, else empty string","invalidation":"what would flip the view (price level or event)","levels_note":"1 sentence linking the thesis to the GEX levels/overnight range"}`;
+Write your analysis as plain notes: the side (bullish/bearish/neutral), conviction, the overall idea, bullish drivers, bearish drivers, key timed events today (ET), what changed vs the previous outlook (if given), what would invalidate the view, and how it relates to the GEX levels / overnight range.`;
 
+const OUTLOOK_TOOL = {
+  name: 'publish_outlook',
+  description: 'Publish the NY AM outlook card. All text in Czech (trading terms may stay English), concise and concrete.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      side: { type: 'string', enum: ['bullish', 'bearish', 'neutral'] },
+      conviction: { type: 'string', enum: ['low', 'medium', 'high'] },
+      idea: { type: 'string', description: '2-3 sentences, the overall thesis until 12:00 ET' },
+      drivers_bull: { type: 'array', items: { type: 'string' }, maxItems: 6 },
+      drivers_bear: { type: 'array', items: { type: 'string' }, maxItems: 6 },
+      key_events: { type: 'array', maxItems: 6, items: { type: 'object', properties: { time_et: { type: 'string' }, event: { type: 'string' }, why: { type: 'string' } }, required: ['event'] } },
+      what_changed: { type: 'string', description: 'vs. the previous outlook; empty string if none' },
+      invalidation: { type: 'string' },
+      levels_note: { type: 'string', description: '1 sentence linking the thesis to GEX levels / overnight range' },
+    },
+    required: ['side', 'conviction', 'idea', 'drivers_bull', 'drivers_bear', 'key_events', 'what_changed', 'invalidation', 'levels_note'],
+  },
+};
+
+async function anthropic(env, body) {
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: OUTLOOK_MODEL, ...body }),
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error('anthropic ' + r.status + ': ' + ((j.error && j.error.message) || ''));
+  return j;
+}
+
+// step 1: research with live web search (free text + citations); step 2: forced tool call → always valid structured output
 async function callClaude(env, userText) {
   const messages = [{ role: 'user', content: userText }];
   const tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 6, user_location: { type: 'approximate', city: 'New York', region: 'New York', country: 'US', timezone: 'America/New_York' } }];
   let resp, searches = 0;
   for (let turn = 0; turn < 4; turn++) {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: OUTLOOK_MODEL, max_tokens: 2500, system: OUTLOOK_SYSTEM, messages, tools }),
-    });
-    resp = await r.json();
-    if (!r.ok) throw new Error('anthropic ' + r.status + ': ' + ((resp.error && resp.error.message) || ''));
+    resp = await anthropic(env, { max_tokens: 3000, system: OUTLOOK_SYSTEM, messages, tools });
     searches += (resp.content || []).filter(b => b.type === 'server_tool_use').length;
     if (resp.stop_reason !== 'pause_turn') break;
     messages.push({ role: 'assistant', content: resp.content }); // continue the paused search turn unchanged
   }
-  const texts = (resp.content || []).filter(b => b.type === 'text');
   const sources = [], seen = new Set();
   for (const b of resp.content || []) {
     for (const c of b.citations || []) if (c.url && !seen.has(c.url)) { seen.add(c.url); sources.push({ title: c.title || c.url, url: c.url }); }
   }
-  const raw = texts.map(t => t.text).join('');
-  const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error('no JSON in model output');
-  return { out: JSON.parse(m[0]), sources: sources.slice(0, 12), searches, usage: resp.usage || null };
+  const notes = (resp.content || []).filter(b => b.type === 'text').map(t => t.text).join('');
+  if (!notes.trim()) throw new Error('model returned no analysis');
+  const s2 = await anthropic(env, {
+    max_tokens: 2000, tools: [OUTLOOK_TOOL], tool_choice: { type: 'tool', name: 'publish_outlook' },
+    messages: [{ role: 'user', content: `Convert these analyst notes into the outlook card. Keep the analyst's side and conviction. Do not add facts that are not in the notes.\n\n${notes}` }],
+  });
+  const tu = (s2.content || []).find(b => b.type === 'tool_use');
+  if (!tu) throw new Error('no structured output');
+  return { out: tu.input, sources: sources.slice(0, 12), searches, usage: resp.usage || null };
 }
 
 async function makeOutlook(env, slot) {
