@@ -281,6 +281,12 @@ footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);f
   <p>V terminálu tlačítko <strong>▦</strong>: tabulka podle typu levelu s filtrem +γ / −γ a deník po dnech. Data se drží 400 dní, takže za pár týdnů uvidíš, které levely v tvém frameworku opravdu drží.</p>
 </section>
 
+<section id="focus-sec">
+  <h2><span class="n">08d</span>◎ Focus mód</h2>
+  <p>Tlačítko <strong>◎ FOCUS</strong> v levém horním rohu grafu. Schová všechny linky a zóny a nechá jen <strong>jednu nejpravděpodobnější reversal zónu nad cenou</strong> (tyrkysová, short) a <strong>jednu pod cenou</strong> (růžová, long). Pořadí: skóre konfluence (★ wall +1), × 1.15 v pozitivní gammě, × naměřená úspěšnost typu levelu z deníku (▦), děleno vzdáleností v půlkách EM – bližší zóna má větší šanci, že ji cena dnes vůbec potká. Zóny pod skóre 4 se nevybírají.</p>
+  <p>Úsečka začne, když se zóna stane nejlepší, a <strong>skončí v místě, kde do ní cena dojela</strong> (jako u pendqnt) – použitá zóna se ten den už znovu nevybere. Když ji přebije jiná zóna, stará úsečka zůstane slabě vidět. Alert (zvuk + notifikace) přijde, když je cena do „Vzdálenosti“ z ⚙ od zóny, a znovu při zásahu. Karty nad grafem ukazují cenu zóny, vzdálenost, skóre, konfluence a historickou míru reakce daného typu levelu.</p>
+</section>
+
 <section id="bias-sec">
   <h2><span class="n">08c</span>Bias · Fed likvidita + COT</h2>
   <p>Tlačítko <strong>B</strong> (nebo štítek „Bias“ v horním řádku) ukáže nejpravděpodobnější stranu pro dnešní / příští NY session a pro 5 sessions dopředu. Vstupy: net likvidita (rozvaha Fedu − TGA − RRP) za 1 a 4 týdny, rezervy bank (H.4.1), TGA z denního výkazu Treasury, ON RRP z NY Fed, HY spread (ICE BofA OAS) a COT na NQ (Leveraged Funds, Asset Managers – týdenní změna a 3letý index).</p>

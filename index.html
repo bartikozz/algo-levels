@@ -56,6 +56,12 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .zw.cw,.zw.pw{background:rgba(201,166,107,.18);border-color:rgba(201,166,107,.65)}
 .zs.cw,.zs.pw{background:rgba(201,166,107,.38)}
 .zl.cw,.zl.pw{color:#f3d9a4;font-weight:700;text-shadow:0 0 3px #000}
+.focbtn{position:absolute;left:8px;top:8px;z-index:3;font-size:11px;padding:5px 9px;border:1px solid var(--line2);border-radius:6px;background:rgba(7,8,10,.8);color:var(--muted);letter-spacing:.06em}
+.focbtn.on{color:#5ee0c8;border-color:rgba(94,224,200,.55)}
+.fzc{display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--line2);border-radius:6px;background:var(--panel);flex:1;min-width:260px}
+.fzc .sd{font-weight:800;letter-spacing:.08em;font-size:11px} .fzc.short{border-color:rgba(94,224,200,.45)} .fzc.short .sd{color:#5ee0c8}
+.fzc.long{border-color:rgba(255,95,162,.45)} .fzc.long .sd{color:#ff5fa2} .fzc b{font-size:14px} .fzc .m{font-size:11px;color:var(--muted)}
+.fzc.near{animation:pulse 1.2s infinite}
 .nowbtn{position:absolute;right:76px;bottom:34px;z-index:3;font-size:12px;padding:6px 10px;border:1px solid var(--gold);border-radius:6px;background:#1d1709;color:var(--gold)}
 #chart{height:46dvh;min-height:200px}
 .grip{height:24px;display:flex;align-items:center;justify-content:center;cursor:ns-resize;touch-action:none;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--panel);user-select:none;-webkit-user-select:none}
@@ -189,7 +195,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <span id="biasBadge" class="badge" style="cursor:pointer" hidden>Bias —</span>
 </div>
 <div id="majors" class="majors"></div>
-<div id="chartWrap" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><div id="zones" class="zones"></div><button id="now" class="nowbtn" hidden>Teď ▸</button></div>
+<div id="chartWrap" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><div id="zones" class="zones"></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button></div>
 <div id="grip" class="grip" role="separator" aria-label="Velikost grafu"><span></span></div>
 <div class="tabs">
   <button data-f="all" class="on">Vše</button>
@@ -272,7 +278,7 @@ const LAYERS = [
   ['qqq','QQQ walls (0/5)'],['qqqMain','QQQ 0/5 levely'],['gexProf','GEX profil (gexbot)'],['em','EM (VXN/VIX)'],['sigma','σ Grid'],['vp','Prev VP']
 ];
 const DEF = { worker:'', token:'', tol:10, minScore:3, range:3, touch:3, brk:6, react:15, lookahead:15,
-  scanRTH:true, alertDist:8, alertScore:4, showPrev:true, volIndex:'VXN', emStraddle:true, majorAlerts:true, majorStrong:10, layers:Object.fromEntries(LAYERS.map(l=>[l[0],true])) };
+  scanRTH:true, alertDist:8, alertScore:4, showPrev:true, volIndex:'VXN', emStraddle:true, majorAlerts:true, majorStrong:10, focus:true, layers:Object.fromEntries(LAYERS.map(l=>[l[0],true])) };
 
 // ───────── settings (localStorage may be unavailable)
 function load(){ try{ const s=JSON.parse(localStorage.getItem('algoLevels.v1')||'{}');
@@ -314,7 +320,7 @@ let fitted = false;
 function drawZones(){
   const box = $('zones'); if (!box) return;
   const r = st.res, Z = r && r.info && r.info.qqqLevels;
-  if (!Z || !Z.length || !S.layers.qqqMain) { if (box.innerHTML) box.innerHTML = ''; return; }
+  if (!Z || !Z.length || !S.layers.qqqMain || S.focus) { if (box.innerHTML) { box.innerHTML = ''; box._h = ''; } return; }
   let w = 0; try { w = chart.timeScale().width(); } catch(e){}
   box.style.width = w + 'px';
   let html = '';
@@ -337,7 +343,7 @@ const PRI_C = ['#a9dcff','#6cbcff','#3b8fe6','#2766b8','#1b467f'];
 function drawProfile(){
   const cv = $('gexp'); if (!cv) return;
   const q = st.data.gex && st.data.gex.qqq, k = st.res && st.res.info && st.res.info.ratio;
-  const on = S.layers.gexProf && q && Array.isArray(q.strikes) && k > 0 && !gexStale();
+  const on = !S.focus && S.layers.gexProf && q && Array.isArray(q.strikes) && k > 0 && !gexStale();
   let w = 0, h = 0; try { w = chart.timeScale().width(); h = $('chart').clientHeight - 26; } catch(e){}
   const y0 = series.priceToCoordinate(30000), y1 = series.priceToCoordinate(31000);
   const key = on ? [w, h, y0, y1, k.toFixed(4), q.timestamp, q.strikes.length].join('|') : 'off';
@@ -490,6 +496,7 @@ function computeNow(){
     st.prevView = st.prev;
     st.res = A.compute(st.data, S);
   }
+  try { focusUpdate(st.res); } catch(e){}
 }
 
 function showSrc(err){
@@ -609,7 +616,11 @@ function render(){
 
   // price lines
   st.lines.forEach(l => series.removePriceLine(l)); st.lines = [];
-  for (const l of r.levels) {
+  series.applyOptions(S.focus
+    ? { upColor:'#d9d3c1', downColor:'#6f6a5c', wickUpColor:'#d9d3c1', wickDownColor:'#6f6a5c' }
+    : { upColor:'#e6e8eb', downColor:'#4a505a', wickUpColor:'#9ca3af', wickDownColor:'#4a505a' });
+  drawFocus(out);
+  for (const l of (S.focus ? [] : r.levels)) {
     if (l.srcs.length === 1 && l.srcs[0] === 'em') continue; // EM-only levels are drawn TV-style below
     const hasOpt = l.srcs.includes('opt') || l.srcs.includes('qqq');
     if (!hasOpt || S.layers.gexProf) { // with the GEX profile on, NQ cluster lines are hidden (list only) – clean chart
@@ -629,7 +640,7 @@ function render(){
   (st.emSeries || []).forEach(x => { try { chart.removeSeries(x); } catch(e){} });
   st.emSeries = [];
   const E = r.info.em;
-  if (E && out.length && Number.isFinite(E.t0)) {
+  if (E && out.length && Number.isFinite(E.t0) && !S.focus) {
     const t0 = A.et(E.t0).disp, t1 = Math.max(out[out.length - 1].time, t0 + 60);
     const defs = [
       [1.5, '+1.5 EM', '#e6e8eb', 2], [1, '+1 EM', '#e6e8eb', 0], [0.5, '+½ EM', '#e6e8eb', 1],
@@ -646,7 +657,7 @@ function render(){
   }
 
   // major QQQ walls (0/5 strikes): thick gold line + weak/strong zone edges
-  for (const m of (r.info.majors || [])) {
+  for (const m of (S.focus ? [] : (r.info.majors || []))) {
     const name = (m.type === 'CW' ? 'CW ' : 'PW ') + m.qqq;
     st.lines.push(series.createPriceLine({ price:m.price, color:'#c9a66b', lineWidth:1, lineStyle:0, lineVisible:false, axisLabelVisible:true, title:'★ QQQ ' + name }));
   }
@@ -671,7 +682,7 @@ function render(){
   $('mSig').textContent = i.sigma ? `${i.sigma.pts.toFixed(0)} b.` : '—';
   $('mPoc').textContent = i.vp ? fmtP(i.vp.poc) : '—';
   $('mRatio').textContent = i.ratio ? i.ratio.toFixed(3) + (i.ratioN ? ` (avg ${i.ratioN})` : '') : '—';
-  $('majors').innerHTML = (i.majors || []).map(m => {
+  $('majors').innerHTML = S.focus ? focusCards(r) : (i.majors || []).map(m => {
     const z = majorZone(m, r.last), d = m.price - r.last;
     const zt = (m.stale ? 'vč. objem · ' : '') + (z === 'strong' ? 'V SILNÉ ZÓNĚ' : z === 'weak' ? 've slabé zóně' : `${d > 0 ? '+' : ''}${d.toFixed(0)} b.`);
     return `<div class="mj ${m.type.toLowerCase()} ${m.stale ? '' : z}"><span class="t">★ ${m.type === 'CW' ? 'CALL WALL' : 'PUT WALL'}</span>
@@ -770,6 +781,7 @@ function checkMajorAlerts(){
 }
 
 function checkAlerts(){
+  if (S.focus) { checkFocusAlerts(); return; }
   checkMajorAlerts();
   const r = st.res; if (!r) return;
   const now = Date.now();
@@ -784,6 +796,152 @@ function checkAlerts(){
     try { if ('Notification' in window && Notification.permission === 'granted') new Notification('Algo level', { body:msg }); } catch(e){}
   }
 }
+
+
+// ───────── FOCUS mode: only the most probable reversal zone above and below price
+// (pendqnt-style short glowing segments: start when the zone appears, end where price hits it)
+const FZ_COL = { short:'#5ee0c8', long:'#ff5fa2' };
+const fz = { date:null, segs:[], series:[], hash:'', kindStats:null, statsAt:0, alerted:{} };
+function fzLoad(date){
+  if (fz.date === date) return;
+  fz.date = date; fz.alerted = {};
+  try { fz.segs = JSON.parse(localStorage.getItem('algoLevels.focus.' + date) || '[]'); } catch(e){ fz.segs = []; }
+}
+function fzSave(){ try { localStorage.setItem('algoLevels.focus.' + fz.date, JSON.stringify(fz.segs)); } catch(e){} }
+// level tag → journal kind (so the zone can carry its measured reaction rate)
+function tagKind(t){
+  let m;
+  if ((m = t.match(/★(CW|PW)/))) return '★' + m[1];
+  if ((m = t.match(/^0DTE (CW|PW) (\d)/))) return `0DTE ${m[1]}${m[2]}`;
+  if ((m = t.match(/^(CW|PW) 1$/))) return m[1] + '1';
+  if (t === '0DTE ZG' || t === 'ZG' || t === 'EM Ref') return t;
+  if (/^QQQ \d+$/.test(t)) return 'QQQ 0/5';
+  if ((m = t.match(/^EM [+−-](½|1\.5|1)$/))) return 'EM ±' + m[1];
+  return null;
+}
+async function loadKindStats(){
+  if (!S.worker || st.demo || Date.now() - fz.statsAt < 3600e3) return;
+  fz.statsAt = Date.now();
+  try {
+    const D = await api('/stats'), by = {};
+    for (const d of D.days || []) for (const e of d.events || []) { const k = by[e.kind] || (by[e.kind] = { n:0, r:0 }); k.n++; if (e.res === 'reacted') k.r++; }
+    let N = 0, R = 0; for (const k in by) { N += by[k].n; R += by[k].r; }
+    fz.kindStats = { by, avg: N ? R / N : 0.4 };
+  } catch(e){}
+}
+function levelHist(l){
+  const KS = fz.kindStats; if (!KS) return null;
+  let best = null;
+  for (const t of l.tags) { const k = tagKind(t), x = k && KS.by[k]; if (x && x.n >= 5 && (!best || x.n > best.n)) best = { kind:k, n:x.n, rate:x.r / x.n }; }
+  return best;
+}
+function focusRank(l, r){
+  if (l.status && l.status.key === 'broken') return -1;
+  if (l.score < Math.max(4, S.minScore)) return -1;  // weak single-source levels never become the focus zone
+  if (fz.segs.some(s => s.t1 && s.end === 'hit' && Math.abs(s.p - l.price) <= S.tol)) return -1; // used today
+  const em = r.info.em ? r.info.em.em : 120;
+  let q = l.score;
+  if (l.tags.some(t => t.includes('★'))) q += 1;
+  if (r.regime > 0) q *= 1.15;                      // positive gamma = reversals more likely
+  const h = levelHist(l);
+  if (h && h.n >= 8 && fz.kindStats.avg > 0) q *= Math.min(1.5, Math.max(0.6, h.rate / fz.kindStats.avg));
+  return q / (1 + Math.abs(l.dist) / (0.5 * em));     // closer = more likely to be reached this session
+}
+function focusUpdate(r){
+  if (!r) return;
+  fzLoad(r.today);
+  loadKindStats();
+  const bars = st.data.bars.filter(b => A.tdate(b.t) === r.today);
+  if (!bars.length) return;
+  const lastT = bars[bars.length - 1].t;
+  for (const s of fz.segs) {
+    if (!s.t1) {
+      const hit = bars.find(b => b.t > s.t0 && (s.side === 'short' ? b.h >= s.p - S.touch : b.l <= s.p + S.touch));
+      if (hit) { s.t1 = hit.t; s.end = 'hit'; }
+    }
+    if (s.end === 'hit' && !s.res) {
+      const ev = A.statusOf(s.p, s.side === 'short' ? s.p - 1 : s.p + 1, bars.filter(b => b.t >= s.t1), S).find(e => e.type !== 'testing');
+      if (ev) s.res = ev.type;
+    }
+  }
+  for (const side of ['short', 'long']) { // safety: at most one active zone per side
+    const a = fz.segs.filter(s => !s.t1 && s.side === side);
+    a.slice(0, -1).forEach(s => { s.t1 = lastT; s.end = 'replaced'; });
+  }
+  const lv = r.levels.map(l => ({ l, q: focusRank(l, r) })).filter(x => x.q > 0);
+  for (const side of ['short', 'long']) {
+    const cand = lv.filter(x => side === 'short' ? x.l.dist > S.touch : x.l.dist < -S.touch).sort((a, b) => b.q - a.q);
+    const best = cand[0], act = fz.segs.find(s => !s.t1 && s.side === side);
+    const cur = act && cand.find(x => Math.abs(x.l.price - act.p) <= S.tol);
+    if (act && cur && (!best || best === cur || best.q < cur.q * 1.25)) { // hysteresis: keep the active zone unless clearly beaten
+      act.score = cur.l.score; act.tags = cur.l.tags.slice(0, 4); act.p = cur.l.price; continue;
+    }
+    if (act) {
+      if (lastT - act.t0 < 300) fz.segs.splice(fz.segs.indexOf(act), 1);   // flicker < 5 min: drop
+      else { act.t1 = lastT; act.end = 'replaced'; }
+    }
+    if (best) {
+      // the day's first zone on a side has been valid since the RTH open (GEX/EM are computed from it)
+      // (from the bar after price last touched it, so it is not "hit" retroactively)
+      const open = bars.findIndex(b => A.isRTH(b.t)), p = best.l.price;
+      let t0 = lastT;
+      if (!fz.segs.some(s => s.side === side) && open >= 0) {
+        let j = bars.length - 1; while (j >= open && !(bars[j].h >= p - S.touch && bars[j].l <= p + S.touch)) j--;
+        const k = Math.max(open, j + 1); if (k < bars.length - 1) t0 = bars[k].t;
+      }
+      fz.segs.push({ side, p:best.l.price, t0, score:best.l.score, tags:best.l.tags.slice(0, 4) });
+    }
+  }
+  fzSave();
+}
+function drawFocus(out){
+  const segs = S.focus ? fz.segs : [];
+  const lastT = out.length ? out[out.length - 1].time : 0;
+  const hash = JSON.stringify(segs.map(s => [s.p, s.t0, s.t1, s.end, s.res])) + (segs.some(s => !s.t1) ? lastT : '');
+  if (hash === fz.hash) return; fz.hash = hash;
+  fz.series.forEach(x => { try { chart.removeSeries(x); } catch(e){} }); fz.series = [];
+  for (const s of segs) {
+    const t0 = A.et(s.t0).disp, t1 = Math.max(s.t1 ? A.et(s.t1).disp : lastT, t0 + 60);
+    const col = FZ_COL[s.side], active = !s.t1, dim = s.end === 'replaced';
+    const o = { priceLineVisible:false, crosshairMarkerVisible:false, autoscaleInfoProvider:() => null };
+    const glow = chart.addLineSeries({ ...o, color: col + (dim ? '14' : '40'), lineWidth: 10, lastValueVisible:false });
+    const core = chart.addLineSeries({ ...o, color: dim ? col + '55' : col, lineWidth: 3, lastValueVisible: active,
+      title: active ? `${s.side === 'short' ? '▼' : '▲'} ${s.score}` : '' });
+    const d = [{ time:t0, value:s.p }, { time:t1, value:s.p }];
+    glow.setData(d); core.setData(d); fz.series.push(glow, core);
+  }
+}
+function focusCards(r){
+  const act = ['short', 'long'].map(side => fz.segs.find(s => !s.t1 && s.side === side)).filter(Boolean);
+  if (!act.length) return '<div class="fzc"><span class="m">◎ Žádná zóna s dost silnou konfluencí v dosahu.</span></div>';
+  return act.map(s => {
+    const d = s.p - r.last, l = r.levels.find(x => Math.abs(x.price - s.p) <= S.tol), h = l && levelHist(l);
+    const near = Math.abs(d) <= S.alertDist;
+    return `<div class="fzc ${s.side} ${near ? 'near' : ''}"><span class="sd">◎ ${s.side === 'short' ? 'SHORT' : 'LONG'}</span>
+      <b>${fmtP(s.p)}</b><span class="m">${d > 0 ? '+' : ''}${d.toFixed(0)} b. · skóre ${s.score} · ${esc(s.tags.slice(0, 3).join(', '))}${h ? ` · hist. reakce ${Math.round(h.rate * 100)} % (n=${h.n})` : ''}</span></div>`;
+  }).join('');
+}
+function checkFocusAlerts(){
+  const r = st.res; if (!r) return;
+  for (const s of fz.segs) {
+    const k = `${s.side}:${s.p}:${s.t0}`;
+    if (!s.t1 && Math.abs(s.p - r.last) <= S.alertDist && !fz.alerted[k + ':near']) {
+      fz.alerted[k + ':near'] = 1;
+      const msg = `◎ ${s.side === 'short' ? 'SHORT' : 'LONG'} reversal zóna ${fmtP(s.p)} – cena ${fmtP(r.last)} · skóre ${s.score} · ${s.tags.slice(0, 3).join(', ')}`;
+      toast(msg, true); beep();
+      try { if ('Notification' in window && Notification.permission === 'granted') new Notification('Reversal zóna', { body:msg }); } catch(e){}
+    }
+    if (s.end === 'hit' && !fz.alerted[k + ':hit'] && Date.now() / 1000 - s.t1 < 600) {
+      fz.alerted[k + ':hit'] = 1;
+      const msg = `◎ Zóna ${fmtP(s.p)} zasažena – sleduj footprint na ${s.side === 'short' ? 'short' : 'long'}`;
+      toast(msg, true); beep();
+      try { if ('Notification' in window && Notification.permission === 'granted') new Notification('Zóna zasažena', { body:msg }); } catch(e){}
+    }
+  }
+}
+$('focBtn').onclick = () => { S.focus = !S.focus; save(); $('focBtn').classList.toggle('on', S.focus); fz.hash = ''; render(); };
+$('focBtn').classList.toggle('on', !!S.focus);
+window.__focus = { fz, tick: () => { computeNow(); render(); checkAlerts(); } };
 
 // ───────── settings UI
 function openSettings(){
