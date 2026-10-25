@@ -299,6 +299,12 @@ footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);f
   <p><strong>Backtest</strong> – kumulativní R pro fade setupy EM ±½ → Ref, EM ±1 → ±½, EM ±1 → Ref, EM ±1.5 → ±1 a σ ±1 → ±½ na NQ svíčkách z Yahoo (60 dní po 5 min, nebo 2 roky po hodinách – orientační). Limit vstup, jeden obchod na stranu a den, konzervativní plnění (stop i target v jedné svíčce = stop), náklady v bodech odečtené v R, konec v 16:00. Bez GEX filtru – historii GEX nemáme.</p>
 </section>
 
+<section id="pro-sec">
+  <h2><span class="n">08h</span>◆ PRO – vlastní datový server</h2>
+  <p>Volitelný server na VPS (složka <code>server/</code>): <strong>Databento</strong> posílá každý obchod NQ z CME → sekundové, minutové, range (16R/40R/80R) a volume (250V/600V/1500V) svíčky, <strong>footprint</strong> (bid × ask na každé ceně, imbalance 3:1 barevně), <strong>CVD</strong>, bid/ask volume profil a TPO. <strong>ThetaData</strong> dává celý QQQ options chain (bid/ask, OI, volume); server z něj každých 30 s sám spočítá IV (Black-Scholes z OTM strany) a greeks a z nich expozice dealerů po strikech a expiracích: GEX (OI i volume), deltu, charm, vannu, IV smile a IV walls (IVPK HI/LO = vyboulení smile nad hladkou křivkou), MM landscape (gamma přepočítaná pro každou hypotetickou cenu → γ flip, peak, ceiling, floor, dead zone) a EM z ATM straddle. Spot QQQ se bere z put-call parity, převod do NQ poměrem k živé ceně futures.</p>
+  <p>Když server běží, terminál bere minutové svíčky přímo z CME (místo Yahoo + GEXbot), options levely ze serveru jdou do konfluence Focus zón místo GEXbot NQ vrstev a režim gammy se bere z MM landscape. Nahoře vlevo v grafu se přepíná typ svíček; footprint se ukáže na 1m/5m po přiblížení. Tlačítko <strong>◆</strong>: Options Levels, Strike Profile po expiracích, Heatmap by Expiry, Volatility (smile + term structure), MM Landscape, Surface (0DTE GEX v čase) a Flow.</p>
+</section>
+
 <section id="replay-sec">
   <h2><span class="n">08e</span>▶ Replay posledního dne</h2>
   <p>⚙ → <strong>▶ Replay posledního dne</strong> přehraje poslední kompletní RTH session (skutečné NQ 1m svíčky, VXN pro EM, GEX snapshot uložený Workerem po close) od 9:30 ET rychlostí 1× / 4× / 15× svíček za tick, s Focus módem a alerty. GEX je stav <em>z close</em>, takže je to ukázka, jak terminál vypadá a reaguje – ne backtest (intradenní GEX se měnil). ✕ vrátí živý režim.</p>

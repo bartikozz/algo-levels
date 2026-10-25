@@ -315,6 +315,8 @@
     const last = bars[bars.length - 1].c;
     const today = tdate(bars[bars.length - 1].t);
     const { cands, info } = buildCandidates({ ...data, last, today }, S);
+    // extra candidates from the data server (options chain levels: walls by expiry, IV peaks, γ flip, ceiling/floor)
+    if (Array.isArray(data.extra)) for (const x of data.extra) if (Number.isFinite(x.p) && x.p > 0) cands.push({ p: x.p, tag: x.tag, w: x.w, src: x.src || 'opt' });
     const lo = last * (1 - S.range / 100), hi = last * (1 + S.range / 100);
     const todayBars = bars.filter(b => tdate(b.t) === today);
     const rth = todayBars.filter(b => isRTH(b.t));
