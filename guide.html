@@ -287,6 +287,11 @@ footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);f
   <p>Úsečka začne, když se zóna stane nejlepší, a <strong>skončí v místě, kde do ní cena dojela</strong> (jako u pendqnt) – použitá zóna se ten den už znovu nevybere. Když ji přebije jiná zóna, stará úsečka zůstane slabě vidět. Alert (zvuk + notifikace) přijde, když je cena do „Vzdálenosti“ z ⚙ od zóny, a znovu při zásahu. Karty nad grafem ukazují cenu zóny, vzdálenost, skóre, konfluence a historickou míru reakce daného typu levelu.</p>
 </section>
 
+<section id="vp-sec">
+  <h2><span class="n">08f</span>Volume profil a LVN</h2>
+  <p>Vpravo v grafu je <strong>vyvíjející se volume profil</strong> dnešní session (RTH po otevření, předtím overnight) z Yahoo NQ objemu: šedé = mimo value area, světlejší = value area, zlatá = POC. <strong>Fialové pásy jsou LVN</strong> (low volume nodes – lokální minima vyhlazeného profilu pod 55 % okolních vrcholů): jasnější = dnešní, tlumené = včerejší RTH. LVN jsou místa, kde trh rychle projíždí nebo se od nich odráží – vstupují do konfluence (LVN / pLVN, váha 1), takže posilují Focus zóny. Pod grafem je objem (tyrkysová = up bar, růžová = down bar). Obojí jde vypnout v ⚙ → Vrstvy. Kolečka v grafu označují zásah Focus zóny: skóre a výsledek (✔ reakce, ✘ průraz).</p>
+</section>
+
 <section id="replay-sec">
   <h2><span class="n">08e</span>▶ Replay posledního dne</h2>
   <p>⚙ → <strong>▶ Replay posledního dne</strong> přehraje poslední kompletní RTH session (skutečné NQ 1m svíčky, VXN pro EM, GEX snapshot uložený Workerem po close) od 9:30 ET rychlostí 1× / 4× / 15× svíček za tick, s Focus módem a alerty. GEX je stav <em>z close</em>, takže je to ukázka, jak terminál vypadá a reaguje – ne backtest (intradenní GEX se měnil). ✕ vrátí živý režim.</p>

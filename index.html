@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=18"></script>
+<script src="levels.js?v=19"></script>
 <script src="bias.js?v=3"></script>
 <style>
 :root{
@@ -48,7 +48,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .dotlive{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dim);margin-right:5px;vertical-align:middle}
 .dotlive.ok{background:var(--long)} .dotlive.err{background:var(--short)}
 
-#gexp{position:absolute;left:0;top:0;pointer-events:none;z-index:1}
+#gexp,#vpc{position:absolute;left:0;top:0;pointer-events:none;z-index:1}
 .zones{position:absolute;left:0;top:0;bottom:0;pointer-events:none;overflow:hidden;z-index:2}
 .zw{position:absolute;left:0;right:0;background:rgba(150,156,166,.16);border-top:1px solid rgba(190,196,206,.35);border-bottom:1px solid rgba(190,196,206,.35)}
 .zs{position:absolute;left:0;right:0;background:rgba(190,196,206,.26)}
@@ -197,7 +197,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <span id="biasBadge" class="badge" style="cursor:pointer" hidden>Bias —</span>
 </div>
 <div id="majors" class="majors"></div>
-<div id="chartWrap" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><div id="zones" class="zones"></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button><div id="rpBar" class="rpbar" hidden></div></div>
+<div id="chartWrap" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><canvas id="vpc"></canvas><div id="zones" class="zones"></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button><div id="rpBar" class="rpbar" hidden></div></div>
 <div id="grip" class="grip" role="separator" aria-label="Velikost grafu"><span></span></div>
 <div class="tabs">
   <button data-f="all" class="on">Vše</button>
@@ -278,7 +278,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 const A = window.AlgoLevels;
 const LAYERS = [
   ['gex0','0DTE GEX'],['gex1','1DTE GEX'],['gexFull','Full chain GEX'],['maxchg','ΔGEX 15m'],
-  ['qqq','QQQ walls (0/5)'],['qqqMain','QQQ 0/5 levely'],['gexProf','GEX profil (gexbot)'],['em','EM (VXN/VIX)'],['sigma','σ Grid'],['vp','Prev VP']
+  ['qqq','QQQ walls (0/5)'],['qqqMain','QQQ 0/5 levely'],['gexProf','GEX profil (gexbot)'],['vpProf','Volume profil + LVN (graf)'],['volHist','Objem pod grafem'],['em','EM (VXN/VIX)'],['sigma','σ Grid'],['vp','Prev VP']
 ];
 const DEF = { worker:'', token:'', tol:10, minScore:3, range:3, touch:3, brk:6, react:15, lookahead:15,
   scanRTH:true, alertDist:8, alertScore:4, showPrev:true, volIndex:'VXN', emStraddle:true, majorAlerts:true, majorStrong:10, focus:true, layers:Object.fromEntries(LAYERS.map(l=>[l[0],true])) };
@@ -318,6 +318,8 @@ const chart = LightweightCharts.createChart($('chart'), {
 const series = chart.addCandlestickSeries({
   upColor:'#e6e8eb', downColor:'#4a505a', borderVisible:false, wickUpColor:'#9ca3af', wickDownColor:'#4a505a',
 });
+const volSeries = chart.addHistogramSeries({ priceScaleId:'vol', priceFormat:{ type:'volume' }, lastValueVisible:false, priceLineVisible:false });
+chart.priceScale('vol').applyOptions({ scaleMargins:{ top:0.88, bottom:0 }, visible:false });
 let fitted = false;
 // QQQ 0/5 main levels as zones (like the TV "QQQ → NQ Main Levels" indicator): weak ±0.5 QQQ, strong ±10 NQ
 function drawZones(){
@@ -380,7 +382,41 @@ function drawProfile(){
   dash(q.major_pos_vol, '#34d35a', '+γ');
   dash(q.major_neg_vol, '#f44336', '−γ');
 }
-(function loop(){ try { drawZones(); } catch(e){} try { drawProfile(); } catch(e){} requestAnimationFrame(loop); })();
+
+// Volume profile of today's session on the right edge + LVN bands (low volume nodes = fast/rejection areas)
+function drawVP(){
+  const cv = $('vpc'); if (!cv) return;
+  const r = st.res, P = r && r.info && r.info.vpToday, pv = r && r.info && r.info.vp;
+  const on = S.layers.vpProf !== false && P && P.bins && P.bins.length;
+  let w = 0, h = 0; try { w = chart.timeScale().width(); h = $('chart').clientHeight - 26; } catch(e){}
+  const y0 = series.priceToCoordinate(30000), y1 = series.priceToCoordinate(31000);
+  const key = on ? [w, h, y0, y1, P.k0, P.bins.length, Math.round(P.vol), S.focus, pv && pv.lvn.length].join('|') : 'off';
+  if (cv._k === key) return; cv._k = key;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.width = w + 'px'; cv.style.height = h + 'px'; }
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+  if (!on || !(w > 0) || y0 === null) return;
+  // LVN bands: today's (brighter) and previous session's (dimmer), across the chart like the Residual terminal
+  const band = (z, a) => { const ya = series.priceToCoordinate(z.hi), yb = series.priceToCoordinate(z.lo); if (ya === null || yb === null) return;
+    c.fillStyle = `rgba(168,85,247,${a})`; c.fillRect(0, ya, w, Math.max(2, yb - ya));
+    c.fillStyle = `rgba(190,120,255,${a * 2.2})`; c.fillRect(0, ya, w, 1); c.fillRect(0, yb - 1, w, 1); };
+  (pv && pv.lvn || []).forEach(z => band(z, 0.07));
+  P.lvn.forEach(z => band(z, 0.13));
+  // histogram from the right edge
+  const W = w * 0.2, pk = P.peak || 1;
+  P.bins.forEach((v, i) => {
+    const lo = (P.k0 + i) * P.step, ya = series.priceToCoordinate(lo + P.step), yb = series.priceToCoordinate(lo);
+    if (ya === null || yb === null || yb < -5 || ya > h + 5) return;
+    const len = v / pk * W, inVA = lo >= P.val && lo < P.vah, isPoc = Math.abs(lo + P.step / 2 - P.poc) < P.step / 2;
+    c.fillStyle = isPoc ? 'rgba(201,166,107,.75)' : inVA ? 'rgba(160,168,180,.28)' : 'rgba(160,168,180,.14)';
+    c.fillRect(w - len, ya + 0.5, len, Math.max(1, yb - ya - 1));
+  });
+  c.font = '10px JetBrains Mono, monospace'; c.fillStyle = 'rgba(201,166,107,.9)'; c.textAlign = 'right';
+  const yp = series.priceToCoordinate(P.poc); if (yp !== null) c.fillText(`POC ${P.poc.toFixed(2)}`, w - 4, yp - 4);
+  c.fillStyle = 'rgba(190,120,255,.9)';
+  P.lvn.forEach(z => { const y = series.priceToCoordinate(z.p); if (y !== null) c.fillText(`LVN ${z.p.toFixed(0)}`, w - W - 6, y + 3); });
+}
+(function loop(){ try { drawZones(); } catch(e){} try { drawProfile(); } catch(e){} try { drawVP(); } catch(e){} requestAnimationFrame(loop); })();
 const goNow = () => { try { chart.timeScale().scrollToRealTime(); } catch(e){} };
 chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
   try { $('now').hidden = chart.timeScale().scrollPosition() > -3; } catch(e){}
@@ -594,7 +630,7 @@ function chipClass(t){
   if (/CW/.test(t)) return 'call';
   if (/PW/.test(t)) return 'put';
   if (/^EM|^σ/.test(t)) return 'vol';
-  if (/POC|VAH|VAL/.test(t)) return 'vp';
+  if (/POC|VAH|VAL|LVN/.test(t)) return 'vp';
   return '';
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -614,6 +650,12 @@ function render(){
   const ts = chart.timeScale();
   const atEdge = !fitted || ts.scrollPosition() > -3; // follow the newest bar unless the user scrolled back
   series.setData(out);
+  if (S.layers.volHist !== false) {
+    const vd = []; let pv = -Infinity;
+    for (const x of b.slice(-1400)) { const t = A.et(x.t).disp; if (t <= pv) continue; pv = t;
+      vd.push(x.v > 0 ? { time:t, value:x.v, color: x.c >= x.o ? 'rgba(94,224,200,.32)' : 'rgba(255,95,162,.32)' } : { time:t }); }
+    volSeries.setData(vd);
+  } else volSeries.setData([]);
   if (!fitted && out.length) { ts.setVisibleLogicalRange({from:out.length-240,to:out.length+8}); fitted = true; }
   else if (atEdge) ts.scrollToRealTime();
 
@@ -902,6 +944,10 @@ function drawFocus(out){
   const lastT = out.length ? out[out.length - 1].time : 0;
   const hash = JSON.stringify(segs.map(s => [s.p, s.t0, s.t1, s.end, s.res])) + (segs.some(s => !s.t1) ? lastT : '');
   if (hash === fz.hash) return; fz.hash = hash;
+  // numbered circles where price hit a focus zone: score + outcome (✔ reacted / ✘ broken)
+  try { series.setMarkers(segs.filter(s => s.end === 'hit').map(s => ({ time:A.et(s.t1).disp, position: s.side === 'short' ? 'aboveBar' : 'belowBar',
+    shape:'circle', color: s.res === 'broken' ? '#f05a6e' : s.res === 'reacted' ? FZ_COL[s.side] : '#c9a66b',
+    text: `${s.score}${s.res === 'reacted' ? ' ✔' : s.res === 'broken' ? ' ✘' : ''}` })).sort((a, b) => a.time - b.time)); } catch(e){}
   fz.series.forEach(x => { try { chart.removeSeries(x); } catch(e){} }); fz.series = [];
   for (const s of segs) {
     const t0 = A.et(s.t0).disp, t1 = Math.max(s.t1 ? A.et(s.t1).disp : lastT, t0 + 60);

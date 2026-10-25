@@ -63,7 +63,23 @@
       const dn = lo > 0 ? m.get(keys[lo - 1]) : -1;
       if (up >= dn) { hi++; acc += up; } else { lo--; acc += dn; }
     }
-    return { poc: (keys[pi] + 0.5) * step, vah: (keys[hi] + 1) * step, val: keys[lo] * step };
+    // full histogram (contiguous bins) + low/high volume nodes from a smoothed profile
+    const k0 = keys[0], k1 = keys[keys.length - 1], raw = [];
+    for (let k = k0; k <= k1; k++) raw.push(m.get(k) || 0);
+    const sm = raw.map((_, i) => { let a = 0, w = 0; for (let d = -2; d <= 2; d++) { const x = raw[i + d]; if (x != null) { const ww = 3 - Math.abs(d); a += x * ww; w += ww; } } return a / w; });
+    const peak = Math.max(...sm), lvn = [], hvn = [];
+    for (let i = 3; i < sm.length - 3; i++) {
+      const L = Math.max(...sm.slice(Math.max(0, i - 8), i)), R = Math.max(...sm.slice(i + 1, i + 9));
+      if (sm[i] <= sm[i - 1] && sm[i] <= sm[i + 1] && sm[i] < 0.55 * Math.min(L, R) && Math.min(L, R) > 0.15 * peak) {
+        // zone = contiguous bins around the minimum that stay below 1.3x the minimum
+        let a = i, b = i; while (a > 0 && sm[a - 1] < sm[i] * 1.3) a--; while (b < sm.length - 1 && sm[b + 1] < sm[i] * 1.3) b++;
+        const z = { p: (k0 + i + 0.5) * step, lo: (k0 + a) * step, hi: (k0 + b + 1) * step, depth: 1 - sm[i] / Math.min(L, R) };
+        if (!lvn.length || z.lo > lvn[lvn.length - 1].hi) lvn.push(z);
+      }
+      if (sm[i] >= sm[i - 1] && sm[i] >= sm[i + 1] && sm[i] >= 0.6 * peak && (!hvn.length || (k0 + i + 0.5) * step - hvn[hvn.length - 1] > step * 6)) hvn.push((k0 + i + 0.5) * step);
+    }
+    return { poc: (keys[pi] + 0.5) * step, vah: (keys[hi] + 1) * step, val: keys[lo] * step,
+      step, k0, bins: raw, peak: Math.max(...raw), lvn, hvn, vol: tot };
   }
 
   // ───────── GEX walls from classic strikes [strike, gex_vol, gex_oi, priors]
@@ -214,6 +230,16 @@
           add(vp.poc, 'pPOC', 1.5, 'vp');
           add(vp.vah, 'pVAH', 1, 'vp');
           add(vp.val, 'pVAL', 1, 'vp');
+          for (const z of vp.lvn) add(z.p, 'pLVN', 1, 'vp');
+        }
+      }
+      // developing profile of today's session (RTH once open, else the overnight session) → live LVNs
+      const sess = rthBars.length >= 30 ? rthBars : todayBars;
+      if (sess.length >= 30 && sess.some(b => b.v > 0)) {
+        const tv = volumeProfile(sess.filter(b => b.v > 0), 5);
+        if (tv) {
+          info.vpToday = { ...tv, rth: sess === rthBars };
+          for (const z of tv.lvn) add(z.p, 'LVN', 1, 'vp');
         }
       }
     }
