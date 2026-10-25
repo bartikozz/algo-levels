@@ -292,6 +292,13 @@ footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);f
   <p>Vpravo v grafu je <strong>vyvíjející se volume profil</strong> dnešní session (RTH po otevření, předtím overnight) z Yahoo NQ objemu: šedé = mimo value area, světlejší = value area, zlatá = POC. <strong>Fialové pásy jsou LVN</strong> (low volume nodes – lokální minima vyhlazeného profilu pod 55 % okolních vrcholů): jasnější = dnešní, tlumené = včerejší RTH. LVN jsou místa, kde trh rychle projíždí nebo se od nich odráží – vstupují do konfluence (LVN / pLVN, váha 1), takže posilují Focus zóny. Pod grafem je objem (tyrkysová = up bar, růžová = down bar). Obojí jde vypnout v ⚙ → Vrstvy. Kolečka v grafu označují zásah Focus zóny: skóre a výsledek (✔ reakce, ✘ průraz).</p>
 </section>
 
+<section id="ana-sec">
+  <h2><span class="n">08g</span>⊞ Analýza</h2>
+  <p><strong>Strike Profile</strong> – GEX po strikech vedle sebe: 0DTE, 1DTE, full chain podle volume, full chain podle OI a QQQ 0DTE převedené ×k do NQ. Tyrkysová kladná gamma (dealeři tlumí pohyb), růžová záporná (zesilují). Nahoře největší +/− strike každého sloupce, přes všechny cena, zero gamma a Focus zóny. Rozsah ±0.8 / 1.5 / 3 %, obnova každých 30 s.</p>
+  <p><strong>Surfaces</strong> – heatmapa 0DTE GEX v čase (strike × čas) s cenou přes ni: kde se gamma přes den stavěla nebo mizela. Historii ukládá Worker každých 15 min v RTH (i když je appka zavřená); otevřený terminál k tomu přidává záznam každou minutu a při prvním načtení dne dopočítá posledních 30 min z „priors“ GEXbotu.</p>
+  <p><strong>Backtest</strong> – kumulativní R pro fade setupy EM ±½ → Ref, EM ±1 → ±½, EM ±1 → Ref, EM ±1.5 → ±1 a σ ±1 → ±½ na NQ svíčkách z Yahoo (60 dní po 5 min, nebo 2 roky po hodinách – orientační). Limit vstup, jeden obchod na stranu a den, konzervativní plnění (stop i target v jedné svíčce = stop), náklady v bodech odečtené v R, konec v 16:00. Bez GEX filtru – historii GEX nemáme.</p>
+</section>
+
 <section id="replay-sec">
   <h2><span class="n">08e</span>▶ Replay posledního dne</h2>
   <p>⚙ → <strong>▶ Replay posledního dne</strong> přehraje poslední kompletní RTH session (skutečné NQ 1m svíčky, VXN pro EM, GEX snapshot uložený Workerem po close) od 9:30 ET rychlostí 1× / 4× / 15× svíček za tick, s Focus módem a alerty. GEX je stav <em>z close</em>, takže je to ukázka, jak terminál vypadá a reaguje – ne backtest (intradenní GEX se měnil). ✕ vrátí živý režim.</p>

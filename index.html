@@ -17,6 +17,8 @@
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script src="levels.js?v=19"></script>
 <script src="bias.js?v=3"></script>
+<script src="analysis.js?v=1"></script>
+<script src="backtest.js?v=1"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -121,6 +123,11 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   border-radius:14px 14px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
 .hbtn{width:34px;height:34px;border:1px solid var(--line2);border-radius:6px;font-size:15px;color:var(--text)}
 #stats .box{max-width:760px}
+#ana .box{max-width:1180px;max-height:94dvh}
+.anacv{width:100%;display:block;border:1px solid var(--line);border-radius:8px;background:#07080a}
+.btleg{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.btleg button{font-size:11px;padding:4px 8px;border:1px solid var(--line2);border-radius:5px;color:var(--muted)} .btleg button.on{color:var(--text);background:var(--panel2)}
+.btleg i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
 .sfil{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 12px}
 .sfil button{font-size:12px;padding:6px 10px;border:1px solid var(--line2);border-radius:6px;color:var(--muted)}
 .sfil button.on{background:var(--panel2);color:var(--text)}
@@ -183,6 +190,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <div class="brand">ALGO<span>LEVELS</span></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="biasBtn" class="hbtn" aria-label="Bias" style="font-size:12px;font-weight:700">B</button>
+  <button id="anaBtn" class="hbtn" aria-label="Analýza">⊞</button>
   <button id="statsBtn" class="hbtn" aria-label="Statistiky levelů">▦</button>
   <a id="help" href="guide.html" aria-label="Jak to funguje">?</a>
   <button id="gear" aria-label="Nastavení">⚙</button>
@@ -227,6 +235,28 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <div id="bBody"><p class="hint">Načítám data (FRED, CFTC, QQQ 5 let)…</p></div>
   <div class="btns"><button id="bReload">Obnovit data</button><button id="bClose2">Zavřít</button></div>
   <p class="hint">Každý faktor se počítá jen z dat, která byla v daný den ráno už veřejná (H.4.1 od pátku, RRP a HY od dalšího dne, TGA za 2 dny, COT od pondělí). Pro každý stav faktoru se na ~5 letech QQQ (RTH open→close) změří, jak často session skončila nahoru, a sloučí se to v log-odds. Útlum λ se volí na posledních 35 % dní, na kterých se model netrénoval. Je to statistická výhoda, ne jistota.</p>
+</div></div>
+<div id="ana" class="sheet"><div class="box">
+  <h3>ANALÝZA</h3>
+  <div class="sfil" id="aTab"><button data-t="strikes" class="on">Strike Profile</button><button data-t="heat">Surfaces</button><button data-t="bt">Backtest</button></div>
+  <div id="aStrikes">
+    <div class="sfil" id="aRng"><button data-r="0.8">±0.8 %</button><button data-r="1.5" class="on">±1.5 %</button><button data-r="3">±3 %</button></div>
+    <canvas id="cvStrikes" class="anacv" style="height:62dvh"></canvas>
+    <p class="hint" id="aStrikesNote">GEX po strikech podle volume (OI ve sloupci „Full OI“). Tyrkysová = kladná gamma (dealeři tlumí pohyb), růžová = záporná (zesilují). Bílá = cena, oranžová = zero gamma 0DTE.</p>
+  </div>
+  <div id="aHeat" hidden>
+    <canvas id="cvHeat" class="anacv" style="height:62dvh"></canvas>
+    <p class="hint" id="aHeatNote">0DTE GEX po strikech v čase.</p>
+  </div>
+  <div id="aBt" hidden>
+    <div class="sfil" id="aBtSet"><button data-s="5m" class="on">60 dní · 5m (přesnější)</button><button data-s="1h">2 roky · 1h (orientační)</button></div>
+    <div class="f" style="max-width:320px"><label>Náklady na obchod (b. NQ)</label><input id="aCost" type="number" step="0.25" value="1"></div>
+    <div class="btleg" id="aLeg"></div>
+    <canvas id="cvEq" class="anacv" style="height:40dvh"></canvas>
+    <div style="overflow-x:auto;margin-top:10px"><table class="stab" id="aBtTab"></table></div>
+    <p class="hint" id="aBtNote"></p>
+  </div>
+  <div class="btns"><button id="aClose">Zavřít</button></div>
 </div></div>
 <div id="settings" class="sheet"><div class="box">
   <h3>NASTAVENÍ</h3>
@@ -607,6 +637,7 @@ async function refresh(full){
     }
     computeNow();
     render();
+    try { heatRecord(); } catch(e){}
     setLive(errs.length ? 'err' : 'ok', errs.length ? 'částečně: ' + errs.join(', ') : null);
     if (!st.demo) checkAlerts();
   } catch (e) {
@@ -1056,6 +1087,113 @@ $('rpBar').onclick = e => {
   if (b.dataset.a === 'x') stopReplay();
 };
 $('bReplay').onclick = startReplay;
+
+
+// ───────── ANALÝZA: Strike Profile · Surfaces (GEX heatmap) · Backtest
+const an = { tab:'strikes', rng:1.5, timer:null, heat:{}, bt:{ set:'5m', data:{}, hl:'em1' } };
+const etLabel = t => A.hhmm(t);
+function anaShow(){
+  $('aStrikes').hidden = an.tab !== 'strikes'; $('aHeat').hidden = an.tab !== 'heat'; $('aBt').hidden = an.tab !== 'bt';
+  [...$('aTab').children].forEach(b => b.classList.toggle('on', b.dataset.t === an.tab));
+  if (an.tab === 'strikes') anaStrikes(); else if (an.tab === 'heat') anaHeat(); else anaBacktest();
+}
+async function anaGex(){
+  const g = st.data.gex || {}, need = [];
+  const get = (k, path) => g[k] && !st.demo ? Promise.resolve(g[k]) : api(path).catch(() => null);
+  if (st.demo) return { zero:g.zero, one:g.one, full:g.full, qqq:g.qqq };
+  const [zero, one, full, qqq] = await Promise.all([get('zero', '/gex/NQ_NDX/classic/gex_zero'), get('one', '/gex/NQ_NDX/classic/gex_one'), get('full', '/gex/NQ_NDX/classic/gex_full'), get('qqq', '/gex/QQQ/classic/gex_zero')]);
+  return { zero, one, full, qqq };
+}
+async function anaStrikes(){
+  const cv = $('cvStrikes');
+  const G = await anaGex();
+  const r = st.res, spot = (r && r.last) || (G.zero && G.zero.spot) || (G.full && G.full.spot);
+  if (!spot) { $('aStrikesNote').textContent = 'Zatím nejsou data.'; return; }
+  const k = r && r.info && r.info.ratio;
+  const pick = (x, i) => x && x.strikes ? x.strikes.map(s => [s[0], s[i]]) : [];
+  const cols = [
+    { title:'0DTE', strikes:pick(G.zero, 1) }, { title:'1DTE', strikes:pick(G.one, 1) },
+    { title:'Full (vol)', strikes:pick(G.full, 1) }, { title:'Full (OI)', strikes:pick(G.full, 2) },
+  ];
+  if (G.qqq && G.qqq.strikes && k > 0) cols.push({ title:'QQQ 0DTE ×k', strikes:G.qqq.strikes.map(s => [s[0] * k, s[1]]) });
+  const half = spot * an.rng / 100, levels = [{ p:spot, label:'NQ ' + fmtP(spot), color:'#ffffff' }];
+  if (G.zero && Number.isFinite(G.zero.zero_gamma)) levels.push({ p:G.zero.zero_gamma, label:'ZG 0DTE', color:'#f0a020', dash:true });
+  const fs = fz.segs.filter(s => !s.t1); fs.forEach(s => levels.push({ p:s.p, label:'◎ ' + (s.side === 'short' ? 'SHORT' : 'LONG'), color:FZ_COL[s.side], dash:true }));
+  Analysis.drawStrikes(cv, cols, { lo:spot - half, hi:spot + half, levels });
+  const ts = G.zero && G.zero.timestamp;
+  $('aStrikesNote').textContent = `GEX po strikech podle volume (OI ve sloupci „Full (OI)“). Tyrkysová = kladná gamma (dealeři tlumí pohyb), růžová = záporná (zesilují). Nahoře největší +/− strike. Bílá = cena, oranžová = zero gamma 0DTE, tečkovaně Focus zóny.${ts ? ' Data ' + new Date(ts * 1000).toLocaleString('cs-CZ') + (gexStale() ? ' (poslední RTH)' : '') : ''}`;
+}
+// local 1-min recording of the 0DTE strike row (+ seed from GEXbot priors 1/5/10/15/30 min) → heatmap
+function heatKey(d){ return 'algoLevels.heat.' + d; }
+function heatRecord(){
+  const z = st.data.gex && st.data.gex.zero; if (!z || !z.strikes || st.demo || gexStale()) return;
+  const d = A.et(z.timestamp).date; let H;
+  try { H = JSON.parse(localStorage.getItem(heatKey(d)) || '[]'); } catch(e){ H = []; }
+  const last = H[H.length - 1];
+  if (last && z.timestamp - last.t < 55) return;
+  const near = z.strikes.filter(x => Math.abs(x[0] - z.spot) <= z.spot * 0.03);
+  if (!H.length) [1800, 900, 600, 300, 60].forEach((off, i) => {
+    const pi = 4 - i; H.push({ t:Math.round(z.timestamp - off), hs:near.map(x => [x[0], Math.round(Array.isArray(x[3]) && Number.isFinite(x[3][pi]) ? x[3][pi] : x[1])]) });
+  });
+  H.push({ t:Math.round(z.timestamp), hs:near.map(x => [x[0], Math.round(x[1])]) });
+  if (H.length > 900) H = H.slice(-900);
+  try { localStorage.setItem(heatKey(d), JSON.stringify(H)); } catch(e){}
+  try { Object.keys(localStorage).filter(k => k.startsWith('algoLevels.heat.') && k < heatKey(A.et(z.timestamp - 4 * 86400).date)).forEach(k => localStorage.removeItem(k)); } catch(e){}
+}
+async function anaHeat(){
+  const z = st.data.gex && (st.data.gex.zero || st.data.gex.full);
+  const d = z && z.timestamp ? A.et(z.timestamp).date : A.et(Date.now() / 1000).date;
+  let srv = [];
+  if (!st.demo) try { srv = (await api('/heat?date=' + d)).rows || []; } catch(e){ $('aHeatNote').textContent = 'Historie z Workeru nejde načíst (' + e.message + ') – zobrazuji jen lokální záznam.'; }
+  let loc = []; try { loc = JSON.parse(localStorage.getItem(heatKey(d)) || '[]'); } catch(e){}
+  const rows = [...srv, ...loc].sort((a, b) => a.t - b.t).filter((r, i, a) => i === 0 || r.t - a[i - 1].t >= 30);
+  const bars = (st.data.bars || []).filter(b => A.et(b.t).date === d && A.isRTH(b.t));
+  const t0 = Math.min(rows.length ? rows[0].t : Infinity, bars.length ? bars[0].t : Infinity), t1 = Math.max(rows.length ? rows[rows.length - 1].t + 60 : 0, bars.length ? bars[bars.length - 1].t : 0);
+  const spot = (st.res && st.res.last) || (rows.length && rows[rows.length - 1].hs.length ? rows[rows.length - 1].hs[Math.floor(rows[rows.length - 1].hs.length / 2)][0] : 0);
+  const pr = bars.map(b => b.c).concat(spot ? [spot] : []);
+  const lo = Math.min(...pr) - spot * 0.004, hi = Math.max(...pr) + spot * 0.004;
+  const levels = fz.segs.filter(s => !s.t1).map(s => ({ p:s.p, label:'◎', color:FZ_COL[s.side] }));
+  Analysis.drawHeat($('cvHeat'), rows, bars, { lo: Number.isFinite(lo) ? lo : spot * 0.985, hi: Number.isFinite(hi) ? hi : spot * 1.015, t0, t1, label:etLabel, levels });
+  if (rows.length || srv.length) $('aHeatNote').textContent = `0DTE GEX po strikech v čase (${d}) – tyrkysová kladná, růžová záporná, intenzita = síla. Bílá čára = cena. ${srv.length} záznamů z Workeru (každých 15 min v RTH) + ${loc.length} lokálních (každou minutu, když je terminál otevřený).`;
+}
+async function anaBacktest(force){
+  const set = an.bt.set, cost = parseFloat($('aCost').value);
+  $('aBtNote').textContent = 'Načítám data…';
+  try {
+    if (!an.bt.data[set] || force) {
+      const [b, v, d] = await Promise.all([
+        api(set === '5m' ? '/yf/NQ%3DF?interval=5m&range=60d' : '/yf/NQ%3DF?interval=1h&range=730d'),
+        api(`/yf/%5E${S.volIndex || 'VXN'}?interval=1d&range=5y`), api('/yf/NQ%3DF?interval=1d&range=5y'),
+      ]);
+      an.bt.data[set] = { bars:A.parseYF(b), vix:A.parseYF(v), daily:A.parseYF(d) };
+    }
+    const D = an.bt.data[set];
+    const res = Backtest.run({ ...D, A, costPts: Number.isFinite(cost) ? cost : 1, emMult: S.emStraddle === false ? 1 : 0.8 });
+    an.bt.res = res; anaBtRender();
+  } catch (e) { $('aBtNote').textContent = 'Chyba: ' + e.message + ' (nové rozsahy dat vyžadují aktualizovaný Worker).'; }
+}
+function anaBtRender(){
+  const res = an.bt.res; if (!res) return;
+  $('aLeg').innerHTML = res.results.map(x => `<button data-id="${x.setup.id}" class="${x.setup.id === an.bt.hl ? 'on' : ''}"><i style="background:${x.setup.color}"></i>${x.setup.name} ${x.stats.total >= 0 ? '+' : ''}${x.stats.total.toFixed(1)}R</button>`).join('');
+  Analysis.drawEquity($('cvEq'), res.results.map(x => ({ pts:x.pts, color:x.setup.color, hl:x.setup.id === an.bt.hl })), {});
+  const f = (v, d = 2) => Number.isFinite(v) ? v.toFixed(d) : '—';
+  let h = '<tr><th>Setup</th><th>Obchodů</th><th>Win %</th><th>Ø R</th><th>Celkem R</th><th>PF</th><th>Max DD R</th><th>Stop / Target / Close</th></tr>';
+  for (const x of res.results) {
+    const s = x.stats, c = k => x.trades.filter(t => t.how === k).length;
+    h += `<tr><td><i style="display:inline-block;width:10px;height:3px;background:${x.setup.color};margin-right:6px;vertical-align:middle"></i>${esc(x.setup.name)}</td><td>${s.n}</td><td>${Number.isFinite(s.win) ? Math.round(s.win * 100) + ' %' : '—'}</td><td>${f(s.avg)}</td><td>${s.total >= 0 ? '+' : ''}${f(s.total, 1)}</td><td>${s.pf === Infinity ? '∞' : f(s.pf)}</td><td>${f(s.dd, 1)}</td><td>${c('stop')} / ${c('target')} / ${c('close')}</td></tr>`;
+  }
+  $('aBtTab').innerHTML = h;
+  $('aBtNote').textContent = `${res.days} sessions (${res.from} → ${res.to}), NQ ${an.bt.set === '5m' ? '5m' : '1h'} svíčky z Yahoo. Fade od RTH open (EM = ${S.volIndex || 'VXN'} předchozího dne${S.emStraddle === false ? '' : ' ×0.8'}) nebo od Globex open (σ = 20denní σ). Jeden obchod na stranu a den, limit fill, konzervativně: stop i target v jedné svíčce = stop, konec = close 16:00. ${an.bt.set === '1h' ? 'Hodinové svíčky začínají na celou hodinu, takže Ref = open 10:00 a průběh uvnitř hodiny je hrubý – ber jako orientační. ' : ''}Bez GEX filtru (historii GEX nemáme). Minulé výsledky nejsou zárukou.`;
+}
+$('anaBtn').onclick = () => { $('ana').classList.add('show'); anaShow(); clearInterval(an.timer); an.timer = setInterval(() => { if ($('ana').classList.contains('show') && an.tab !== 'bt') anaShow(); }, 30000); };
+$('aClose').onclick = () => { $('ana').classList.remove('show'); clearInterval(an.timer); };
+$('ana').onclick = e => { if (e.target.id === 'ana') { $('ana').classList.remove('show'); clearInterval(an.timer); } };
+$('aTab').onclick = e => { const b = e.target.closest('button'); if (!b) return; an.tab = b.dataset.t; anaShow(); };
+$('aRng').onclick = e => { const b = e.target.closest('button'); if (!b) return; an.rng = +b.dataset.r; [...$('aRng').children].forEach(x => x.classList.toggle('on', x === b)); anaStrikes(); };
+$('aBtSet').onclick = e => { const b = e.target.closest('button'); if (!b) return; an.bt.set = b.dataset.s; [...$('aBtSet').children].forEach(x => x.classList.toggle('on', x === b)); anaBacktest(); };
+$('aCost').onchange = () => anaBacktest();
+$('aLeg').onclick = e => { const b = e.target.closest('button'); if (!b) return; an.bt.hl = b.dataset.id; anaBtRender(); };
+window.addEventListener('resize', () => { if ($('ana').classList.contains('show')) (an.tab === 'bt' ? anaBtRender : anaShow)(); });
 
 // ───────── settings UI
 function openSettings(){

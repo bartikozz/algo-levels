@@ -32,8 +32,8 @@ const GEX_CATS = new Set([
 const GEX_SUBS = new Set(['majors', 'maxchange']);
 
 const YF_SYMBOLS = new Set(['NQ=F', 'ES=F', '^VIX', '^VXN', 'QQQ', 'SPY']);
-const YF_INTERVALS = new Set(['1m', '2m', '5m', '15m', '1d']);
-const YF_RANGES = new Set(['1d', '2d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y']);
+const YF_INTERVALS = new Set(['1m', '2m', '5m', '15m', '30m', '60m', '1h', '1d']);
+const YF_RANGES = new Set(['1d', '2d', '5d', '1mo', '3mo', '6mo', '60d', '1y', '2y', '730d', '5y', '10y']);
 
 // per-isolate memory cache
 const MEM = new Map();
@@ -144,7 +144,9 @@ async function captureLevels(env, force) {
   ]);
   if (!force && now - z.timestamp > 600) return { skip: 'gex stale' };
   const net = Number.isFinite(z.sum_gex_vol) ? z.sum_gex_vol : z.net_gex_vol;
-  const doc = { t: Math.round(z.timestamp), spot: z.spot, regime: Math.sign(net || 0), levels: buildLevels(z, f, q) };
+  // compact 0DTE strike history (±3 % around spot) for the GEX heatmap
+  const hs = (z.strikes || []).filter(x => Math.abs(x[0] - z.spot) <= z.spot * 0.03).map(x => [x[0], Math.round(x[1])]);
+  const doc = { t: Math.round(z.timestamp), spot: z.spot, regime: Math.sign(net || 0), levels: buildLevels(z, f, q), hs };
   const hhmm = String(Math.floor(et.min / 60)).padStart(2, '0') + String(et.min % 60).padStart(2, '0');
   const key = `lv:${et.date}:${hhmm}`;
   await env.SNAP.put(key, JSON.stringify(doc), { expirationTtl: 60 * 60 * 24 * 180 });
@@ -470,6 +472,16 @@ export default {
         return json({ date: d, captures: list.keys.map(k => k.name.slice(-4)), evaluated: await env.SNAP.get(`ev:${d}`, 'json') }, 200, cors);
       }
       if (parts[0] === 'stats') return json(await statsAll(env, +url.searchParams.get('days') || 120), 200, cors);
+      // ── GEX heatmap history: 0DTE strikes from the 15-min captures
+      if (parts[0] === 'heat') {
+        if (!env.SNAP) return json({ error: 'KV binding SNAP missing' }, 500, cors);
+        const d = url.searchParams.get('date') || etParts(Date.now() / 1000).date;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return json({ error: 'bad date' }, 400, cors);
+        const list = await env.SNAP.list({ prefix: `lv:${d}:` });
+        const rows = [];
+        for (const k of list.keys) { const x = await env.SNAP.get(k.name, 'json'); if (x && x.hs) rows.push({ t: x.t, spot: x.spot, hs: x.hs }); }
+        return json({ date: d, rows: rows.sort((a, b) => a.t - b.t) }, 200, cors);
+      }
       // ── NY AM outlook: /outlook (today + track record), /outlook/new (generate now, max 1 per 20 min)
       if (parts[0] === 'outlook') {
         if (!env.SNAP) return json({ error: 'KV binding SNAP missing' }, 500, cors);
