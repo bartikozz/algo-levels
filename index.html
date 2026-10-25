@@ -1230,7 +1230,9 @@ window.addEventListener('resize', () => { if ($('ana').classList.contains('show'
 st.srv = { ws:null, ok:false, at:0, b60:null, disp:null, dispKey:null, fp:null, levels:null, levelsAt:0, session:0, health:null, timers:[] };
 const SRV_KEYS = [['1m','1m (CME)'],['1s','1 s'],['5s','5 s'],['15s','15 s'],['30s','30 s'],['300s','5 min'],['16R','16R'],['40R','40R'],['80R','80R'],['250V','250V'],['600V','600V'],['1500V','1500V']];
 const srvTok = () => S.srvToken || S.token;
-const srvFresh = () => !!(S.server && st.srv.ok && Date.now() - st.srv.at < 20000);
+// the server tape counts as live only if it really streams futures (last 1m bar < 3 min old) — without a
+// Databento feed the server still provides options levels, and the GEXbot/Yahoo price path stays active
+const srvFresh = () => { const b = st.srv.b60; return !!(S.server && st.srv.ok && Date.now() - st.srv.at < 20000 && b && b.length && Date.now() / 1000 - b[b.length - 1].t < 180); };
 const srvLevelsFresh = () => !!(S.server && st.srv.levels && Date.now() - st.srv.levelsAt < 180000);
 async function srv(path){
   const r = await fetch(S.server + path + (path.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(srvTok()), { cache:'no-store' });

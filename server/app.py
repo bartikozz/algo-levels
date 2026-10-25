@@ -76,8 +76,10 @@ def options_loop():
                 S = parity_spot(chain)
                 if not S:
                     raise RuntimeError('no spot from put-call parity')
-            nq = tape.last
+            nq = tape.last if tape.last_ts and time.time() - tape.last_ts < 120 else None
             k_new = nq / S if nq and S and 20 < nq / S < 80 else None
+            if k_new is None and not DEMO:
+                k_new = yahoo_ratio()   # no live futures feed → NQ/QQQ from Yahoo 1m bars (time-aligned)
             state['k'] = k_new if state['k'] is None or k_new is None else 0.8 * state['k'] + 0.2 * k_new
             snap = snapshot(chain, S, time.time(), k_nq=state['k'])
             state.update(chain=chain, snap=snap, opt_err=None, opt_ts=time.time())
@@ -94,6 +96,27 @@ def options_loop():
         except Exception as e:
             state['opt_err'] = f'{type(e).__name__}: {e}'
         time.sleep(max(1.0, POLL - (time.time() - t0)))
+
+
+_yr = dict(k=None, at=0)
+def yahoo_ratio():
+    """Average NQ=F / QQQ close over the last 30 time-aligned 1-minute bars (cached 5 min)."""
+    if time.time() - _yr['at'] < 300 and _yr['k']:
+        return _yr['k']
+    import httpx
+    def bars(sym):
+        r = httpx.get(f'https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1m&range=1d&includePrePost=true',
+                      headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
+        res = r.json()['chart']['result'][0]
+        return {t: c for t, c in zip(res['timestamp'], res['indicators']['quote'][0]['close']) if c}
+    try:
+        a, b = bars('NQ=F'), bars('QQQ')
+        rs = [a[t] / b[t] for t in sorted(set(a) & set(b))[-30:] if 20 < a[t] / b[t] < 80]
+        if len(rs) >= 5:
+            _yr.update(k=sum(rs) / len(rs), at=time.time())
+    except Exception:
+        pass
+    return _yr['k']
 
 
 def demo_trades():
