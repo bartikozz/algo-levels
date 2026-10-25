@@ -56,6 +56,8 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .zw.cw,.zw.pw{background:rgba(201,166,107,.18);border-color:rgba(201,166,107,.65)}
 .zs.cw,.zs.pw{background:rgba(201,166,107,.38)}
 .zl.cw,.zl.pw{color:#f3d9a4;font-weight:700;text-shadow:0 0 3px #000}
+.rpbar{position:absolute;left:50%;transform:translateX(-50%);top:8px;z-index:4;display:flex;gap:6px;align-items:center;padding:5px 8px;border:1px solid var(--gold);border-radius:8px;background:rgba(7,8,10,.92);font-size:11px;color:var(--gold);white-space:nowrap}
+.rpbar[hidden]{display:none} .rpbar button{font-size:11px;padding:3px 7px;border:1px solid var(--line2);border-radius:5px;color:var(--text)} .rpbar button.on{border-color:var(--gold);color:var(--gold)}
 .focbtn{position:absolute;left:8px;top:8px;z-index:3;font-size:11px;padding:5px 9px;border:1px solid var(--line2);border-radius:6px;background:rgba(7,8,10,.8);color:var(--muted);letter-spacing:.06em}
 .focbtn.on{color:#5ee0c8;border-color:rgba(94,224,200,.55)}
 .fzc{display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--line2);border-radius:6px;background:var(--panel);flex:1;min-width:260px}
@@ -195,7 +197,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <span id="biasBadge" class="badge" style="cursor:pointer" hidden>Bias —</span>
 </div>
 <div id="majors" class="majors"></div>
-<div id="chartWrap" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><div id="zones" class="zones"></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button></div>
+<div id="chartWrap" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><div id="zones" class="zones"></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button><div id="rpBar" class="rpbar" hidden></div></div>
 <div id="grip" class="grip" role="separator" aria-label="Velikost grafu"><span></span></div>
 <div class="tabs">
   <button data-f="all" class="on">Vše</button>
@@ -263,6 +265,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
     <button class="pri" id="bSave">Uložit</button>
     <button id="bAlerts">Zapnout alerty</button>
     <button id="bDemo">Demo data</button>
+    <button id="bReplay">▶ Replay posledního dne</button>
     <button id="bClose">Zavřít</button>
   </div>
   <p class="hint">Klíč GEXbot je jen ve Workeru. Tady se ukládá URL Workeru a access token (v tomto prohlížeči).</p>
@@ -501,7 +504,7 @@ function computeNow(){
 
 function showSrc(err){
   const el = $('src');
-  if (st.demo) { el.textContent = 'DEMO'; el.className = 'badge'; return; }
+  if (st.demo) { el.textContent = st.replay ? 'REPLAY' : 'DEMO'; el.className = 'badge'; return; }
   if (st.liveSrc === 'live') { el.textContent = `LIVE ${Math.max(0, Math.round(st.liveAge))}s`; el.className = 'badge pos'; }
   else if (st.liveSrc === 'stale') {
     const ts = st.res && st.res.gexTs;
@@ -807,7 +810,7 @@ function fzLoad(date){
   fz.date = date; fz.alerted = {};
   try { fz.segs = JSON.parse(localStorage.getItem('algoLevels.focus.' + date) || '[]'); } catch(e){ fz.segs = []; }
 }
-function fzSave(){ try { localStorage.setItem('algoLevels.focus.' + fz.date, JSON.stringify(fz.segs)); } catch(e){} }
+function fzSave(){ if (st.replay) return; try { localStorage.setItem('algoLevels.focus.' + fz.date, JSON.stringify(fz.segs)); } catch(e){} }
 // level tag → journal kind (so the zone can carry its measured reaction rate)
 function tagKind(t){
   let m;
@@ -905,7 +908,7 @@ function drawFocus(out){
     const col = FZ_COL[s.side], active = !s.t1, dim = s.end === 'replaced';
     const o = { priceLineVisible:false, crosshairMarkerVisible:false, autoscaleInfoProvider:() => null };
     const glow = chart.addLineSeries({ ...o, color: col + (dim ? '14' : '40'), lineWidth: 10, lastValueVisible:false });
-    const core = chart.addLineSeries({ ...o, color: dim ? col + '55' : col, lineWidth: 3, lastValueVisible: active,
+    const core = chart.addLineSeries({ ...o, ...(active ? { autoscaleInfoProvider: undefined } : {}), color: dim ? col + '55' : col, lineWidth: 3, lastValueVisible: active,
       title: active ? `${s.side === 'short' ? '▼' : '▲'} ${s.score}` : '' });
     const d = [{ time:t0, value:s.p }, { time:t1, value:s.p }];
     glow.setData(d); core.setData(d); fz.series.push(glow, core);
@@ -942,6 +945,71 @@ function checkFocusAlerts(){
 $('focBtn').onclick = () => { S.focus = !S.focus; save(); $('focBtn').classList.toggle('on', S.focus); fz.hash = ''; render(); };
 $('focBtn').classList.toggle('on', !!S.focus);
 window.__focus = { fz, tick: () => { computeNow(); render(); checkAlerts(); } };
+
+
+// ───────── REPLAY: play back the last finished RTH session with real data (bars, VXN, close GEX snapshot)
+const rp = { all:null, qqq:null, i:0, end:0, timer:null, speed:4, date:null };
+async function startReplay(){
+  if (!S.worker) { toast('Nejdřív nastav Worker v ⚙.'); return; }
+  $('settings').classList.remove('show');
+  toast('Načítám data pro replay…');
+  try {
+    const [nq, qq, d, v] = await Promise.all([
+      api('/yf/NQ%3DF?interval=1m&range=5d'), api('/yf/QQQ?interval=1m&range=5d'),
+      api('/yf/NQ%3DF?interval=1d&range=6mo'), api(`/yf/%5E${S.volIndex || 'VXN'}?interval=1d&range=1mo`),
+    ]);
+    const bars = A.parseYF(nq).filter(b => b.t % 60 === 0), qb = A.parseYF(qq).filter(b => b.t % 60 === 0);
+    const todayET = A.et(Date.now() / 1000).date;
+    const days = [...new Set(bars.filter(b => A.isRTH(b.t)).map(b => A.et(b.t).date))].filter(x => {
+      const rth = bars.filter(b => A.isRTH(b.t) && A.et(b.t).date === x); return rth.length > 300 && (x < todayET || (() => { const n = A.et(Date.now() / 1000); return n.h * 60 + n.mi >= 960; })());
+    }).sort();
+    const date = days.pop(); if (!date) throw new Error('žádný kompletní den v datech');
+    const next = new Date(date + 'T12:00:00Z'); next.setUTCDate(next.getUTCDate() + 1); const before = next.toISOString().slice(0, 10);
+    const snap = c => api(`/prev/${c}?before=${before}`).then(j => j.date === date ? j.data : null).catch(() => null);
+    const [zero, full, qfull] = await Promise.all([snap('NQ_NDX/gex_zero'), snap('NQ_NDX/gex_full'), snap('QQQ/gex_full')]);
+    const strip = g => g ? { ...g, spot: undefined } : null; // no basis shift vs. the close snapshot spot
+    const endIdx = bars.findLastIndex(b => A.et(b.t).date === date && A.isRTH(b.t));
+    rp.all = bars.slice(0, endIdx + 1); rp.qqq = qb; rp.date = date;
+    rp.i = rp.all.findIndex(b => A.et(b.t).date === date && A.isRTH(b.t)) + 1; rp.end = rp.all.length;
+    st.replay = true; st.demo = true; st.live.clear(); st.yf = []; fitted = false;
+    st.data = { bars:[], daily:A.parseYF(d).filter(b => A.et(b.t).date < before), vix:A.parseYF(v), gex:{ zero:strip(zero), full:strip(full), qqq:qfull ? { ...qfull, spot: undefined } : null } };
+    fz.date = null; fz.segs = []; fz.hash = ''; fz.alerted = {}; fzLoad(date); fz.segs = [];
+    S.focus = true; $('focBtn').classList.add('on');
+    rp.gexNote = zero ? 'GEX = snapshot z close ' + date.slice(5).split('-').reverse().join('.') : 'GEX snapshot chybí – jen EM/QQQ/σ/VP';
+    replayStep(); replayPlay(true); showSrc();
+  } catch (e) { toast('Replay: ' + e.message); }
+}
+function replayStep(){
+  const bars = rp.all.slice(0, rp.i), t = bars[bars.length - 1].t;
+  const qb = rp.qqq.filter(b => b.t <= t);
+  st.data.bars = bars; st.data.nqBars = bars; st.data.qqqBars = qb; st.data.qqqPx = qb.length ? qb[qb.length - 1].c : undefined;
+  computeNow(); render(); checkFocusAlerts();
+  $('rpBar').hidden = false;
+  $('rpBar').innerHTML = `▶ REPLAY ${rp.date.slice(5).split('-').reverse().join('.')} · <b>${A.hhmm(t)} ET</b>`
+    + ['1', '4', '15'].map(x => `<button data-sp="${x}" class="${+x === rp.speed ? 'on' : ''}">${x}×</button>`).join('')
+    + `<button data-a="pp">${rp.timer ? '❚❚' : '▶'}</button><button data-a="x">✕</button>`;
+  $('upd').textContent = 'REPLAY · ' + rp.gexNote + ' (ukázka, ne backtest)';
+}
+function replayPlay(on){
+  clearInterval(rp.timer); rp.timer = null;
+  if (!on) return;
+  rp.timer = setInterval(() => {
+    if (rp.i >= rp.end) { replayPlay(false); replayStep(); toast('Replay dokončen.'); return; }
+    rp.i = Math.min(rp.end, rp.i + rp.speed); replayStep();
+  }, 400);
+}
+function stopReplay(){
+  replayPlay(false); st.replay = false; st.demo = false; $('rpBar').hidden = true;
+  fz.date = null; fz.segs = []; fz.hash = ''; st.data = { bars:[], daily:[], vix:[], gex:{} }; st.yf = []; fitted = false;
+  showSrc(); refresh(true);
+}
+$('rpBar').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.sp) { rp.speed = +b.dataset.sp; replayStep(); return; }
+  if (b.dataset.a === 'pp') { replayPlay(!rp.timer); replayStep(); }
+  if (b.dataset.a === 'x') stopReplay();
+};
+$('bReplay').onclick = startReplay;
 
 // ───────── settings UI
 function openSettings(){

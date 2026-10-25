@@ -287,6 +287,11 @@ footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);f
   <p>Úsečka začne, když se zóna stane nejlepší, a <strong>skončí v místě, kde do ní cena dojela</strong> (jako u pendqnt) – použitá zóna se ten den už znovu nevybere. Když ji přebije jiná zóna, stará úsečka zůstane slabě vidět. Alert (zvuk + notifikace) přijde, když je cena do „Vzdálenosti“ z ⚙ od zóny, a znovu při zásahu. Karty nad grafem ukazují cenu zóny, vzdálenost, skóre, konfluence a historickou míru reakce daného typu levelu.</p>
 </section>
 
+<section id="replay-sec">
+  <h2><span class="n">08e</span>▶ Replay posledního dne</h2>
+  <p>⚙ → <strong>▶ Replay posledního dne</strong> přehraje poslední kompletní RTH session (skutečné NQ 1m svíčky, VXN pro EM, GEX snapshot uložený Workerem po close) od 9:30 ET rychlostí 1× / 4× / 15× svíček za tick, s Focus módem a alerty. GEX je stav <em>z close</em>, takže je to ukázka, jak terminál vypadá a reaguje – ne backtest (intradenní GEX se měnil). ✕ vrátí živý režim.</p>
+</section>
+
 <section id="bias-sec">
   <h2><span class="n">08c</span>Bias · Fed likvidita + COT</h2>
   <p>Tlačítko <strong>B</strong> (nebo štítek „Bias“ v horním řádku) ukáže nejpravděpodobnější stranu pro dnešní / příští NY session a pro 5 sessions dopředu. Vstupy: net likvidita (rozvaha Fedu − TGA − RRP) za 1 a 4 týdny, rezervy bank (H.4.1), TGA z denního výkazu Treasury, ON RRP z NY Fed, HY spread (ICE BofA OAS) a COT na NQ (Leveraged Funds, Asset Managers – týdenní změna a 3letý index).</p>
