@@ -56,7 +56,14 @@ if (-not $cur['WORKER_URL']) { Set-EnvKey 'WORKER_URL' (Read-Host '   Adresa tv�
 if (-not $cur['ACCESS_TOKEN']) { $sec = Read-Host '   Token Workeru (stejný jako v terminálu ⚙)' -AsSecureString; Set-EnvKey 'ACCESS_TOKEN' ([Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))); Remove-Variable sec }
 
 Write-Host '== Theta Terminal v3' -ForegroundColor Cyan
-Invoke-WebRequest 'https://download-unstable.thetadata.us/ThetaTerminalv3.jar' -OutFile "$R\theta\ThetaTerminalv3.jar"
+# stop a running terminal / server / tunnel first (the jar is locked while it runs)
+Get-CimInstance Win32_Process -Filter "Name='java.exe'" | Where-Object { $_.CommandLine -match 'ThetaTerminal' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -match 'uvicorn app:app' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -match 'tunnel\.ps1' -and $_.ProcessId -ne $PID } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep 2
+try { Invoke-WebRequest 'https://download-unstable.thetadata.us/ThetaTerminalv3.jar' -OutFile "$R\theta\ThetaTerminalv3.new" ; Move-Item -Force "$R\theta\ThetaTerminalv3.new" "$R\theta\ThetaTerminalv3.jar" }
+catch { if (Test-Path "$R\theta\ThetaTerminalv3.jar") { Write-Host '   (nový jar se nepodařilo stáhnout – nechávám stávající)' } else { throw } }
 if (-not (Test-Path "$R\theta\creds.txt")) {
   Write-Host "   Přihlášení k ThetaData (uloží se jen do tvého počítače: $R\theta\creds.txt)" -ForegroundColor Yellow
   $email = Read-Host '   ThetaData e-mail'
