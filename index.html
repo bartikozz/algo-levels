@@ -741,12 +741,10 @@ function gexStale(){
 function etDateOf(sec){ return new Intl.DateTimeFormat('en-CA', { timeZone:'America/New_York' }).format(new Date(sec * 1000)); }
 // what the engine sees: stale GEX data is moved out of the main list (it becomes "previous" levels)
 function computeNow(){
-  // options levels from the data server (ThetaData chain) replace the GEXbot NQ layers while fresh
-  st.data.extra = srvLevelsFresh() ? st.srv.levels.levels.filter(l => l.nq && !(/CW|PW/.test(l.kind) && Math.abs(l.q / 5 - Math.round(l.q / 5)) > 1e-6)).map(l => ({ p:l.nq, tag:l.kind, w:l.w, src: /^FLOW/.test(l.kind) ? 'flow' : 'opt' })) : null;
-  if (st.data.extra && !st.demo) {
-    const keep = S.layers; S.layers = { ...keep, gex0:false, gex1:false, gexFull:false, qqq:false };
-    try { return computeNow0(); } finally { S.layers = keep; }
-  }
+  // GEXbot levels always stay the primary source (same result on PC and phone); the data server (ThetaData chain)
+  // only adds confluence: its walls on QQQ 0/5 strikes count 1 point, IV walls / γ flip / FLOW keep their weight
+  st.data.extra = srvLevelsFresh() ? st.srv.levels.levels.filter(l => l.nq && !(/CW|PW/.test(l.kind) && Math.abs(l.q / 5 - Math.round(l.q / 5)) > 1e-6))
+    .map(l => ({ p:l.nq, tag:l.kind, w: /CW|PW|CEILING|FLOOR|PEAK/.test(l.kind) ? 1 : Math.min(l.w, 1.5), src: /^FLOW/.test(l.kind) ? 'flow' : 'opt' })) : null;
   return computeNow0();
 }
 function computeNow0(){
