@@ -34,6 +34,14 @@ app = FastAPI(title='Algo Levels server')
 app.add_middleware(CORSMiddleware, allow_origins=os.environ.get('CORS_ORIGINS', 'https://bartikozz.github.io').split(','),
                    allow_methods=['GET'], allow_headers=['*'])
 
+
+@app.middleware('http')
+async def private_network(request, call_next):
+    """Chrome 'Private/Local Network Access': the public terminal page may call this server on localhost"""
+    resp = await call_next(request)
+    resp.headers['Access-Control-Allow-Private-Network'] = 'true'
+    return resp
+
 tape = Tape(state_file=os.path.join(DATA_DIR, 'tape.json'))
 oflow = OptionFlow(min_prem=float(os.environ.get('FLOW_MIN_PREM', '25000')), state_file=os.path.join(DATA_DIR, 'optflow.json'))
 state = dict(chain=None, snap=None, k=None, opt_err=None, opt_ts=0, feed=None, hist=[], ostream=None)

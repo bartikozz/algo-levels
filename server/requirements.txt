@@ -5,3 +5,4 @@ databento>=0.40
 python-dotenv>=1.0
 numpy>=1.26
 websockets>=12
+tzdata>=2024.1
