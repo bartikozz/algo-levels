@@ -70,6 +70,11 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .fzc .sd{font-weight:800;letter-spacing:.08em;font-size:11px} .fzc.short{border-color:rgba(94,224,200,.45)} .fzc.short .sd{color:#5ee0c8}
 .fzc.long{border-color:rgba(255,95,162,.45)} .fzc.long .sd{color:#ff5fa2} .fzc b{font-size:14px} .fzc .m{font-size:11px;color:var(--muted)}
 .fzc.near{animation:pulse 1.2s infinite}
+.zbar{position:absolute;left:50%;bottom:40px;transform:translateX(-50%);z-index:4;display:flex;gap:6px;opacity:0;transition:opacity .2s;pointer-events:none}
+#chartWrap:hover .zbar,.zbar.touch{opacity:1;pointer-events:auto}
+.zbar button{width:32px;height:30px;border:1px solid var(--line2);border-radius:6px;background:rgba(20,22,27,.92);color:#c9ccd2;font-size:16px;line-height:1;padding:0;cursor:pointer}
+.zbar button:hover{background:#2a2e36;color:#fff}
+.zbar .sp{width:6px}
 .nowbtn{position:absolute;right:76px;bottom:34px;z-index:3;font-size:12px;padding:6px 10px;border:1px solid var(--gold);border-radius:6px;background:#1d1709;color:var(--gold)}
 #chart{height:46dvh;min-height:200px}
 .grip{height:24px;display:flex;align-items:center;justify-content:center;cursor:ns-resize;touch-action:none;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--panel);user-select:none;-webkit-user-select:none}
@@ -210,7 +215,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <span id="biasBadge" class="badge" style="cursor:pointer" hidden>Bias —</span>
 </div>
 <div id="majors" class="majors"></div>
-<div id="chartWrap" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><canvas id="vpc"></canvas><canvas id="fpc"></canvas><select id="barSrc" class="barsrc" hidden></select><div id="zones" class="zones"></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button><div id="rpBar" class="rpbar" hidden></div></div>
+<div id="chartWrap" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><canvas id="vpc"></canvas><canvas id="fpc"></canvas><select id="barSrc" class="barsrc" hidden></select><div id="zones" class="zones"></div><div id="zbar" class="zbar"><button data-z="out" title="Oddálit (−)">−</button><button data-z="in" title="Přiblížit (+)">+</button><span class="sp"></span><button data-z="left" title="Posunout doleva">‹</button><button data-z="right" title="Posunout doprava">›</button><span class="sp"></span><button data-z="reset" title="Zpět na výchozí pohled">↺</button></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button><div id="rpBar" class="rpbar" hidden></div></div>
 <div id="grip" class="grip" role="separator" aria-label="Velikost grafu"><span></span></div>
 <div class="tabs">
   <button data-f="all" class="on">Vše</button>
@@ -1736,6 +1741,30 @@ setInterval(() => { if (!st.demo && document.visibilityState === 'visible') refr
 showSrc();
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { goNow(); if (!st.demo) refresh(true); } });
 $('now').onclick = goNow;
+// ───────── TradingView-style zoom / scroll buttons (also keys + − ← → and 0 to reset)
+function chartNav(a){
+  const ts = chart.timeScale(), r = ts.getVisibleLogicalRange(); if (!r) return;
+  const n = (st.outT || []).length, span = r.to - r.from;
+  if (a === 'in' || a === 'out') {
+    const ns = Math.max(20, Math.min(Math.max(n, 100) + 50, span * (a === 'in' ? 0.7 : 1 / 0.7)));
+    const atEdge = ts.scrollPosition() > -3, anchor = atEdge ? r.to : (r.from + r.to) / 2;   // zoom keeps the latest bar in place, like TV
+    ts.setVisibleLogicalRange(atEdge ? { from: anchor - ns, to: anchor } : { from: anchor - ns / 2, to: anchor + ns / 2 });
+  } else if (a === 'left' || a === 'right') {
+    const d = span * 0.15 * (a === 'left' ? -1 : 1);
+    ts.setVisibleLogicalRange({ from: r.from + d, to: r.to + d });
+  } else if (a === 'reset') {
+    ts.setVisibleLogicalRange({ from: n - 240, to: n + (ts.options().rightOffset || 8) }); ts.scrollToRealTime();
+  }
+}
+$('zbar').addEventListener('click', e => { const b = e.target.closest('button'); if (b) chartNav(b.dataset.z); });
+$('chartWrap').addEventListener('touchstart', () => { const z = $('zbar'); z.classList.add('touch'); clearTimeout(z._t); z._t = setTimeout(() => z.classList.remove('touch'), 4000); }, { passive: true });
+document.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || /INPUT|SELECT|TEXTAREA/.test((e.target.tagName || ''))) return;
+  if (document.querySelector('.sheet.show, .show[id$="Sheet"], #settings.show, #ana.show, #pro.show')) return;
+  const m = { '+': 'in', '=': 'in', '-': 'out', ArrowLeft: 'left', ArrowRight: 'right', '0': 'reset' }[e.key];
+  if (m) { e.preventDefault(); chartNav(m); }
+});
+
 
 // resizable chart: drag the grip down to enlarge, tap to toggle normal/big
 (() => {
