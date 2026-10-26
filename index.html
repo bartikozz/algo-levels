@@ -1110,12 +1110,12 @@ function levelHist(l){
   for (const t of l.tags) { const k = tagKind(t), x = k && KS.by[k]; if (x && x.n >= 5 && (!best || x.n > best.n)) best = { kind:k, n:x.n, rate:x.r / x.n }; }
   return best;
 }
-// Focus anchors: the big call / put walls only (GEXbot NQ walls #1–2, OI walls, QQQ walls on strikes ending 0/5, server walls)
+// Focus anchors: the big call / put walls only (GEXbot NQ walls #1–2, OI walls, GEXbot QQQ walls on strikes ending 0/5)
 function bigWall(t){
   const m = /^QQQ (?:CW |PW )?(\d+(?:\.\d+)?)/.exec(t);
   if (m && !/CW|PW/.test(t)) return false;                     // plain QQQ strike without a wall
   if (m) return +m[1] % 5 === 0;
-  return /^(0DTE|1DTE) (CW|PW) [12]$|^(CW|PW) [12]$|^OI (CW|PW)$|^(0D|1D|ALL) (CW|PW)/.test(t);
+  return /^(0DTE|1DTE) (CW|PW) [12]$|^(CW|PW) [12]$|^OI (CW|PW)$/.test(t);   // GEXbot walls; ThetaData walls only add score
 }
 function focusRank(l, r){
   if (l.status && l.status.key === 'broken') return -1;
