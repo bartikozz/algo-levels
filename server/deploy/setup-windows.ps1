@@ -47,7 +47,7 @@ CORS_ORIGINS=https://bartikozz.github.io
 Write-Host '== Theta Terminal v3' -ForegroundColor Cyan
 Invoke-WebRequest 'https://download-unstable.thetadata.us/ThetaTerminalv3.jar' -OutFile "$R\theta\ThetaTerminalv3.jar"
 if (-not (Test-Path "$R\theta\creds.txt")) {
-  Write-Host '   Přihlášení k ThetaData (uloží se jen do tvého počítače, $R\theta\creds.txt):' -ForegroundColor Yellow
+  Write-Host "   Přihlášení k ThetaData (uloží se jen do tvého počítače: $R\theta\creds.txt)" -ForegroundColor Yellow
   $email = Read-Host '   ThetaData e-mail'
   $sec = Read-Host '   ThetaData heslo' -AsSecureString
   $pw = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
