@@ -228,9 +228,9 @@
         if (vp) {
           info.vp = vp;
           add(vp.poc, 'pPOC', 1.5, 'vp');
-          add(vp.vah, 'pVAH', 1, 'vp');
-          add(vp.val, 'pVAL', 1, 'vp');
-          for (const z of vp.lvn) add(z.p, 'pLVN', 1, 'vp');
+          add(vp.vah, 'pVAH', 1.25, 'vp');
+          add(vp.val, 'pVAL', 1.25, 'vp');
+          for (const z of vp.lvn) if (z.depth > 0.35) add(z.p, 'pLVN', 1, 'vp');
         }
       }
       // composite profiles (7 / 30 sessions) → the strongest LVNs + POC as levels
@@ -240,13 +240,25 @@
         add(P.poc, 'POC ' + k, 1, 'vp');
         for (const z of P.keyLvn || []) add(z.p, 'LVN ' + k, 1.5, 'vp');
       }
+      // overnight (ETH) profile of today's session: 18:00 → 09:30 ET → ON POC / VAH / VAL / LVN
+      const onBars = todayBars.filter(b => b.v > 0 && (et(b.t).min < 570 || et(b.t).min >= 1080));
+      if (onBars.length >= 60) {
+        const on = volumeProfile(onBars, 5);
+        if (on) {
+          info.vpON = on;
+          add(on.poc, 'ON POC', 1.5, 'vp');
+          add(on.vah, 'ON VAH', 1.25, 'vp');
+          add(on.val, 'ON VAL', 1.25, 'vp');
+          for (const z of on.lvn) if (z.depth > 0.35) add(z.p, 'ON LVN', 1, 'vp');
+        }
+      }
       // developing profile of today's session (RTH once open, else the overnight session) → live LVNs
       const sess = rthBars.length >= 30 ? rthBars : todayBars;
       if (sess.length >= 30 && sess.some(b => b.v > 0)) {
         const tv = volumeProfile(sess.filter(b => b.v > 0), 5);
         if (tv) {
           info.vpToday = { ...tv, rth: sess === rthBars };
-          for (const z of tv.lvn) add(z.p, 'LVN', 1, 'vp');
+          if (sess === rthBars) for (const z of tv.lvn) add(z.p, 'RTH LVN', 1, 'vp');
         }
       }
     }

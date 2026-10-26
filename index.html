@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=21"></script>
+<script src="levels.js?v=22"></script>
 <script src="bias.js?v=3"></script>
 <script src="analysis.js?v=1"></script>
 <script src="backtest.js?v=1"></script>
@@ -458,9 +458,14 @@ function buildVPComp(){
     P.days = set.size; return P;
   };
   const sess = [];
+  // each Globex day split into ETH (18:00 → 09:30 ET overnight) and RTH (09:30 → 16:00) profiles
   for (const d of [...new Set(m1.map(b => A.tdate(b.t)))]) {
-    const bs = m1.filter(b => A.tdate(b.t) === d); if (bs.length < 20) continue;
-    const P = A.volumeProfile(bs, 1); if (P) sess.push({ d, t0: bs[0].t, t1: bs[bs.length - 1].t, P });
+    const day = m1.filter(b => A.tdate(b.t) === d);
+    const eth = day.filter(b => { const m = A.et(b.t).min; return m < 570 || m >= 1080; }), rth = day.filter(b => A.isRTH(b.t));
+    for (const [kind, bs] of [['eth', eth], ['rth', rth]]) {
+      if (bs.length < 20) continue;
+      const P = A.volumeProfile(bs, 1); if (P) sess.push({ d, kind, t0: bs[0].t, t1: bs[bs.length - 1].t, P });
+    }
   }
   st.vpc = { key, d7: comp(7), d30: comp(30), sess };
   st.data.vpComp = { d7: st.vpc.d7, d30: st.vpc.d30 };
@@ -510,9 +515,16 @@ function drawVP(){
     const i0 = vpIdx(A.et(s.t0).disp), i1 = Math.max(i0, vpIdx(A.et(s.t1).disp + 1) - 1);
     let xa = ox(i0), xb = ox(i1); if (xa === null || xb === null) continue;
     xa -= sp / 2; if (xb < 0 || xa > xEnd) continue;
-    if (xa > 0) { c.strokeStyle = 'rgba(160,168,180,.25)'; c.setLineDash([3, 4]); c.beginPath(); c.moveTo(xa + 0.5, 0); c.lineTo(xa + 0.5, h); c.stroke(); c.setLineDash([]); }
-    const x = Math.max(0, xa), W = Math.max(30, Math.min(260, (xb - xa) * 0.5));
-    hist(s.P, x, 1, W, 'rgba(150,156,166,.22)', 'rgba(150,156,166,.36)', 'rgba(239,83,80,.85)');
+    const eth = s.kind === 'eth';
+    if (xa > 0) { c.strokeStyle = eth ? 'rgba(160,168,180,.25)' : 'rgba(201,166,107,.3)'; c.setLineDash([3, 4]); c.beginPath(); c.moveTo(xa + 0.5, 0); c.lineTo(xa + 0.5, h); c.stroke(); c.setLineDash([]); }
+    const x = Math.max(0, xa), W = Math.max(30, Math.min(260, (xb - xa) * 0.6));
+    if (eth) hist(s.P, x, 1, W, 'rgba(96,130,190,.2)', 'rgba(110,145,205,.36)', 'rgba(239,83,80,.85)');
+    else hist(s.P, x, 1, W, 'rgba(150,156,166,.22)', 'rgba(170,176,186,.38)', 'rgba(239,83,80,.9)');
+    // VAH / VAL ticks across the profile's own session + label
+    c.font = '9px JetBrains Mono, monospace'; c.textBaseline = 'middle'; c.textAlign = 'left';
+    for (const [p, t] of [[s.P.vah, 'VAH'], [s.P.val, 'VAL']]) { const y = Y(p); if (y === null) continue;
+      c.fillStyle = eth ? 'rgba(120,160,225,.7)' : 'rgba(190,196,206,.6)'; c.fillRect(x, Math.round(y), Math.max(10, Math.min(xEnd, xb) - x), 1);
+      c.fillText(`${eth ? 'ON ' : ''}${t}`, x + 3, y - 6); }
   }
   // 3) composite VP 7D / 30D on the right edge (MotiveWave VP(7,1D) / VP(30,1D))
   c.font = '10px JetBrains Mono, monospace'; c.textBaseline = 'top';
