@@ -1532,8 +1532,11 @@ async function proShow(){
     } else if (t === 'surf') {
       const D = await srv('/options/surface'), k = D.k || 41;
       const rows = D.rows.map(r => ({ t:r.t, hs:r.s.map(x => [x[0] * (r.k || k), x[1]]) }));
-      const B = st.srv.b60 || [], t0 = rows.length ? rows[0].t : Date.now() / 1000 - 3600, t1 = rows.length ? rows[rows.length - 1].t + 60 : Date.now() / 1000;
-      const path = B.filter(b => b.t >= t0).map(b => ({ t:b.t, c:b.c })); const spot = path.length ? path[path.length - 1].c : (rows.length ? rows[rows.length - 1].hs[0][0] : 0);
+      const t0 = rows.length ? rows[0].t : Date.now() / 1000 - 3600, t1 = rows.length ? rows[rows.length - 1].t + 60 : Date.now() / 1000;
+      const B = (st.srv.b60 && st.srv.b60.length) ? st.srv.b60 : (st.data.bars || []).filter(b => b.c > 0);   // no futures feed → terminal NQ candles
+      const path = B.filter(b => b.t >= t0 - 60).map(b => ({ t:b.t, c:b.c }));
+      const lastRow = rows.length ? rows[rows.length - 1] : null;
+      const spot = path.length ? path[path.length - 1].c : (st.res && st.res.last) || (lastRow && lastRow.spot ? lastRow.spot * (lastRow.k || k) : 0);
       Analysis.drawHeat(cv, rows, path, { lo:spot * 0.988, hi:spot * 1.012, t0, t1, label:A.hhmm, levels:[] });
       note(`0DTE GEX (OI) po strikech v čase z options serveru (každých ${30} s) + cena NQ. ${rows.length} snímků dnes.`);
     } else if (t === 'oflow') {
