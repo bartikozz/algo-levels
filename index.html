@@ -1191,7 +1191,8 @@ function drawFocus(out){
   fz.series.forEach(x => { try { chart.removeSeries(x); } catch(e){} }); fz.series = [];
   (fz.axis || []).forEach(l => { try { series.removePriceLine(l); } catch(e){} }); fz.axis = [];
   for (const s of segs.filter(s => s.end !== 'replaced')) {
-    const t0 = A.et(s.t0).disp, t1 = Math.max(s.t1 ? A.et(s.t1).disp : lastT, t0 + 60);
+    let t0 = A.et(s.t0).disp; const t1 = Math.max(s.t1 ? A.et(s.t1).disp : lastT, t0 + 60);
+    if (!s.t1 && t1 - t0 < 90 * 60) { const want = t1 - 90 * 60, b = out.find(x => x.time >= want); if (b) t0 = b.time; }   // active zone: always a visible band (≥ 90 min, snapped to a bar)
     const col = FZ_COL[s.side], active = !s.t1, dim = s.end === 'replaced';
     const o = { priceLineVisible:false, crosshairMarkerVisible:false, autoscaleInfoProvider:() => null };
     const glow = chart.addLineSeries({ ...o, color: col + (dim ? '14' : '40'), lineWidth: 10, lastValueVisible:false });
