@@ -70,6 +70,13 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .fzc .sd{font-weight:800;letter-spacing:.08em;font-size:11px} .fzc.short{border-color:rgba(94,224,200,.45)} .fzc.short .sd{color:#5ee0c8}
 .fzc.long{border-color:rgba(255,95,162,.45)} .fzc.long .sd{color:#ff5fa2} .fzc b{font-size:14px} .fzc .m{font-size:11px;color:var(--muted)}
 .fzc.near{animation:pulse 1.2s infinite}
+.legend{position:absolute;left:8px;top:40px;z-index:3;font:11px 'JetBrains Mono',monospace;color:#9aa0a8;user-select:none}
+.legend .lgh{display:flex;gap:4px;align-items:center;margin-bottom:2px;color:#6b727c;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+.legend .lgh button{border:1px solid var(--line2);background:rgba(7,8,10,.7);color:#9aa0a8;border-radius:4px;font-size:10px;padding:0 5px;cursor:pointer}
+.legend .lgi{display:flex;gap:8px;align-items:center;padding:1px 6px;border-radius:4px;cursor:pointer;background:rgba(7,8,10,.55)}
+.legend .lgi:hover{background:rgba(40,44,52,.9);color:#e6e8eb}
+.legend .lgi.off span{opacity:.4}
+.legend .lgi i{font-style:normal;font-size:11px;opacity:.75}
 .zbar{position:absolute;left:50%;bottom:40px;transform:translateX(-50%);z-index:4;display:flex;gap:6px;opacity:0;transition:opacity .2s;pointer-events:none}
 #chartWrap:hover .zbar,.zbar.touch{opacity:1;pointer-events:auto}
 .zbar button{width:32px;height:30px;border:1px solid var(--line2);border-radius:6px;background:rgba(20,22,27,.92);color:#c9ccd2;font-size:16px;line-height:1;padding:0;cursor:pointer}
@@ -215,7 +222,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <span id="biasBadge" class="badge" style="cursor:pointer" hidden>Bias —</span>
 </div>
 <div id="majors" class="majors"></div>
-<div id="chartWrap" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><canvas id="vpc"></canvas><canvas id="fpc"></canvas><select id="barSrc" class="barsrc" hidden></select><div id="zones" class="zones"></div><div id="zbar" class="zbar"><button data-z="out" title="Oddálit (−)">−</button><button data-z="in" title="Přiblížit (+)">+</button><span class="sp"></span><button data-z="left" title="Posunout doleva">‹</button><button data-z="right" title="Posunout doprava">›</button><span class="sp"></span><button data-z="reset" title="Zpět na výchozí pohled">↺</button></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button><div id="rpBar" class="rpbar" hidden></div></div>
+<div id="chartWrap" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><canvas id="vpc"></canvas><canvas id="fpc"></canvas><select id="barSrc" class="barsrc" hidden></select><div id="zones" class="zones"></div><div id="zbar" class="zbar"><button data-z="out" title="Oddálit (−)">−</button><button data-z="in" title="Přiblížit (+)">+</button><span class="sp"></span><button data-z="left" title="Posunout doleva">‹</button><button data-z="right" title="Posunout doprava">›</button><span class="sp"></span><button data-z="reset" title="Zpět na výchozí pohled">↺</button></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button><div id="legend" class="legend"></div><div id="rpBar" class="rpbar" hidden></div></div>
 <div id="grip" class="grip" role="separator" aria-label="Velikost grafu"><span></span></div>
 <div class="tabs">
   <button data-f="all" class="on">Vše</button>
@@ -376,7 +383,7 @@ let fitted = false;
 function drawZones(){
   const box = $('zones'); if (!box) return;
   const r = st.res, Z = r && r.info && r.info.qqqLevels;
-  if (!Z || !Z.length || !S.layers.qqqMain || S.focus) { if (box.innerHTML) { box.innerHTML = ''; box._h = ''; } return; }
+  if (!Z || !Z.length || !S.layers.qqqMain || !vis('qqqZ')) { if (box.innerHTML) { box.innerHTML = ''; box._h = ''; } return; }
   let w = 0; try { w = chart.timeScale().width(); } catch(e){}
   box.style.width = w + 'px';
   let html = '';
@@ -395,11 +402,27 @@ function drawZones(){
 }
 // GEXbot-style strike profile: QQQ 0DTE GEX by volume per strike (×k into NQ), green = +γ, red = −γ,
 // blue dots = 1/5/10/15/30 min ago, dashed major +/− and zero gamma lines.
+// ───────── TradingView-style legend: show/hide drawings only — the levels stay in the confluence either way.
+// Separate visibility for the normal view and Focus mode (Focus = clean chart, only the zone by default).
+const VIS = [['sessVP','Volume profil ETH/RTH'],['compVP','VP 7D / 30D'],['lvn','LVN pásy'],['gex','GEX profil'],['qqqZ','QQQ zóny'],['em','EM Levels'],['lines','Konfluenční čáry'],['prevL','Včerejší levely'],['vol','Objem'],['cvd','CVD']];
+const VIS_DEF = { n: Object.fromEntries(VIS.map(v => [v[0], true])), f: Object.fromEntries(VIS.map(v => [v[0], false])) };
+const vis = k => { const m = (S.vis && S.vis[S.focus ? 'f' : 'n']) || VIS_DEF[S.focus ? 'f' : 'n']; return m[k] !== undefined ? !!m[k] : VIS_DEF[S.focus ? 'f' : 'n'][k]; };
+function legendHTML(){
+  return `<div class="lgh"><span>${S.focus ? 'Focus' : 'Graf'}</span><button data-lg="all" title="Skrýt / ukázat vše">◐</button><button data-lg="fold" title="Sbalit">${S.lgFold ? '▾' : '▴'}</button></div>` +
+    (S.lgFold ? '' : VIS.map(([k, t]) => `<div class="lgi ${vis(k) ? '' : 'off'}" data-lg="${k}"><span>${t}</span><i>${vis(k) ? '👁' : '⊘'}</i></div>`).join(''));
+}
+function drawLegend(){ const el = $('legend'); if (!el) return; const h = legendHTML(); if (el._h !== h) { el.innerHTML = h; el._h = h; } }
+function setVis(k){
+  const m = S.focus ? 'f' : 'n'; S.vis = S.vis || structuredClone(VIS_DEF); S.vis[m] = { ...VIS_DEF[m], ...(S.vis[m] || {}) };
+  if (k === 'all') { const any = VIS.some(v => S.vis[m][v[0]]); VIS.forEach(v => S.vis[m][v[0]] = !any); }
+  else S.vis[m][k] = !S.vis[m][k];
+  save(); ['vpc', 'gexp'].forEach(id => { const c = $(id); if (c) c._k = ''; }); const z = $('zones'); if (z) z._h = ''; fz.hash = ''; render(); drawLegend();
+}
 const PRI_C = ['#a9dcff','#6cbcff','#3b8fe6','#2766b8','#1b467f'];
 function drawProfile(){
   const cv = $('gexp'); if (!cv) return;
   const q = st.data.gex && st.data.gex.qqq, k = st.res && st.res.info && st.res.info.ratio;
-  const on = !S.focus && S.layers.gexProf && q && Array.isArray(q.strikes) && k > 0 && !gexStale();
+  const on = vis('gex') && S.layers.gexProf && q && Array.isArray(q.strikes) && k > 0 && !gexStale();
   let w = 0, h = 0; try { w = chart.timeScale().width(); h = $('chart').clientHeight - 26; } catch(e){}
   const y0 = series.priceToCoordinate(30000), y1 = series.priceToCoordinate(31000);
   const key = on ? [w, h, y0, y1, k.toFixed(4), q.timestamp, q.strikes.length].join('|') : 'off';
@@ -475,14 +498,15 @@ const vpIdx = disp => { const a = st.outT || []; let lo = 0, hi = a.length; whil
 function drawVP(){
   const cv = $('vpc'); if (!cv) return;
   const ts = chart.timeScale(), V = st.vpc, T = st.res && st.res.info && st.res.info.vpToday;
-  const on = S.layers.vpProf !== false && V && (V.d7 || V.sess.length);
+  const showS = vis('sessVP'), showC = vis('compVP'), showL = vis('lvn');
+  const on = S.layers.vpProf !== false && V && (V.d7 || V.sess.length) && (showS || showC || showL);
   let w = 0, h = 0, sp = 6, lr = null; try { w = ts.width(); h = $('chart').clientHeight - 26; sp = ts.options().barSpacing; lr = ts.getVisibleLogicalRange(); } catch(e){}
   const Wc = Math.round(Math.min(170, Math.max(70, w * 0.12)));
   // keep the newest candle left of the composite profiles
-  const ro = on ? Math.ceil((2 * Wc + 24) / sp) + 2 : 8;
+  const ro = on && showC ? Math.ceil((2 * Wc + 24) / sp) + 2 : 8;
   try { if (Math.abs((ts.options().rightOffset || 0) - ro) > 2) ts.applyOptions({ rightOffset: ro }); } catch(e){}
   const y0 = series.priceToCoordinate(30000), y1 = series.priceToCoordinate(31000);
-  const key = on ? [w, h, y0, y1, lr && lr.from.toFixed(1), lr && lr.to.toFixed(1), V.key, T && T.vol, (st.outT || []).length].join('|') : 'off';
+  const key = on ? [w, h, y0, y1, lr && lr.from.toFixed(1), lr && lr.to.toFixed(1), V.key, T && T.vol, showS, showC, showL, (st.outT || []).length].join('|') : 'off';
   if (cv._k === key) return; cv._k = key;
   const dpr = window.devicePixelRatio || 1;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.width = w + 'px'; cv.style.height = h + 'px'; }
@@ -504,14 +528,14 @@ function drawVP(){
     const yp = Y(P.poc); if (yp !== null && poc) { c.fillStyle = poc; c.fillRect(dir > 0 ? x : x - W * 1.08, yp - 1, W * 1.08, 2); }
   };
   // 1) grey LVN bands across the chart (30D wide/dim, 7D stronger), today's developing LVNs as thin outlines
-  const xEnd = w - 2 * Wc - 20;
+  const xEnd = showC ? w - 2 * Wc - 20 : w;
   const band = (z, a) => { const ya = Y(z.hi), yb = Y(z.lo); if (ya === null || yb === null) return; c.fillStyle = `rgba(150,156,166,${a})`; c.fillRect(0, ya, xEnd, Math.max(3, yb - ya)); };
-  (V.d30 && V.d30.keyLvn || []).forEach(z => band(z, 0.13));
-  (V.d7 && V.d7.keyLvn || []).forEach(z => band(z, 0.2));
-  if (T && T.lvn) { c.strokeStyle = 'rgba(190,120,255,.45)'; c.setLineDash([4, 4]); T.lvn.forEach(z => { const ya = Y(z.hi), yb = Y(z.lo); if (ya !== null && yb !== null) c.strokeRect(0.5, ya, xEnd, Math.max(2, yb - ya)); }); c.setLineDash([]); }
+  if (showL) { (V.d30 && V.d30.keyLvn || []).forEach(z => band(z, 0.13));
+  (V.d7 && V.d7.keyLvn || []).forEach(z => band(z, 0.2)); }
+  if (showL && T && T.lvn) { c.strokeStyle = 'rgba(190,120,255,.45)'; c.setLineDash([4, 4]); T.lvn.forEach(z => { const ya = Y(z.hi), yb = Y(z.lo); if (ya !== null && yb !== null) c.strokeRect(0.5, ya, xEnd, Math.max(2, yb - ya)); }); c.setLineDash([]); }
   // 2) session profiles anchored at each Globex open, with dashed session separators
   const ox = i => ts.logicalToCoordinate(i);
-  for (const s of V.sess) {
+  for (const s of (showS ? V.sess : [])) {
     const i0 = vpIdx(A.et(s.t0).disp), i1 = Math.max(i0, vpIdx(A.et(s.t1).disp + 1) - 1);
     let xa = ox(i0), xb = ox(i1); if (xa === null || xb === null) continue;
     xa -= sp / 2; if (xb < 0 || xa > xEnd) continue;
@@ -536,11 +560,11 @@ function drawVP(){
     c.fillStyle = 'rgba(200,205,212,.65)';
     (P.keyLvn || []).forEach(z => { const y = Y(z.p); if (y !== null && y > 14 && y < h - 6) c.fillText(`LVN ${z.p.toFixed(0)}`, xr - 4, y - 5); });
   };
-  comp(V.d30, w - 1, `VP ${V.d30 ? V.d30.days : 30}D`);
-  comp(V.d7, w - Wc - 10, `VP ${V.d7 ? V.d7.days : 7}D`);
+  if (showC) comp(V.d30, w - 1, `VP ${V.d30 ? V.d30.days : 30}D`);
+  if (showC) comp(V.d7, w - Wc - 10, `VP ${V.d7 ? V.d7.days : 7}D`);
   c.textAlign = 'left'; c.textBaseline = 'alphabetic';
 }
-(function loop(){ try { drawZones(); } catch(e){} try { drawProfile(); } catch(e){} try { drawVP(); } catch(e){} try { drawFP(); } catch(e){} requestAnimationFrame(loop); })();
+(function loop(){ try { drawLegend(); } catch(e){} try { drawZones(); } catch(e){} try { drawProfile(); } catch(e){} try { drawVP(); } catch(e){} try { drawFP(); } catch(e){} requestAnimationFrame(loop); })();
 const goNow = () => { try { chart.timeScale().scrollToRealTime(); } catch(e){} };
 chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
   try { $('now').hidden = chart.timeScale().scrollPosition() > -3; } catch(e){}
@@ -791,7 +815,7 @@ function render(){
   const atEdge = !fitted || ts.scrollPosition() > -3; // follow the newest bar unless the user scrolled back
   series.setData(out); st.outT = out.map(o => o.time);
   try { cvdSeries.setData(cvdData(out)); } catch(e){}
-  if (S.layers.volHist !== false) {
+  if (S.layers.volHist !== false && vis('vol')) {
     const vd = []; let pv = -Infinity;
     for (const x of b.slice(-7000)) { const t = A.et(x.t).disp; if (t <= pv) continue; pv = t;
       vd.push(x.v > 0 ? { time:t, value:x.v, color: x.c >= x.o ? 'rgba(94,224,200,.32)' : 'rgba(255,95,162,.32)' } : { time:t }); }
@@ -806,7 +830,7 @@ function render(){
     ? { upColor:'#d9d3c1', downColor:'#6f6a5c', wickUpColor:'#d9d3c1', wickDownColor:'#6f6a5c' }
     : { upColor:'#e6e8eb', downColor:'#4a505a', wickUpColor:'#9ca3af', wickDownColor:'#4a505a' });
   drawFocus(out);
-  for (const l of (S.focus ? [] : r.levels)) {
+  for (const l of (vis('lines') ? r.levels : [])) {
     if (l.srcs.length === 1 && l.srcs[0] === 'em') continue; // EM-only levels are drawn TV-style below
     const hasOpt = l.srcs.includes('opt') || l.srcs.includes('qqq');
     if (!hasOpt || S.layers.gexProf) { // with the GEX profile on, NQ cluster lines are hidden (list only) – clean chart
@@ -826,7 +850,7 @@ function render(){
   (st.emSeries || []).forEach(x => { try { chart.removeSeries(x); } catch(e){} });
   st.emSeries = [];
   const E = r.info.em;
-  if (E && out.length && Number.isFinite(E.t0) && !S.focus) {
+  if (E && out.length && Number.isFinite(E.t0) && vis('em')) {
     const t0 = A.et(E.t0).disp, t1 = Math.max(out[out.length - 1].time, t0 + 60);
     const defs = [
       [1.5, '+1.5 EM', '#e6e8eb', 2], [1, '+1 EM', '#e6e8eb', 0], [0.5, '+½ EM', '#e6e8eb', 1],
@@ -843,12 +867,12 @@ function render(){
   }
 
   // major QQQ walls (0/5 strikes): thick gold line + weak/strong zone edges
-  for (const m of (S.focus ? [] : (r.info.majors || []))) {
+  for (const m of (vis('lines') ? (r.info.majors || []) : [])) {
     const name = (m.type === 'CW' ? 'CW ' : 'PW ') + m.qqq;
     st.lines.push(series.createPriceLine({ price:m.price, color:'#c9a66b', lineWidth:1, lineStyle:0, lineVisible:false, axisLabelVisible:true, title:'★ QQQ ' + name }));
   }
   // yesterday's options levels: grey dotted, orientation only
-  const pv = (S.showPrev && st.prevView && !st.demo) ? A.prevLevels(st.prevView, r.last, S) : [];
+  const pv = (S.showPrev && st.prevView && !st.demo && vis('prevL')) ? A.prevLevels(st.prevView, r.last, S) : [];
   for (const l of pv) {
     st.lines.push(series.createPriceLine({
       price:l.price, color:'#8b919a66', lineWidth:1, lineStyle:1, axisLabelVisible:false,
@@ -1023,11 +1047,14 @@ function levelHist(l){
 }
 function focusRank(l, r){
   if (l.status && l.status.key === 'broken') return -1;
-  if (l.score < Math.max(4, S.minScore)) return -1;  // weak single-source levels never become the focus zone
+  if (l.score < Math.max(5, S.minScore)) return -1;  // only strong levels become the focus zone
+  const ng = new Set(l.srcs.map(x => /^qqq|^chg|^opt/.test(x) ? 'opt' : x)).size;  // NQ + QQQ options = one family
+  if (ng < 2) return -1;           // …and only real confluence (≥ 2 independent sources: options + volume, EM, σ …)
   if (fz.segs.some(s => s.t1 && s.end === 'hit' && Math.abs(s.p - l.price) <= S.tol)) return -1; // used today
   const em = r.info.em ? r.info.em.em : 120;
   let q = l.score;
   if (l.tags.some(t => t.includes('★'))) q += 1;
+  q *= 1 + 0.12 * (ng - 2);          // each extra independent source adds weight
   if (r.regime > 0) q *= 1.15;                      // positive gamma = reversals more likely
   const h = levelHist(l);
   if (h && h.n >= 8 && fz.kindStats.avg > 0) q *= Math.min(1.5, Math.max(0.6, h.rate / fz.kindStats.avg));
@@ -1090,13 +1117,16 @@ function drawFocus(out){
     shape:'circle', color: s.res === 'broken' ? '#f05a6e' : s.res === 'reacted' ? FZ_COL[s.side] : '#c9a66b',
     text: `${s.score}${s.res === 'reacted' ? ' ✔' : s.res === 'broken' ? ' ✘' : ''}` })).sort((a, b) => a.time - b.time)); } catch(e){}
   fz.series.forEach(x => { try { chart.removeSeries(x); } catch(e){} }); fz.series = [];
-  for (const s of segs) {
+  (fz.axis || []).forEach(l => { try { series.removePriceLine(l); } catch(e){} }); fz.axis = [];
+  for (const s of segs.filter(s => s.end !== 'replaced')) {
     const t0 = A.et(s.t0).disp, t1 = Math.max(s.t1 ? A.et(s.t1).disp : lastT, t0 + 60);
     const col = FZ_COL[s.side], active = !s.t1, dim = s.end === 'replaced';
     const o = { priceLineVisible:false, crosshairMarkerVisible:false, autoscaleInfoProvider:() => null };
     const glow = chart.addLineSeries({ ...o, color: col + (dim ? '14' : '40'), lineWidth: 10, lastValueVisible:false });
-    const core = chart.addLineSeries({ ...o, ...(active ? { autoscaleInfoProvider: undefined } : {}), color: dim ? col + '55' : col, lineWidth: 3, lastValueVisible: active,
-      title: active ? `${s.side === 'short' ? '▼' : '▲'} ${s.score}` : '' });
+    const core = chart.addLineSeries({ ...o, ...(active ? { autoscaleInfoProvider: undefined } : {}), color: dim ? col + '55' : col, lineWidth: 3, lastValueVisible: false, title: '' });
+    // exact price always on the price scale (label stays even when the segment is off-screen)
+    if (active) fz.axis.push(series.createPriceLine({ price: s.p, color: col, lineWidth: 1, lineStyle: 2, lineVisible: false, axisLabelVisible: true,
+      title: `${s.side === 'short' ? '▼ SHORT' : '▲ LONG'} ${s.score}` }));
     const d = [{ time:t0, value:s.p }, { time:t1, value:s.p }];
     glow.setData(d); core.setData(d); fz.series.push(glow, core);
   }
@@ -1129,7 +1159,7 @@ function checkFocusAlerts(){
     }
   }
 }
-$('focBtn').onclick = () => { S.focus = !S.focus; save(); $('focBtn').classList.toggle('on', S.focus); fz.hash = ''; render(); };
+$('focBtn').onclick = () => { S.focus = !S.focus; save(); $('focBtn').classList.toggle('on', S.focus); fz.hash = ''; ['vpc', 'gexp'].forEach(id => { const c = $(id); if (c) c._k = ''; }); render(); drawLegend(); };
 $('focBtn').classList.toggle('on', !!S.focus);
 window.__focus = { fz, tick: () => { computeNow(); render(); checkAlerts(); } };
 
@@ -1381,7 +1411,7 @@ function srvDisplayBars(){
   return out;
 }
 function cvdData(out){
-  if (S.layers.cvd === false || !S.server) return [];
+  if (S.layers.cvd === false || !S.server || !vis('cvd')) return [];
   const src = dispKey() === '60s' ? (st.srv.b60 || []) : (st.srv.disp || []);
   const sess = st.srv.session || 0, map = new Map(); let cum = 0;
   for (const b of src) { if (b.t < sess) continue; cum += (b.delta != null ? b.delta : (b.buy - b.sell)) || 0; map.set(b.t, cum); }
@@ -1768,6 +1798,7 @@ function chartNav(a){
     ts.setVisibleLogicalRange({ from: n - 240, to: n + (ts.options().rightOffset || 8) }); ts.scrollToRealTime();
   }
 }
+$('legend').addEventListener('click', e => { const b = e.target.closest('[data-lg]'); if (!b) return; const k = b.dataset.lg; if (k === 'fold') { S.lgFold = !S.lgFold; save(); drawLegend(); } else setVis(k); });
 $('zbar').addEventListener('click', e => { const b = e.target.closest('button'); if (b) chartNav(b.dataset.z); });
 $('chartWrap').addEventListener('touchstart', () => { const z = $('zbar'); z.classList.add('touch'); clearTimeout(z._t); z._t = setTimeout(() => z.classList.remove('touch'), 4000); }, { passive: true });
 document.addEventListener('keydown', e => {
