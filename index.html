@@ -1407,12 +1407,17 @@ const srvTok = () => S.srvToken || S.token;
 // data server address: a fixed URL, or 'auto' = this PC (127.0.0.1:8090) if reachable, else the tunnel URL registered in the Worker
 st.srvBase = null; st.srvResolvedAt = 0;
 const SB = () => S.server === 'auto' ? st.srvBase : S.server;
+// on this PC: hand the Worker token + address to the local server (it uses them for phone access through the tunnel)
+async function srvHandOver(){
+  if (st.srvHanded || !S.token || !S.worker) return;
+  try { const r = await fetch(`http://127.0.0.1:8090/setup/token?t=${encodeURIComponent(S.token)}&w=${encodeURIComponent(S.worker.trim().replace(/\/$/, ''))}`, { cache:'no-store' }); if (r.ok) st.srvHanded = true; } catch(e){}
+}
 async function resolveServer(force){
-  if (S.server !== 'auto') { st.srvBase = S.server || null; return st.srvBase; }
+  if (S.server !== 'auto') { st.srvBase = S.server || null; if (/127\.0\.0\.1|localhost/.test(S.server || '')) srvHandOver(); return st.srvBase; }
   if (!force && st.srvBase && Date.now() - st.srvResolvedAt < 60000) return st.srvBase;
   st.srvResolvedAt = Date.now();
   const ok = async u => { try { const c = new AbortController(); const tm = setTimeout(() => c.abort(), 1500); const r = await fetch(u + '/health', { signal:c.signal, cache:'no-store' }); clearTimeout(tm); return r.ok; } catch(e){ return false; } };
-  if (!/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) && await ok('http://127.0.0.1:8090')) return (st.srvBase = 'http://127.0.0.1:8090');
+  if (!/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) && await ok('http://127.0.0.1:8090')) { st.srvBase = 'http://127.0.0.1:8090'; srvHandOver(); return st.srvBase; }
   try { const j = await api('/srv'); if (j && j.url && await ok(j.url)) return (st.srvBase = j.url); } catch(e){}
   return (st.srvBase = null);
 }
@@ -1536,7 +1541,7 @@ async function proShow(){
   try {
     await resolveServer();
     const h = SB() ? await fetch(SB() + '/health', { cache:'no-store' }).then(r => r.json()).catch(() => null) : null;
-    $('pMeta').textContent = h ? `futures ${h.futures}${h.last_age != null ? ' · ' + h.last_age + ' s' : ''} · options ${h.options_age != null ? h.options_age + ' s' : '—'}${h.options_err ? ' ⚠ ' + h.options_err : ''}${h.demo ? ' · DEMO' : ''}` : 'server nedostupný';
+    $('pMeta').textContent = h ? `futures ${h.futures}${h.last_age != null ? ' · ' + h.last_age + ' s' : ''} · options ${h.options_age != null ? h.options_age + ' s' : '—'}${h.options_err ? ' ⚠ ' + h.options_err : ''}${h.demo ? ' · DEMO' : ''} · flow ${h.opt_stream || '—'}${h.tunnel ? ' · telefon: ' + h.tunnel.replace(/^ok https:\/\//, 'ok ') : ''}` : 'server nedostupný';
     if (t === 'levels') {
       const L = await srv('/levels'), B = await srv('/bars?key=60s&n=420').catch(() => ({ bars:[] }));
       let sess = (B.bars || []).filter(b => b.t >= (B.session || 0));

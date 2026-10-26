@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from exposure import snapshot, heatmap, smile
@@ -36,6 +36,19 @@ app.add_middleware(CORSMiddleware, allow_origins=os.environ.get('CORS_ORIGINS', 
 
 
 @app.middleware('http')
+async def token_check(request, call_next):
+    """local requests (this PC) are always allowed; requests through the tunnel need ?t=ACCESS_TOKEN"""
+    from fastapi.responses import JSONResponse
+    path = request.url.path
+    if request.method != 'OPTIONS' and path not in ('/health',) and not path.startswith('/setup') and TOKEN:
+        if request.query_params.get('t') != TOKEN and not is_local(request.headers, request.client.host if request.client else ''):
+            o = request.headers.get('origin')
+            return JSONResponse({'detail': 'unauthorized'}, status_code=401,
+                                headers={'Access-Control-Allow-Origin': o} if o in ORIGINS else {})
+    return await call_next(request)
+
+
+@app.middleware('http')
 async def private_network(request, call_next):
     """Chrome 'Private/Local Network Access': the public terminal page may call this server on localhost"""
     resp = await call_next(request)
@@ -48,8 +61,30 @@ state = dict(chain=None, snap=None, k=None, opt_err=None, opt_ts=0, feed=None, h
 
 
 def auth(t: str | None):
-    if TOKEN and t != TOKEN:
-        raise HTTPException(401, 'unauthorized')
+    pass   # token is checked in the middleware below (it needs the request to tell local from tunnel)
+
+
+ORIGINS = os.environ.get('CORS_ORIGINS', 'https://bartikozz.github.io').split(',')
+ENV_FILE = os.path.join(os.path.dirname(__file__), '.env')
+TUNNEL_FILE = os.path.join(os.path.dirname(__file__), '..', 'tunnel.url')
+WORKER = dict(url=os.environ.get('WORKER_URL', '').rstrip('/'), status='—', registered=None)
+
+
+def is_local(headers, host) -> bool:
+    """request made on this PC directly (not through the Cloudflare tunnel, which always adds cf-* headers)"""
+    return host in ('127.0.0.1', '::1', 'localhost') and not any(h in headers for h in ('cf-connecting-ip', 'cf-ray', 'x-forwarded-for'))
+
+
+def _write_env(key, value):
+    lines = open(ENV_FILE).read().splitlines() if os.path.exists(ENV_FILE) else []
+    out, done = [], False
+    for l in lines:
+        if l.split('=', 1)[0].strip() == key:
+            out.append(f'{key}={value}'); done = True
+        else:
+            out.append(l)
+    if not done: out.append(f'{key}={value}')
+    with open(ENV_FILE, 'w') as f: f.write('\n'.join(out) + '\n')
 
 
 def j(x):
@@ -172,6 +207,45 @@ def saver():
                 pass
 
 
+@app.get('/setup/token')
+def setup_token(request: Request, t: str = '', w: str = ''):
+    """the terminal on this PC hands over its Worker token + address (only local, only from the terminal's origin)"""
+    global TOKEN
+    if not is_local(request.headers, request.client.host if request.client else '') or request.headers.get('origin') not in ORIGINS:
+        raise HTTPException(403, 'local terminal only')
+    t, w = t.strip(), w.strip().rstrip('/')
+    if len(t) < 6 or any(c in t for c in ' #\n\r'):
+        raise HTTPException(400, 'bad token')
+    changed = False
+    if t != TOKEN:
+        TOKEN = t; _write_env('ACCESS_TOKEN', t); changed = True
+    if w.startswith('https://') and w != WORKER['url']:
+        WORKER['url'] = w; _write_env('WORKER_URL', w); changed = True
+    if changed:
+        WORKER['registered'] = None
+    return dict(ok=True, changed=changed, worker=bool(WORKER['url']))
+
+
+def register_loop():
+    """publish the Cloudflare tunnel address (written by tunnel.ps1) in the Worker so phones find this server"""
+    import httpx
+    last = 0.0
+    while True:
+        try:
+            url = open(TUNNEL_FILE).read().strip() if os.path.exists(TUNNEL_FILE) else ''
+            if not url: WORKER['status'] = 'tunel neběží'
+            elif not WORKER['url'] or not TOKEN: WORKER['status'] = 'čekám na token z terminálu (otevři Algo Levels na PC)'
+            elif WORKER['registered'] != url or time.time() - last > 600:
+                r = httpx.get(WORKER['url'] + '/srv/set', params=dict(url=url, t=TOKEN), timeout=15)
+                if r.status_code == 200:
+                    WORKER.update(registered=url, status='ok ' + url); last = time.time()
+                else:
+                    WORKER['status'] = f'Worker {r.status_code}'; WORKER['registered'] = None
+        except Exception as e:
+            WORKER['status'] = f'{type(e).__name__}: {e}'
+        time.sleep(15)
+
+
 @app.on_event('startup')
 def start():
     tape.load()
@@ -197,6 +271,8 @@ def start():
         state['ostream'] = ThetaStream(oflow, ROOT, get_chain=lambda: (state['chain'], state.get('spot')))
         state['ostream'].start()
     threading.Thread(target=saver, daemon=True).start()
+    if not DEMO:
+        threading.Thread(target=register_loop, daemon=True).start()
 
 
 # ── API ─────────────────────────────────────────────────────────────────────
@@ -212,7 +288,8 @@ def health():
                 last=tape.last, last_age=round(time.time() - tape.last_ts, 1) if tape.last_ts else None,
                 options_age=round(time.time() - state['opt_ts'], 1) if state['opt_ts'] else None, options_err=state['opt_err'], k=state['k'],
                 opt_stream=('demo' if DEMO else (state['ostream'].status if state['ostream'] else 'off')),
-                opt_stream_err=state['ostream'].err if state['ostream'] else None, opt_trades=oflow.tot['trades'])
+                opt_stream_err=state['ostream'].err if state['ostream'] else None, opt_trades=oflow.tot['trades'],
+                token_set=bool(TOKEN), tunnel=WORKER['status'])
 
 
 @app.get('/levels')
@@ -341,7 +418,7 @@ def opt_flow(min_prem: float | None = None, only0d: int = 0, kind: str | None = 
 
 @app.websocket('/ws')
 async def ws(sock: WebSocket, t: str | None = None, key: str = '60s'):
-    if TOKEN and t != TOKEN:
+    if TOKEN and t != TOKEN and not is_local(sock.headers, sock.client.host if sock.client else ''):
         await sock.close(code=4401); return
     await sock.accept()
     try:

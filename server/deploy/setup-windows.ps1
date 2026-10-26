@@ -53,7 +53,7 @@ function Set-EnvKey($k, $v) { $f = "$R\server\.env"; $c = Get-Content $f; if ($c
 $cur = @{}; Get-Content "$R\server\.env" | ForEach-Object { if ($_ -match '^\s*([A-Z_]+)\s*=\s*(.*)$') { $cur[$matches[1]] = $matches[2].Trim() } }
 if (-not $cur['WORKER_URL'] -and $env:ALGO_WORKER) { Set-EnvKey 'WORKER_URL' $env:ALGO_WORKER.TrimEnd('/'); $cur['WORKER_URL'] = $env:ALGO_WORKER }
 if (-not $cur['WORKER_URL']) { Set-EnvKey 'WORKER_URL' (Read-Host '   Adresa tvého Workeru (https://….workers.dev, stejná jako v terminálu ⚙)').Trim().TrimEnd('/') }
-if (-not $cur['ACCESS_TOKEN']) { $sec = Read-Host '   Token Workeru (stejný jako v terminálu ⚙)' -AsSecureString; Set-EnvKey 'ACCESS_TOKEN' ([Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))); Remove-Variable sec }
+# the token is handed over automatically by the terminal on this PC (/setup/token) – nothing to type here
 
 Write-Host '== Theta Terminal v3' -ForegroundColor Cyan
 # stop a running terminal / server / tunnel first (the jar is locked while it runs)
