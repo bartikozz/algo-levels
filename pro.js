@@ -234,7 +234,8 @@
     const rh = Math.max(2, Math.min(12, (bot - top) / rows.length - 1));
     c.fillStyle = C.txt2; c.textAlign = 'left'; c.fillText('Net prémie po strikech · bull − bear', 8, 10);
     // QQQ reference levels (dashed, behind the bars)
-    for (const L of o.levels || []) {
+    const grp = new Map(); for (const L of o.levels || []) { const k = Math.round(L.q * 100) / 100, g = grp.get(k); if (g) g.label += ' · ' + L.label; else grp.set(k, { ...L, q:k }); }
+    for (const L of grp.values()) {
       if (L.q < p0 - 0.5 || L.q > p1 + 0.5) continue;
       const y = Y(L.q); c.strokeStyle = L.col; c.globalAlpha = 0.6; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(x0, y); c.lineTo(w - 8, y); c.stroke(); c.setLineDash([]); c.globalAlpha = 1;
       c.fillStyle = L.col; c.textAlign = 'right'; c.fillText(L.label, w - 10, y - 7);
