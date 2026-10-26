@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=20"></script>
+<script src="levels.js?v=21"></script>
 <script src="bias.js?v=3"></script>
 <script src="analysis.js?v=1"></script>
 <script src="backtest.js?v=1"></script>
@@ -429,38 +429,99 @@ function drawProfile(){
   dash(q.major_neg_vol, '#f44336', '−γ');
 }
 
-// Volume profile of today's session on the right edge + LVN bands (low volume nodes = fast/rejection areas)
+// ───────── Volume profile, MotiveWave style: a profile per Globex session (anchored at its open) + composite
+// VP 7D and VP 30D on the right edge + their key LVNs as grey bands across the chart. Bins = 1 NQ point,
+// volume from 1m bars (last ~5 sessions) and 5m bars (older), each bar's volume spread evenly over its high–low.
+async function loadVPHist(){
+  if (st.demo || (st.vpH && Date.now() - st.vpH.at < 20 * 60e3)) return;
+  const j = await api('/yf/NQ%3DF?interval=5m&range=60d');
+  st.vpH = { at: Date.now(), bars: A.parseYF(j).filter(b => b.v > 0 && b.h >= b.l) };
+}
+function buildVPComp(){
+  const m1 = ((st.yf && st.yf.length) ? st.yf : (st.data.bars || [])).filter(b => b.v > 0 && b.h >= b.l), h5 = (st.vpH && st.vpH.bars) || [];
+  const key = [m1.length, m1.length && m1[m1.length - 1].t, m1.length && m1[m1.length - 1].v, h5.length].join('|');
+  if (st.vpc && st.vpc.key === key) return st.vpc;
+  const first1 = m1.length ? m1[0].t : Infinity;
+  const all = h5.filter(b => b.t + 300 <= first1).concat(m1);              // no double counting
+  const dates = [...new Set(all.map(b => A.tdate(b.t)))].sort();
+  const comp = n => {
+    const set = new Set(dates.slice(-n)); const bs = all.filter(b => set.has(A.tdate(b.t)));
+    if (bs.length < 50) return null;
+    const P = A.volumeProfile(bs, 1), Q = A.volumeProfile(bs, n > 10 ? 10 : 5); // fine bins to draw, coarser to find LVNs
+    if (!P || !Q) return null;
+    P.keyLvn = Q.lvn.filter(z => z.depth > 0.35).sort((x, y) => y.depth - x.depth).slice(0, n > 10 ? 4 : 5).sort((x, y) => x.p - y.p);
+    P.days = set.size; return P;
+  };
+  const sess = [];
+  for (const d of [...new Set(m1.map(b => A.tdate(b.t)))]) {
+    const bs = m1.filter(b => A.tdate(b.t) === d); if (bs.length < 20) continue;
+    const P = A.volumeProfile(bs, 1); if (P) sess.push({ d, t0: bs[0].t, t1: bs[bs.length - 1].t, P });
+  }
+  st.vpc = { key, d7: comp(7), d30: comp(30), sess };
+  st.data.vpComp = { d7: st.vpc.d7, d30: st.vpc.d30 };
+  return st.vpc;
+}
+const vpIdx = disp => { const a = st.outT || []; let lo = 0, hi = a.length; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] < disp) lo = m + 1; else hi = m; } return lo; };
 function drawVP(){
   const cv = $('vpc'); if (!cv) return;
-  const r = st.res, P = r && r.info && r.info.vpToday, pv = r && r.info && r.info.vp;
-  const on = S.layers.vpProf !== false && P && P.bins && P.bins.length;
-  let w = 0, h = 0; try { w = chart.timeScale().width(); h = $('chart').clientHeight - 26; } catch(e){}
+  const ts = chart.timeScale(), V = st.vpc, T = st.res && st.res.info && st.res.info.vpToday;
+  const on = S.layers.vpProf !== false && V && (V.d7 || V.sess.length);
+  let w = 0, h = 0, sp = 6, lr = null; try { w = ts.width(); h = $('chart').clientHeight - 26; sp = ts.options().barSpacing; lr = ts.getVisibleLogicalRange(); } catch(e){}
+  const Wc = Math.round(Math.min(170, Math.max(70, w * 0.12)));
+  // keep the newest candle left of the composite profiles
+  const ro = on ? Math.ceil((2 * Wc + 24) / sp) + 2 : 8;
+  try { if (Math.abs((ts.options().rightOffset || 0) - ro) > 2) ts.applyOptions({ rightOffset: ro }); } catch(e){}
   const y0 = series.priceToCoordinate(30000), y1 = series.priceToCoordinate(31000);
-  const key = on ? [w, h, y0, y1, P.k0, P.bins.length, Math.round(P.vol), S.focus, pv && pv.lvn.length].join('|') : 'off';
+  const key = on ? [w, h, y0, y1, lr && lr.from.toFixed(1), lr && lr.to.toFixed(1), V.key, T && T.vol, (st.outT || []).length].join('|') : 'off';
   if (cv._k === key) return; cv._k = key;
   const dpr = window.devicePixelRatio || 1;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.width = w + 'px'; cv.style.height = h + 'px'; }
   const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
-  if (!on || !(w > 0) || y0 === null) return;
-  // LVN bands: today's (brighter) and previous session's (dimmer), across the chart like the Residual terminal
-  const band = (z, a) => { const ya = series.priceToCoordinate(z.hi), yb = series.priceToCoordinate(z.lo); if (ya === null || yb === null) return;
-    c.fillStyle = `rgba(168,85,247,${a})`; c.fillRect(0, ya, w, Math.max(2, yb - ya));
-    c.fillStyle = `rgba(190,120,255,${a * 2.2})`; c.fillRect(0, ya, w, 1); c.fillRect(0, yb - 1, w, 1); };
-  (pv && pv.lvn || []).forEach(z => band(z, 0.07));
-  P.lvn.forEach(z => band(z, 0.13));
-  // histogram from the right edge
-  const W = w * 0.2, pk = P.peak || 1;
-  P.bins.forEach((v, i) => {
-    const lo = (P.k0 + i) * P.step, ya = series.priceToCoordinate(lo + P.step), yb = series.priceToCoordinate(lo);
-    if (ya === null || yb === null || yb < -5 || ya > h + 5) return;
-    const len = v / pk * W, inVA = lo >= P.val && lo < P.vah, isPoc = Math.abs(lo + P.step / 2 - P.poc) < P.step / 2;
-    c.fillStyle = isPoc ? 'rgba(201,166,107,.75)' : inVA ? 'rgba(160,168,180,.28)' : 'rgba(160,168,180,.14)';
-    c.fillRect(w - len, ya + 0.5, len, Math.max(1, yb - ya - 1));
-  });
-  c.font = '10px JetBrains Mono, monospace'; c.fillStyle = 'rgba(201,166,107,.9)'; c.textAlign = 'right';
-  const yp = series.priceToCoordinate(P.poc); if (yp !== null) c.fillText(`POC ${P.poc.toFixed(2)}`, w - 4, yp - 4);
-  c.fillStyle = 'rgba(190,120,255,.9)';
-  P.lvn.forEach(z => { const y = series.priceToCoordinate(z.p); if (y !== null) c.fillText(`LVN ${z.p.toFixed(0)}`, w - W - 6, y + 3); });
+  if (!on || !(w > 0) || y0 === null || y1 === null) return;
+  const ppp = Math.abs(y0 - y1) / 1000;                                   // pixels per NQ point
+  const Y = p => series.priceToCoordinate(p);
+  // histogram: bins merged so each row is ≥ 1.5 px tall; dir = +1 grows right from x, −1 grows left
+  const hist = (P, x, dir, W, fill, va, poc) => {
+    const g = Math.max(1, Math.ceil(1.5 / Math.max(ppp, 1e-6))), rows = [];
+    for (let i = 0; i < P.bins.length; i += g) { let v = 0; for (let j = i; j < i + g && j < P.bins.length; j++) v += P.bins[j]; rows.push([(P.k0 + i) * P.step, v, g * P.step]); }
+    const pk = Math.max(...rows.map(r => r[1])) || 1;
+    for (const [lo, v, ht] of rows) {
+      const ya = Y(lo + ht), yb = Y(lo); if (ya === null || yb === null || yb < -2 || ya > h + 2) continue;
+      const len = v / pk * W; if (len < 0.4) continue;
+      c.fillStyle = lo >= P.val && lo < P.vah ? va : fill;
+      c.fillRect(dir > 0 ? x : x - len, ya, len, Math.max(1, yb - ya - (ht * ppp > 3 ? 0.5 : 0)));
+    }
+    const yp = Y(P.poc); if (yp !== null && poc) { c.fillStyle = poc; c.fillRect(dir > 0 ? x : x - W * 1.08, yp - 1, W * 1.08, 2); }
+  };
+  // 1) grey LVN bands across the chart (30D wide/dim, 7D stronger), today's developing LVNs as thin outlines
+  const xEnd = w - 2 * Wc - 20;
+  const band = (z, a) => { const ya = Y(z.hi), yb = Y(z.lo); if (ya === null || yb === null) return; c.fillStyle = `rgba(150,156,166,${a})`; c.fillRect(0, ya, xEnd, Math.max(3, yb - ya)); };
+  (V.d30 && V.d30.keyLvn || []).forEach(z => band(z, 0.13));
+  (V.d7 && V.d7.keyLvn || []).forEach(z => band(z, 0.2));
+  if (T && T.lvn) { c.strokeStyle = 'rgba(190,120,255,.45)'; c.setLineDash([4, 4]); T.lvn.forEach(z => { const ya = Y(z.hi), yb = Y(z.lo); if (ya !== null && yb !== null) c.strokeRect(0.5, ya, xEnd, Math.max(2, yb - ya)); }); c.setLineDash([]); }
+  // 2) session profiles anchored at each Globex open, with dashed session separators
+  const ox = i => ts.logicalToCoordinate(i);
+  for (const s of V.sess) {
+    const i0 = vpIdx(A.et(s.t0).disp), i1 = Math.max(i0, vpIdx(A.et(s.t1).disp + 1) - 1);
+    let xa = ox(i0), xb = ox(i1); if (xa === null || xb === null) continue;
+    xa -= sp / 2; if (xb < 0 || xa > xEnd) continue;
+    if (xa > 0) { c.strokeStyle = 'rgba(160,168,180,.25)'; c.setLineDash([3, 4]); c.beginPath(); c.moveTo(xa + 0.5, 0); c.lineTo(xa + 0.5, h); c.stroke(); c.setLineDash([]); }
+    const x = Math.max(0, xa), W = Math.max(30, Math.min(260, (xb - xa) * 0.5));
+    hist(s.P, x, 1, W, 'rgba(150,156,166,.22)', 'rgba(150,156,166,.36)', 'rgba(239,83,80,.85)');
+  }
+  // 3) composite VP 7D / 30D on the right edge (MotiveWave VP(7,1D) / VP(30,1D))
+  c.font = '10px JetBrains Mono, monospace'; c.textBaseline = 'top';
+  const comp = (P, xr, lab) => { if (!P) return;
+    c.fillStyle = 'rgba(14,16,20,.82)'; c.fillRect(xr - Wc, 0, Wc, h);
+    c.strokeStyle = 'rgba(160,168,180,.35)'; c.beginPath(); c.moveTo(xr + 0.5, 0); c.lineTo(xr + 0.5, h); c.stroke();
+    hist(P, xr, -1, Wc - 4, 'rgba(150,156,166,.42)', 'rgba(170,176,186,.62)', 'rgba(239,83,80,.95)');
+    c.fillStyle = 'rgba(200,205,212,.8)'; c.textAlign = 'right'; c.fillText(`${lab} · POC ${P.poc.toFixed(0)}`, xr - 4, 4);
+    c.fillStyle = 'rgba(200,205,212,.65)';
+    (P.keyLvn || []).forEach(z => { const y = Y(z.p); if (y !== null && y > 14 && y < h - 6) c.fillText(`LVN ${z.p.toFixed(0)}`, xr - 4, y - 5); });
+  };
+  comp(V.d30, w - 1, `VP ${V.d30 ? V.d30.days : 30}D`);
+  comp(V.d7, w - Wc - 10, `VP ${V.d7 ? V.d7.days : 7}D`);
+  c.textAlign = 'left'; c.textBaseline = 'alphabetic';
 }
 (function loop(){ try { drawZones(); } catch(e){} try { drawProfile(); } catch(e){} try { drawVP(); } catch(e){} try { drawFP(); } catch(e){} requestAnimationFrame(loop); })();
 const goNow = () => { try { chart.timeScale().scrollToRealTime(); } catch(e){} };
@@ -661,8 +722,10 @@ async function refresh(full){
       if (true) jobs.push(loadGex().then(e => { errs = e; }));
       if (full || st.tick % 20 === 0 || !st.data.daily.length || !st.data.vix.length) jobs.push(loadDaily().catch(e => errs.push(e.message)));
       await Promise.all(jobs);
+      await loadVPHist().catch(() => {});
       if (S.showPrev) await loadPrev().catch(() => {});
     }
+    try { buildVPComp(); } catch(e){}
     computeNow();
     render();
     try { heatRecord(); } catch(e){}
@@ -699,7 +762,7 @@ function render(){
   const b = st.data.bars;
   // candles: today's session + tail of previous
   const out = []; let prev = -Infinity;
-  for (const x of b.slice(-1400)) {
+  for (const x of b.slice(-7000)) {
     const t = A.et(x.t).disp;
     const bar = { time:t, open:x.o, high:x.h, low:x.l, close:x.c };
     if (t === prev) { out[out.length - 1] = bar; continue; } // same minute: keep the newest (partial) bar
@@ -709,11 +772,11 @@ function render(){
   const sd = srvDisplayBars(); if (sd && sd.length) { out.length = 0; out.push(...sd); }
   const ts = chart.timeScale();
   const atEdge = !fitted || ts.scrollPosition() > -3; // follow the newest bar unless the user scrolled back
-  series.setData(out);
+  series.setData(out); st.outT = out.map(o => o.time);
   try { cvdSeries.setData(cvdData(out)); } catch(e){}
   if (S.layers.volHist !== false) {
     const vd = []; let pv = -Infinity;
-    for (const x of b.slice(-1400)) { const t = A.et(x.t).disp; if (t <= pv) continue; pv = t;
+    for (const x of b.slice(-7000)) { const t = A.et(x.t).disp; if (t <= pv) continue; pv = t;
       vd.push(x.v > 0 ? { time:t, value:x.v, color: x.c >= x.o ? 'rgba(94,224,200,.32)' : 'rgba(255,95,162,.32)' } : { time:t }); }
     volSeries.setData(vd);
   } else volSeries.setData([]);

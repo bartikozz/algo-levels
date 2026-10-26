@@ -233,6 +233,13 @@
           for (const z of vp.lvn) add(z.p, 'pLVN', 1, 'vp');
         }
       }
+      // composite profiles (7 / 30 sessions) → the strongest LVNs + POC as levels
+      const vc = ctx.vpComp;
+      if (vc) for (const [k, P] of [['7D', vc.d7], ['30D', vc.d30]]) {
+        if (!P) continue;
+        add(P.poc, 'POC ' + k, 1, 'vp');
+        for (const z of P.keyLvn || []) add(z.p, 'LVN ' + k, 1.5, 'vp');
+      }
       // developing profile of today's session (RTH once open, else the overnight session) → live LVNs
       const sess = rthBars.length >= 30 ? rthBars : todayBars;
       if (sess.length >= 30 && sess.some(b => b.v > 0)) {
