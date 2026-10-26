@@ -224,6 +224,35 @@
     }
   }
 
+  // ── Options flow: net premium by strike (bull − bear) with QQQ reference levels; hit regions for hover
+  function flowStrikes(cv, D, o) {
+    const { c, w, h } = setup(cv);
+    const rows = (D && D.strikes || []).filter(r => r.contracts > 0);
+    if (!rows.length) return empty(c, w, h, 'Zatím žádné obchody po strikech.');
+    const top = 26, bot = h - 10, x0 = 74, W = w - x0 - 10, mid = x0 + W / 2, mx = Math.max(1, ...rows.map(r => Math.abs(r.net)));
+    const p0 = rows[0].strike, p1 = rows[rows.length - 1].strike, Y = p => top + (p1 - p) / (p1 - p0 || 1) * (bot - top);
+    const rh = Math.max(2, Math.min(12, (bot - top) / rows.length - 1));
+    c.fillStyle = C.txt2; c.textAlign = 'left'; c.fillText('Net prémie po strikech · bull − bear', 8, 10);
+    // QQQ reference levels (dashed, behind the bars)
+    for (const L of o.levels || []) {
+      if (L.q < p0 - 0.5 || L.q > p1 + 0.5) continue;
+      const y = Y(L.q); c.strokeStyle = L.col; c.globalAlpha = 0.6; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(x0, y); c.lineTo(w - 8, y); c.stroke(); c.setLineDash([]); c.globalAlpha = 1;
+      c.fillStyle = L.col; c.textAlign = 'right'; c.fillText(L.label, w - 10, y - 7);
+    }
+    c.fillStyle = 'rgba(255,255,255,.12)'; c.fillRect(mid, top, 1, bot - top);
+    const step = Math.max(1, Math.ceil(rows.length / Math.max(1, (bot - top) / 13)));
+    cv._hits = [];
+    rows.forEach((r, i) => {
+      const y = Y(r.strike) - rh / 2, len = Math.abs(r.net) / mx * (W / 2 - 4);
+      const hot = o.hover === r.strike;
+      c.fillStyle = r.net >= 0 ? `rgba(${C.pos},${hot ? 1 : .78})` : `rgba(${C.neg},${hot ? 1 : .78})`;
+      c.fillRect(r.net >= 0 ? mid : mid - len, y, Math.max(1, len), rh);
+      cv._hits.push({ y: y + rh / 2, r });
+      if (i % step === 0 || Math.abs(r.net) > mx * 0.5 || hot) { c.fillStyle = Math.abs(r.net) > mx * 0.5 || hot ? C.txt2 : C.txt; c.textAlign = 'right'; c.fillText(`${r.strike}${r.nq ? ' · ' + r.nq.toFixed(0) : ''}`, x0 - 4, y + rh / 2); }
+    });
+    if (o.spot && o.spot >= p0 && o.spot <= p1) { const y = Y(o.spot); c.strokeStyle = C.white; c.setLineDash([2, 3]); c.beginPath(); c.moveTo(x0, y); c.lineTo(w - 8, y); c.stroke(); c.setLineDash([]); c.fillStyle = C.white; c.textAlign = 'left'; c.fillText('QQQ ' + o.spot.toFixed(2), x0 + 4, y - 7); }
+  }
+
   // ── footprint overlay on the main chart: "bid × ask" per price inside each visible bar
   function footprint(cv, bars, map, o) {
     const dpr = window.devicePixelRatio || 1, w = o.w, h = o.h;
@@ -246,5 +275,5 @@
     }
   }
 
-  root.Pro = { levelsChart, matrix, vol, landscape, flow, optflow, footprint };
+  root.Pro = { levelsChart, matrix, vol, landscape, flow, optflow, flowStrikes, footprint, fmtM };
 })(typeof window !== 'undefined' ? window : globalThis);
