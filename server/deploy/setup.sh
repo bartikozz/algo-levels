@@ -34,7 +34,7 @@ After=network-online.target
 User=algo
 WorkingDirectory=$THETA
 EnvironmentFile=-$THETA/theta.env
-ExecStart=/usr/bin/java -Xmx2g -jar $THETA/ThetaTerminal.jar \$THETA_ARGS
+ExecStart=/usr/bin/java -Xmx2g -jar $THETA/ThetaTerminalv3.jar
 Restart=always
 RestartSec=10
 [Install]
@@ -62,16 +62,19 @@ ufw allow OpenSSH; ufw allow 80/tcp; ufw allow 443/tcp; ufw --force enable
 systemctl daemon-reload
 systemctl enable --now algo-server caddy
 systemctl restart caddy
-[ -f "$THETA/ThetaTerminal.jar" ] && systemctl enable --now theta-terminal || true
+echo "== Theta Terminal v3"
+curl -fsSL -o "$THETA/ThetaTerminalv3.jar" https://download-unstable.thetadata.us/ThetaTerminalv3.jar || echo "!! jar se nepodařilo stáhnout – stáhni ho z ThetaData webu do $THETA/ThetaTerminalv3.jar"
+chown algo:algo "$THETA"/*.jar 2>/dev/null || true
+systemctl enable theta-terminal
+[ -s "$THETA/creds.txt" ] && systemctl restart theta-terminal || true
 
 cat <<DONE
 
 ✔ Hotovo. Server: https://$HOST
 Zbývá:
- 1) nano $APP/server/.env        → ACCESS_TOKEN, DATABENTO_API_KEY   (pak: systemctl restart algo-server)
- 2) Theta Terminal: stáhni ThetaTerminal jar z ThetaData dashboardu do $THETA/ThetaTerminal.jar
-    a přihlašovací údaje dej do $THETA/creds.txt (1. řádek e-mail, 2. řádek heslo; chmod 600),
-    pak: systemctl enable --now theta-terminal
+ 1) nano $THETA/creds.txt         → 1. řádek e-mail ThetaData, 2. řádek heslo
+    chown algo:algo $THETA/creds.txt && chmod 600 $THETA/creds.txt && systemctl restart theta-terminal
+ 2) nano $APP/server/.env        → ACCESS_TOKEN (nový, vymysli si ho)   pak: systemctl restart algo-server
  3) test:  curl https://$HOST/health
     sonda ThetaData:  cd $APP/server && .venv/bin/python -m providers.thetadata
  4) v terminálu ⚙ → Data server: https://$HOST
