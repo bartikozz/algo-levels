@@ -1499,9 +1499,14 @@ async function proShow(){
     const h = await fetch(S.server + '/health', { cache:'no-store' }).then(r => r.json()).catch(() => null);
     $('pMeta').textContent = h ? `futures ${h.futures}${h.last_age != null ? ' · ' + h.last_age + ' s' : ''} · options ${h.options_age != null ? h.options_age + ' s' : '—'}${h.options_err ? ' ⚠ ' + h.options_err : ''}${h.demo ? ' · DEMO' : ''}` : 'server nedostupný';
     if (t === 'levels') {
-      const L = await srv('/levels'), B = await srv('/bars?key=60s&n=420');
-      const sess = B.bars.filter(b => b.t >= (B.session || 0));
-      Pro.levelsChart(cv, sess.length > 5 ? sess : B.bars, L.levels, { k:L.k, em:L.em0 && L.em0.nq, dead:L.dead_zone_0d || L.dead_zone, label:A.hhmm, note:`${L.exp0 ? '0DTE ' + L.exp0 : ''} · ATM IV ${L.atm_iv ? (L.atm_iv * 100).toFixed(1) + ' %' : '—'} · EM (straddle) ±${L.em0 && L.em0.nq ? L.em0.nq.toFixed(0) + ' b.' : '—'} · ${L.regime === 'positive' ? '+γ' : '−γ'}${(L.dead_zone_0d || L.dead_zone) ? '' : ' · 0DTE MM: no dead zone'}` });
+      const L = await srv('/levels'), B = await srv('/bars?key=60s&n=420').catch(() => ({ bars:[] }));
+      let sess = (B.bars || []).filter(b => b.t >= (B.session || 0));
+      if (sess.length < 5) sess = B.bars || [];
+      if (sess.length < 5) {   // no futures feed on the server (no Databento) → the terminal's own NQ candles
+        const all = (st.data.bars || []).filter(b => b.c > 0), today = all.length ? A.tdate(all[all.length - 1].t) : null;
+        sess = all.filter(b => A.tdate(b.t) === today).slice(-420);
+      }
+      Pro.levelsChart(cv, sess, L.levels, { k:L.k, em:L.em0 && L.em0.nq, dead:L.dead_zone_0d || L.dead_zone, label:A.hhmm, note:`${L.exp0 ? '0DTE ' + L.exp0 : ''} · ATM IV ${L.atm_iv ? (L.atm_iv * 100).toFixed(1) + ' %' : '—'} · EM (straddle) ±${L.em0 && L.em0.nq ? L.em0.nq.toFixed(0) + ' b.' : '—'} · ${L.regime === 'positive' ? '+γ' : '−γ'}${(L.dead_zone_0d || L.dead_zone) ? '' : ' · 0DTE MM: no dead zone'}` });
       note('Všechny options levely ze serveru: zdi podle OI a volume (0D/1D/ALL), IVPK HI/LO (vybouleniny IV smile), γ FLIP (kde dealer gamma mění znaménko), CEILING/FLOOR (největší kladná / záporná gamma), γ PEAK. Vlevo QQQ, vpravo NQ. Oranžový pás = dead zone (dealer gamma ≈ 0).');
     } else if (t === 'strikes') {
       let b = pr.sub.strikes || '0D', D = await srv(`/options/strikes?bucket=${b}&pct=0.025`);
