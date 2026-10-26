@@ -40,6 +40,9 @@
       if (bw > 2) { c.fillStyle = c.strokeStyle; c.fillRect(x - bw / 2, Y(Math.max(b.o, b.c)), bw, Math.max(1, Math.abs(Y(b.o) - Y(b.c)))); }
     });
     // levels: label pill on the left of the line + value boxes on both axes
+    cv._hits = lv.map(l => ({ y: Y(l.nq), kind: l.kind, q: l.q, nq: l.nq, w: l.w }));
+    cv._dead = o.dead ? { y0: Y(o.dead.hi * k), y1: Y(o.dead.lo * k), lo: o.dead.lo * k, hi: o.dead.hi * k } : null;
+    cv._last = last;
     const used = [];
     for (const l of lv.sort((a, b) => b.w - a.w)) {
       const y = Y(l.nq); if (used.some(u => Math.abs(u - y) < 11)) continue; used.push(y);

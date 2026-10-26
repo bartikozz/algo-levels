@@ -19,7 +19,7 @@
 <script src="bias.js?v=3"></script>
 <script src="analysis.js?v=1"></script>
 <script src="backtest.js?v=1"></script>
-<script src="pro.js?v=3"></script>
+<script src="pro.js?v=4"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -111,6 +111,9 @@ body.focus .meta{display:none!important}
 .keylv td b{font-weight:700;color:#e6e8eb}
 .keylv .up{color:#2fc59f}.keylv .dn{color:#f05a6e}
 .keylv .empty{color:#6b727c;font-size:11px;padding:6px 0}
+.tip{position:fixed;z-index:40;max-width:340px;pointer-events:none;background:rgba(13,15,19,.97);border:1px solid var(--line2);border-radius:8px;padding:9px 11px;font:11.5px/1.5 var(--mono);color:#c9ccd2;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.tip b{color:#e6e8eb;font-weight:700}.tip .h{display:flex;justify-content:space-between;gap:12px;margin-bottom:3px}.tip .h span{color:var(--gold);white-space:nowrap}
+.tip .it+.it{margin-top:7px;padding-top:7px;border-top:1px solid #1b1f26}.tip p{margin:0;color:#9aa0a8}
 .legend{position:absolute;left:8px;top:40px;z-index:3;font:11px 'JetBrains Mono',monospace;color:#9aa0a8;user-select:none}
 .legend .lgh{display:flex;gap:4px;align-items:center;margin-bottom:2px;color:#6b727c;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
 .legend .lgh button{border:1px solid var(--line2);background:rgba(7,8,10,.7);color:#9aa0a8;border-radius:4px;font-size:10px;padding:0 5px;cursor:pointer}
@@ -380,6 +383,7 @@ body.focus .meta{display:none!important}
   </div>
   <p class="hint">Klíč GEXbot je jen ve Workeru. Tady se ukládá URL Workeru a access token (v tomto prohlížeči).</p>
 </div></div>
+<div id="tip" class="tip" hidden></div>
 <div id="toast"></div>
 
 <script>
@@ -1943,7 +1947,7 @@ function keyTableHTML(){
   for (const x of rows) {
     if (!pxd && x.p < r.last) { html += `<tr class="px"><td>NQ CENA</td><td></td><td>${r.info && r.info.ratio ? (r.last / r.info.ratio).toFixed(2) : ''}</td><td>${fmtP(r.last)}</td><td>0</td></tr>`; pxd = true; }
     const foc = fz0.some(p => Math.abs(p - x.p) <= S.tol);
-    html += `<tr class="${x.cls}${Math.abs(x.dist) <= 50 ? ' near' : ''}"><td>${foc ? '◎ ' : ''}${esc(x.name)}</td><td>${esc(x.desc)}</td><td>${x.q != null ? x.q.toFixed(2) : ''}</td><td><b>${fmtP(x.p)}</b></td><td class="${x.dist > 0 ? 'up' : 'dn'}">${x.dist > 0 ? '+' : ''}${x.dist.toFixed(0)}</td></tr>`;
+    html += `<tr data-tag="${esc(x.name)}" data-p="${x.p}" class="${x.cls}${Math.abs(x.dist) <= 50 ? ' near' : ''}"><td>${foc ? '◎ ' : ''}${esc(x.name)}</td><td>${esc(x.desc)}</td><td>${x.q != null ? x.q.toFixed(2) : ''}</td><td><b>${fmtP(x.p)}</b></td><td class="${x.dist > 0 ? 'up' : 'dn'}">${x.dist > 0 ? '+' : ''}${x.dist.toFixed(0)}</td></tr>`;
   }
   if (!pxd) html += `<tr class="px"><td>NQ CENA</td><td></td><td></td><td>${fmtP(r.last)}</td><td>0</td></tr>`;
   return html + '</table>';
@@ -1954,6 +1958,87 @@ function drawKeyTables(){
   const p = $('pKey'); if (p && !p.hidden && p._h !== h) { p.innerHTML = h; p._h = h; }
 }
 setInterval(() => { try { drawKeyTables(); } catch(e){} }, 2000);
+
+// ───────── explanations on hover: PRO levels chart, main chart (zones + lines), key levels table
+const EXPLAIN = [
+  [/IVPK HI|IV wall nad/, 'IV wall nad cenou', 'Strike, kde je implikovaná volatilita výš než hladká křivka smile – někdo tam agresivně kupuje opce. Často funguje jako strop / magnet.'],
+  [/IVPK LO|IV wall pod/, 'IV wall pod cenou', 'Strike s IV nad hladkým smile pod cenou – koncentrovaná poptávka po putech. Často podlaha nebo cíl poklesu.'],
+  [/IVPK/, 'IV wall', 'Strike s IV výš než hladký smile – koncentrovaná poptávka po opcích.'],
+  [/CWv|Call wall.*\(vol\)/, 'Call wall podle volume', 'Strike s největší call gammou z dnešních obchodů (ne z OI) – kde se dnes nejvíc obchodovalo. Reaguje rychleji než OI.'],
+  [/PWv|Put wall.*\(vol\)/, 'Put wall podle volume', 'Strike s největší put gammou z dnešních obchodů – čerstvé pozice dne.'],
+  [/CW|Call wall|\+γ major/, 'Call wall', 'Strike s největší call gammou. Dealeři jsou tam short call a při růstu prodávají futures → odpor, cena se od něj často odráží dolů nebo se k němu přitahuje.'],
+  [/PW|Put wall|−γ major/, 'Put wall', 'Strike s největší put gammou. Dealeři při poklesu k němu nakupují zpět hedge → podpora; při průrazu ale pohyb zrychlí.'],
+  [/FLIP|flip|ZG|Zero gamma/, 'γ flip / zero gamma', 'Cena, kde celková dealer gamma mění znaménko. Nad ním dealeři tlumí pohyb (mean reversion), pod ním ho zesilují (trend, větší svíčky).'],
+  [/CEILING|Ceiling/, 'Ceiling', 'Strike s největší kladnou dealer gammou – nejsilnější „tlumič“ nad trhem, typický strop dne.'],
+  [/FLOOR|Floor/, 'Floor', 'Strike s největší zápornou dealer gammou – tam se pohyb zesiluje; po průrazu bývá rychlý pohyb.'],
+  [/PEAK|peak/, 'γ peak', 'Maximum dealer gammy podle MM landscape – cenový magnet, kolem kterého se trh rád drží.'],
+  [/FLOW \+/, 'FLOW +', 'Strike, kde dnes proteklo nejvíc bullish prémie (koupené cally + prodané puty). Ukazuje, kam míří peníze.'],
+  [/FLOW −/, 'FLOW −', 'Strike s nejvíc bearish prémie dnes (koupené puty + prodané cally).'],
+  [/straddle/, 'EM ze straddlu', 'Očekávaný pohyb dne z ceny 0DTE ATM straddlu – co trh opravdu platí za dnešní pohyb.'],
+  [/^EM|EM [+−]|EM ±/, 'Expected move', 'Očekávaný denní pohyb z VXN/VIX od RTH open (Ref). ±1 EM trh dosáhne zhruba ve třetině dní – extrémy jsou místa pro fade.'],
+  [/^Ref/, 'Ref', 'Kotva EM – cena při RTH open, střed očekávaného pohybu.'],
+  [/σ/, 'σ Grid', 'Násobky 20denní směrodatné odchylky denních výnosů od Globex open – statistické hranice pohybu.'],
+  [/ON POC/, 'Overnight POC', 'Cena s největším objemem v noční session (18:00–9:30 ET) – férová cena overnightu.'],
+  [/ON VAH/, 'Overnight VAH', 'Horní hrana 70 % objemu overnightu. Nad ní je trh „drahý“ vůči noci – častá reakce po otevření.'],
+  [/ON VAL/, 'Overnight VAL', 'Dolní hrana 70 % objemu overnightu.'],
+  [/ON LVN/, 'Overnight LVN', 'Místo s velmi malým objemem v overnightu – cena jím rychle projede, nebo se od něj čistě odrazí.'],
+  [/pPOC/, 'Předchozí POC', 'Cena s největším objemem v předchozí RTH session.'],
+  [/pVAH/, 'Předchozí VAH', 'Horní hrana value area předchozí RTH session.'],
+  [/pVAL/, 'Předchozí VAL', 'Dolní hrana value area předchozí RTH session.'],
+  [/LVN/, 'LVN', 'Low volume node – hluboké minimum volume profilu mezi dvěma objemovými horami. Cena jím projíždí rychle nebo se od něj odrazí.'],
+  [/POC/, 'POC', 'Point of control – cena s největším objemem ve složeném profilu.'],
+  [/ΔGEX/, 'ΔGEX', 'Strike, kde se GEX za posledních 15 min změnil nejvíc – čerstvé pozicování dealerů.'],
+  [/★/, '★ hlavní QQQ strike', 'QQQ strike na 0/5 s největší gammou, převedený na NQ – v praxi nejsilnější options levely.'],
+  [/QQQ/, 'QQQ strike', 'QQQ options level převedený na NQ (× poměr NQ/QQQ).'],
+  [/Dead zone/, 'Dead zone', 'Pásmo, kde je dealer gamma kolem nuly – dealeři nic netlumí ani nezesilují, cena tu nemá oporu a projíždí volně.'],
+  [/SHORT|LONG|◎/, 'Focus zóna', 'Nejsilnější konfluence nad / pod cenou: skóre ≥ 5 a aspoň 2 nezávislé zdroje. Vstup potvrzuj footprintem.'],
+];
+const PREFIX = [[/^0D /, '0DTE (dnešní expirace)'], [/^1D /, '1DTE (zítřejší expirace)'], [/^ALL /, 'celý řetězec do 45 dní'], [/7D/, 'složený profil 7 dní'], [/30D/, 'složený profil 30 dní'], [/^RTH /, 'dnešní RTH']];
+function explain(tag){
+  const e = EXPLAIN.find(x => x[0].test(tag)) || [null, tag, ''];
+  const pre = PREFIX.filter(x => x[0].test(tag)).map(x => x[1]);
+  return { title: e[1], text: e[2] + (pre.length ? ` <i style="color:#6b727c;font-style:normal">(${pre.join(', ')})</i>` : '') };
+}
+function showTip(items, x, y, head){
+  const t = $('tip'); if (!items || !items.length) { t.hidden = true; return; }
+  const seen = new Set();
+  t.innerHTML = (head || '') + items.map(it => { const e = explain(it.tag), dup = seen.has(e.title); seen.add(e.title); return `<div class="it"><div class="h"><b>${esc(it.tag)}</b><span>${it.price != null ? fmtP(it.price) : ''}</span></div>${e.title !== it.tag ? `<div style="color:#e6e8eb">${esc(e.title)}</div>` : ''}${dup ? '' : `<p>${e.text}</p>`}</div>`; }).join('');
+  t.hidden = false;
+  const r = t.getBoundingClientRect(), W = window.innerWidth, H = window.innerHeight;
+  t.style.left = Math.min(W - r.width - 8, x + 14) + 'px'; t.style.top = Math.min(H - r.height - 8, Math.max(8, y + 14)) + 'px';
+}
+const hideTip = () => { $('tip').hidden = true; };
+// PRO levels chart
+$('cvPro').addEventListener('mousemove', e => {
+  const cv = $('cvPro'); if (pr.tab !== 'levels' || !cv._hits) return hideTip();
+  const r = cv.getBoundingClientRect(), y = e.clientY - r.top;
+  const hit = cv._hits.filter(h => Math.abs(h.y - y) <= 7).sort((a, b) => b.w - a.w);
+  if (hit.length) return showTip(hit.map(h => ({ tag:h.kind, price:h.nq })), e.clientX, e.clientY, `<div style="color:#6b727c;margin-bottom:4px">QQQ ${hit[0].q.toFixed(2)} · ${hit[0].nq - cv._last >= 0 ? '+' : ''}${(hit[0].nq - cv._last).toFixed(0)} b. od ceny</div>`);
+  if (cv._dead && y >= cv._dead.y0 && y <= cv._dead.y1) return showTip([{ tag:'Dead zone', price:null }], e.clientX, e.clientY, `<div style="color:#6b727c;margin-bottom:4px">${cv._dead.lo.toFixed(0)}–${cv._dead.hi.toFixed(0)}</div>`);
+  hideTip();
+});
+$('cvPro').addEventListener('mouseleave', hideTip);
+// main chart: focus zones + drawn level lines + EM lines
+chart.subscribeCrosshairMove(prm => {
+  if (!prm || !prm.point || document.body.dataset.tab !== 'chart') return hideTip();
+  const r = st.res; if (!r) return hideTip();
+  const y = prm.point.y, near = p => { const c = series.priceToCoordinate(p); return c !== null && Math.abs(c - y) <= 6; };
+  const items = [];
+  for (const s of fz.segs.filter(s => !s.t1)) if (near(s.p)) { items.push({ tag:(s.side === 'short' ? '◎ SHORT' : '◎ LONG') + ' · skóre ' + s.score, price:s.p }); s.tags.forEach(t => items.push({ tag:t, price:null })); }
+  if (!items.length && vis('lines')) for (const l of r.levels) if (near(l.price) && (l.srcs.includes('opt') || l.srcs.includes('qqq'))) l.tags.slice(0, 4).forEach((t, i) => items.push({ tag:t, price:i ? null : l.price }));
+  const E = r.info && r.info.em;
+  if (!items.length && vis('em') && E) for (const [m, t] of [[1.5, 'EM +1.5'], [1, 'EM +1'], [.5, 'EM +½'], [0, 'Ref'], [-.5, 'EM −½'], [-1, 'EM −1'], [-1.5, 'EM −1.5']]) { const p = Math.round((E.anchor + m * E.em) * 4) / 4; if (near(p)) items.push({ tag:t, price:p }); }
+  if (!items.length) return hideTip();
+  const rc = $('chart').getBoundingClientRect();
+  showTip(items.slice(0, 6), rc.left + prm.point.x, rc.top + prm.point.y, '');
+});
+$('chart').addEventListener('mouseleave', hideTip);
+// key levels table rows
+document.addEventListener('mousemove', e => {
+  const tr = e.target.closest && e.target.closest('.keylv tr[data-tag]');
+  if (!tr) { if (document.querySelector('.keylv:hover') && !$('tip').hidden && !e.target.closest('#cvPro')) hideTip(); return; }
+  showTip([{ tag:tr.dataset.tag, price:+tr.dataset.p }], e.clientX, e.clientY, '');
+});
 
 // ───────── browser-style tabs: Graf (clean chart) · Levely · Options & Flow · Bias · Analýza · Deník
 const TAB_SHEETS = { pro:['pro','proBtn','pClose'], bias:['bias','biasBtn','bClose2'], ana:['ana','anaBtn','aClose'], stats:['stats','statsBtn','sClose'] };
