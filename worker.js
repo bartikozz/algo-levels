@@ -510,6 +510,18 @@ export default {
         return json({ date, data }, 200, cors);
       }
 
+      // ── data server address (Cloudflare quick tunnel), registered by the launcher on the PC: /srv, /srv/set?url=
+      if (parts[0] === 'srv') {
+        if (!env.SNAP) return json({ error: 'KV binding SNAP missing' }, 500, cors);
+        if (parts[1] === 'set') {
+          const u = (url.searchParams.get('url') || '').trim();
+          if (!/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(u)) return json({ error: 'bad url' }, 400, cors);
+          await env.SNAP.put('srv:url', JSON.stringify({ url: u, at: Date.now() }));
+          return json({ ok: true, url: u }, 200, cors);
+        }
+        return json((await env.SNAP.get('srv:url', 'json')) || { url: null }, 200, cors);
+      }
+
       // ── GEXbot
       if (parts[0] === 'gex') {
         const [, ticker, pkg, cat, sub] = parts;

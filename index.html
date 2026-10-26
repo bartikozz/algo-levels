@@ -344,7 +344,7 @@ body.focus .meta{display:none!important}
   <div class="f full"><input id="sWorker" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://algo-levels.xxx.workers.dev" autocomplete="off"></div>
   <div class="f full"><input id="sToken" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="ACCESS_TOKEN" autocomplete="off"></div>
   <h4>DATA SERVER (VPS · ThetaData + Databento)</h4>
-  <div class="f full"><input id="sServer" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://1-2-3-4.sslip.io (prázdné = vypnuto)" autocomplete="off"></div>
+  <div class="f full"><input id="sServer" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="auto = tento PC / tunel · nebo https://… (prázdné = vypnuto)" autocomplete="off"></div>
   <div class="f full"><input id="sSrvToken" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="token serveru (prázdné = stejný jako výše)" autocomplete="off"></div>
   <h4>CONFLUENCE</h4>
   <div class="grid2">
@@ -1404,12 +1404,28 @@ window.addEventListener('resize', () => { if ($('ana').classList.contains('show'
 st.srv = { ws:null, ok:false, at:0, b60:null, disp:null, dispKey:null, fp:null, levels:null, levelsAt:0, session:0, health:null, timers:[] };
 const SRV_KEYS = [['1m','1m (CME)'],['1s','1 s'],['5s','5 s'],['15s','15 s'],['30s','30 s'],['300s','5 min'],['16R','16R'],['40R','40R'],['80R','80R'],['250V','250V'],['600V','600V'],['1500V','1500V']];
 const srvTok = () => S.srvToken || S.token;
+// data server address: a fixed URL, or 'auto' = this PC (127.0.0.1:8090) if reachable, else the tunnel URL registered in the Worker
+st.srvBase = null; st.srvResolvedAt = 0;
+const SB = () => S.server === 'auto' ? st.srvBase : S.server;
+async function resolveServer(force){
+  if (S.server !== 'auto') { st.srvBase = S.server || null; return st.srvBase; }
+  if (!force && st.srvBase && Date.now() - st.srvResolvedAt < 60000) return st.srvBase;
+  st.srvResolvedAt = Date.now();
+  const ok = async u => { try { const c = new AbortController(); const tm = setTimeout(() => c.abort(), 1500); const r = await fetch(u + '/health', { signal:c.signal, cache:'no-store' }); clearTimeout(tm); return r.ok; } catch(e){ return false; } };
+  if (!/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) && await ok('http://127.0.0.1:8090')) return (st.srvBase = 'http://127.0.0.1:8090');
+  try { const j = await api('/srv'); if (j && j.url && await ok(j.url)) return (st.srvBase = j.url); } catch(e){}
+  return (st.srvBase = null);
+}
 // the server tape counts as live only if it really streams futures (last 1m bar < 3 min old) — without a
 // Databento feed the server still provides options levels, and the GEXbot/Yahoo price path stays active
 const srvFresh = () => { const b = st.srv.b60; return !!(S.server && st.srv.ok && Date.now() - st.srv.at < 20000 && b && b.length && Date.now() / 1000 - b[b.length - 1].t < 180); };
 const srvLevelsFresh = () => !!(S.server && st.srv.levels && Date.now() - st.srv.levelsAt < 180000);
 async function srv(path){
-  const r = await fetch(S.server + path + (path.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(srvTok()), { cache:'no-store' });
+  if (!SB()) await resolveServer(true);
+  if (!SB()) throw new Error('server nedostupný (PC vypnutý nebo tunel neběží)');
+  let r;
+  try { r = await fetch(SB() + path + (path.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(srvTok()), { cache:'no-store' }); }
+  catch(e) { if (S.server === 'auto') { st.srvBase = null; } throw e; }
   if (r.status === 401) throw new Error('server: špatný token');
   if (!r.ok) throw new Error(`server ${path.split('?')[0]} → ${r.status}`);
   return r.json();
@@ -1444,7 +1460,8 @@ function srvConnect(){
   st.srv.timers.push(setInterval(srvPoll, 5000), setInterval(() => srvLevels().then(() => { if (st.res) { computeNow(); render(); } }), 30000));
   const open = () => {
     if (!S.server) return;
-    const url = S.server.replace(/^http/, 'ws') + `/ws?t=${encodeURIComponent(srvTok())}&key=${dispKey()}`;
+    if (!SB()) return;
+    const url = SB().replace(/^http/, 'ws') + `/ws?t=${encodeURIComponent(srvTok())}&key=${dispKey()}`;
     let ws; try { ws = new WebSocket(url); } catch(e) { return; }
     st.srv.ws = ws;
     ws.onmessage = ev => {
@@ -1498,7 +1515,7 @@ const cvdSeries = chart.addLineSeries({ priceScaleId:'cvd', color:'#c9a66b', lin
 chart.priceScale('cvd').applyOptions({ scaleMargins:{ top:0.74, bottom:0.13 }, visible:false });
 $('barSrc').onchange = () => { S.barSrc = $('barSrc').value; save(); fitted = false; srvConnect(); };
 $('barSrc').hidden = !S.server;
-setTimeout(() => { if (S.server) srvConnect(); }, 1500);
+setTimeout(() => { if (S.server) resolveServer(true).then(srvConnect); }, 1500);
 
 // ───────── PRO sheet
 const pr = { tab:'levels', sub:{ strikes:'0D', matrix:'gex_oi', vol:null, land:'all', strikesMetric:'gex_oi' }, timer:null };
@@ -1517,7 +1534,8 @@ async function proShow(){
   $('pTape').hidden = t !== 'oflow'; $('pKey').hidden = t !== 'levels'; $('pKey')._h = '';
   if (!S.server) { note('Nastav adresu datového serveru v ⚙ → Data server.'); Pro.levelsChart(cv, [], [], {}); return; }
   try {
-    const h = await fetch(S.server + '/health', { cache:'no-store' }).then(r => r.json()).catch(() => null);
+    await resolveServer();
+    const h = SB() ? await fetch(SB() + '/health', { cache:'no-store' }).then(r => r.json()).catch(() => null) : null;
     $('pMeta').textContent = h ? `futures ${h.futures}${h.last_age != null ? ' · ' + h.last_age + ' s' : ''} · options ${h.options_age != null ? h.options_age + ' s' : '—'}${h.options_err ? ' ⚠ ' + h.options_err : ''}${h.demo ? ' · DEMO' : ''}` : 'server nedostupný';
     if (t === 'levels') {
       const L = await srv('/levels'), B = await srv('/bars?key=60s&n=420').catch(() => ({ bars:[] }));
@@ -1599,7 +1617,7 @@ $('bSave').onclick = () => {
   w = w.replace(/^https?:\/\/[^/]+/i, m => m.toLowerCase());  // scheme + host are case-insensitive
   S.worker = w; S.token = $('sToken').value.trim();
   let sv = $('sServer').value.trim().replace(/\/+$/, ''); if (sv && !/^https?:\/\//i.test(sv)) sv = 'https://' + sv;
-  if (sv !== S.server) { S.server = sv; srvConnect(); }
+  if (sv !== S.server) { S.server = sv; resolveServer(true).then(srvConnect); }
   S.srvToken = $('sSrvToken').value.trim();
   S.tol = num('sTol',S.tol); S.minScore = num('sMin',S.minScore); S.range = num('sRange',S.range);
   S.touch = num('sTouch',S.touch); S.brk = num('sBrk',S.brk); S.react = num('sReact',S.react);
