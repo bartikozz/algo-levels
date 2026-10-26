@@ -407,6 +407,8 @@ const S = load();
   const q = new URLSearchParams(location.search); let ch = false;
   if (q.has('server')) { S.server = q.get('server').trim().replace(/\/$/, ''); ch = true; }
   if (q.has('stoken')) { S.srvToken = q.get('stoken'); ch = true; }
+  // one-time repair: an old version could save the GEXbot layers as switched off while the data server was connected
+  if (!S.fixGexLayers1) { S.layers = { ...S.layers, gex0:true, gex1:true, gexFull:true, qqq:true, qqqMain:true }; S.fixGexLayers1 = true; ch = true; }
   if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(S.server || '')) { S.server = 'auto'; ch = true; }   // phone can't use 127.0.0.1; auto = PC direct, phone via tunnel
   if (ch) { save(); history.replaceState(null, '', location.pathname + location.hash); }
 } catch(e){} })();
