@@ -19,7 +19,7 @@
 <script src="bias.js?v=3"></script>
 <script src="analysis.js?v=1"></script>
 <script src="backtest.js?v=1"></script>
-<script src="pro.js?v=2"></script>
+<script src="pro.js?v=3"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -70,6 +70,13 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .fzc .sd{font-weight:800;letter-spacing:.08em;font-size:11px} .fzc.short{border-color:rgba(94,224,200,.45)} .fzc.short .sd{color:#5ee0c8}
 .fzc.long{border-color:rgba(255,95,162,.45)} .fzc.long .sd{color:#ff5fa2} .fzc b{font-size:14px} .fzc .m{font-size:11px;color:var(--muted)}
 .fzc.near{animation:pulse 1.2s infinite}
+.otape{max-height:34dvh;overflow:auto;margin-top:6px;border:1px solid var(--line2);border-radius:6px}
+.otape table{width:100%;border-collapse:collapse;font:11px var(--mono)}
+.otape th{position:sticky;top:0;background:#0d0f13;color:#6b727c;text-align:right;padding:4px 6px;font-weight:400}
+.otape td{text-align:right;padding:3px 6px;color:#9aa0a8;border-top:1px solid #12151b;white-space:nowrap}
+.otape th:nth-child(2),.otape td:nth-child(2){text-align:left}
+.otape tr.bull td{color:#5ee0c8}.otape tr.bear td{color:#ff5fa2}
+.otape td i{font-style:normal;font-size:9px;padding:0 3px;border:1px solid currentColor;border-radius:3px;opacity:.8}
 .legend{position:absolute;left:8px;top:40px;z-index:3;font:11px 'JetBrains Mono',monospace;color:#9aa0a8;user-select:none}
 .legend .lgh{display:flex;gap:4px;align-items:center;margin-bottom:2px;color:#6b727c;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
 .legend .lgh button{border:1px solid var(--line2);background:rgba(7,8,10,.7);color:#9aa0a8;border-radius:4px;font-size:10px;padding:0 5px;cursor:pointer}
@@ -277,10 +284,11 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 </div></div>
 <div id="pro" class="sheet"><div class="box">
   <h3>◆ PRO · OPTIONS &amp; FLOW <span id="pMeta" class="hint" style="font-family:var(--mono);letter-spacing:0;margin-left:8px"></span></h3>
-  <div class="sfil" id="pTab"><button data-t="levels" class="on">Options Levels</button><button data-t="strikes">Strike Profile</button><button data-t="matrix">Heatmap by Expiry</button><button data-t="vol">Volatility</button><button data-t="land">MM Landscape</button><button data-t="surf">Surface</button><button data-t="flow">Flow</button></div>
+  <div class="sfil" id="pTab"><button data-t="levels" class="on">Options Levels</button><button data-t="strikes">Strike Profile</button><button data-t="matrix">Heatmap by Expiry</button><button data-t="vol">Volatility</button><button data-t="land">MM Landscape</button><button data-t="surf">Surface</button><button data-t="flow">Flow</button><button data-t="oflow">Options Flow</button></div>
   <div class="sfil" id="pSub"></div>
   <canvas id="cvPro" class="anacv" style="height:66dvh"></canvas>
   <p class="hint" id="pNote"></p>
+  <div id="pTape" class="otape" hidden></div>
   <div class="btns"><button id="pClose">Zavřít</button></div>
 </div></div>
 <div id="settings" class="sheet"><div class="box">
@@ -677,7 +685,7 @@ function etDateOf(sec){ return new Intl.DateTimeFormat('en-CA', { timeZone:'Amer
 // what the engine sees: stale GEX data is moved out of the main list (it becomes "previous" levels)
 function computeNow(){
   // options levels from the data server (ThetaData chain) replace the GEXbot NQ layers while fresh
-  st.data.extra = srvLevelsFresh() ? st.srv.levels.levels.filter(l => l.nq).map(l => ({ p:l.nq, tag:l.kind, w:l.w, src:'opt' })) : null;
+  st.data.extra = srvLevelsFresh() ? st.srv.levels.levels.filter(l => l.nq).map(l => ({ p:l.nq, tag:l.kind, w:l.w, src: /^FLOW/.test(l.kind) ? 'flow' : 'opt' })) : null;
   if (st.data.extra && !st.demo) {
     const keep = S.layers; S.layers = { ...keep, gex0:false, gex1:false, gexFull:false, qqq:false };
     try { return computeNow0(); } finally { S.layers = keep; }
@@ -1442,6 +1450,7 @@ const PRO_SUB = {
   strikes: [['0D','0DTE'],['1D','1DTE'],['W','≤ týden'],['M','≤ 45 dní'],['ALL','vše']],
   matrix: [['gex_oi','GEX (OI)'],['gex_vol','GEX (vol)'],['dex_oi','Delta'],['cex_oi','Charm'],['vex_oi','Vanna'],['oi','OI'],['vol','Volume']],
   land: [['all','≤ 45 dní + 0DTE']],
+  oflow: [['all','Vše ≥ 25k $'],['big','≥ 100k $'],['0d','Jen 0DTE'],['sweep','Jen sweepy']],
 };
 async function proShow(){
   const t = pr.tab;
@@ -1449,6 +1458,7 @@ async function proShow(){
   const sub = PRO_SUB[t];
   $('pSub').innerHTML = sub ? sub.map(([k, n]) => `<button data-s="${k}" class="${(pr.sub[t] || sub[0][0]) === k ? 'on' : ''}">${n}</button>`).join('') : '';
   const cv = $('cvPro'), note = m => $('pNote').textContent = m;
+  $('pTape').hidden = t !== 'oflow';
   if (!S.server) { note('Nastav adresu datového serveru v ⚙ → Data server.'); Pro.levelsChart(cv, [], [], {}); return; }
   try {
     const h = await fetch(S.server + '/health', { cache:'no-store' }).then(r => r.json()).catch(() => null);
@@ -1486,6 +1496,15 @@ async function proShow(){
       const path = B.filter(b => b.t >= t0).map(b => ({ t:b.t, c:b.c })); const spot = path.length ? path[path.length - 1].c : (rows.length ? rows[rows.length - 1].hs[0][0] : 0);
       Analysis.drawHeat(cv, rows, path, { lo:spot * 0.988, hi:spot * 1.012, t0, t1, label:A.hhmm, levels:[] });
       note(`0DTE GEX (OI) po strikech v čase z options serveru (každých ${30} s) + cena NQ. ${rows.length} snímků dnes.`);
+    } else if (t === 'oflow') {
+      const f = pr.sub.oflow || 'all', q = f === 'big' ? '&min_prem=100000' : f === '0d' ? '&only0d=1' : f === 'sweep' ? '&kind=SWEEP' : '';
+      const D = await srv('/options/flow?n=150' + q);
+      Pro.optflow(cv, D, { label:A.hhmm });
+      const sideCls = x => /BUY|buy/.test(x.side) ? (x.right === 'C' ? 'bull' : 'bear') : /SELL|sell/.test(x.side) ? (x.right === 'C' ? 'bear' : 'bull') : '';
+      $('pTape').innerHTML = `<table><tr><th>čas</th><th>kontrakt</th><th>NQ</th><th>strana</th><th>typ</th><th>size</th><th>cena</th><th>prémie</th><th>Δ</th><th>IV</th></tr>` +
+        D.tape.map(x => `<tr class="${sideCls(x)}"><td>${A.hhmm(x.t)}</td><td>${x.exp.slice(5).replace('-', '/')}${x.is0d ? ' <i>0D</i>' : ''} ${x.strike}${x.right}</td><td>${x.nq ? x.nq.toFixed(0) : ''}</td><td>${x.side}</td><td>${x.kind === 'SWEEP' ? '⚡ SWEEP' + (x.ex > 1 ? ' ×' + x.ex : '') : x.kind === 'BLOCK' ? '■ BLOK' : ''}</td><td>${x.size}</td><td>${x.px.toFixed(2)}</td><td><b>${(x.prem / 1000).toFixed(0)}k</b></td><td>${x.d != null ? x.d.toFixed(2) : ''}</td><td>${x.iv ? (x.iv * 100).toFixed(0) + '%' : ''}</td></tr>`).join('') + '</table>' +
+        (D.tape.length ? '' : '<p class="hint">Zatím žádné velké objednávky.</p>');
+      note(`Options flow QQQ (stream ${D.stream}). Strana podle NBBO v okamžiku obchodu: na asku = koupeno, na bidu = prodáno. Bullish = koupené cally + prodané puty, bearish = prodané cally + koupené puty. Δ = delta, kterou přidali zákazníci (≈ NQ kontraktů), dealeři drží opačnou a hedgují ji. ⚡ SWEEP = objednávka rozsekaná přes víc burz najednou (spěch), ■ BLOK = jeden velký obchod. Striky s nejjednostrannější prémií jdou do konfluence jako FLOW + / FLOW −. Tyrkysově bullish, růžově bearish řádky.`);
     } else if (t === 'flow') {
       const F = await srv('/flow');
       Pro.flow(cv, F, { label:A.hhmm });

@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from exposure import snapshot, heatmap, smile
 from futures import Tape, DatabentoFeed
+from optflow import OptionFlow
 
 ET = ZoneInfo('America/New_York')
 TOKEN = os.environ.get('ACCESS_TOKEN', '')
@@ -34,7 +35,8 @@ app.add_middleware(CORSMiddleware, allow_origins=os.environ.get('CORS_ORIGINS', 
                    allow_methods=['GET'], allow_headers=['*'])
 
 tape = Tape(state_file=os.path.join(DATA_DIR, 'tape.json'))
-state = dict(chain=None, snap=None, k=None, opt_err=None, opt_ts=0, feed=None, hist=[])
+oflow = OptionFlow(min_prem=float(os.environ.get('FLOW_MIN_PREM', '25000')), state_file=os.path.join(DATA_DIR, 'optflow.json'))
+state = dict(chain=None, snap=None, k=None, opt_err=None, opt_ts=0, feed=None, hist=[], ostream=None)
 
 
 def auth(t: str | None):
@@ -82,7 +84,8 @@ def options_loop():
                 k_new = yahoo_ratio()   # no live futures feed → NQ/QQQ from Yahoo 1m bars (time-aligned)
             state['k'] = k_new if state['k'] is None or k_new is None else 0.8 * state['k'] + 0.2 * k_new
             snap = snapshot(chain, S, time.time(), k_nq=state['k'])
-            state.update(chain=chain, snap=snap, opt_err=None, opt_ts=time.time())
+            state.update(chain=chain, snap=snap, opt_err=None, opt_ts=time.time(), spot=S)
+            oflow.set_chain(chain, S)          # deltas / IV + fallback quotes for the flow engine
             # intraday surface history: 0DTE (or nearest) GEX by strike, every poll
             b = snap['buckets'].get('0D') or snap['buckets'].get('1D') or []
             row = dict(t=int(time.time()), spot=S, k=state['k'],
@@ -128,18 +131,46 @@ def demo_trades():
         time.sleep(0.2)
 
 
+def demo_opt_trades():
+    """synthetic option prints: mostly small, some large orders and multi-exchange sweeps, slight bullish tilt"""
+    while not state['chain']:
+        time.sleep(1)
+    while True:
+        chain, S = state['chain'], state.get('spot') or 725
+        near = [c for c in chain if abs(c.strike / S - 1) < 0.03 and c.ask > 0.05]
+        if not near:
+            time.sleep(1); continue
+        c = random.choice(near[:400])
+        key = (c.exp, c.strike, c.right)
+        big = random.random() < 0.06
+        size = random.choice([1, 2, 5, 10, 20]) if not big else random.choice([150, 300, 500, 1000])
+        r = random.random() + (0.08 if c.right == 'C' else -0.08)
+        px = c.ask if r > 0.6 else c.bid if r < 0.35 else round((c.bid + c.ask) / 2, 2)
+        if big and random.random() < 0.5:   # sweep across 3 exchanges
+            for ex in (1, 5, 9):
+                oflow.on_trade(key, time.time(), px, size // 3, c.bid, c.ask, ex); time.sleep(0.03)
+        else:
+            oflow.on_trade(key, time.time(), max(0.01, px), size, c.bid, c.ask, random.randint(1, 12))
+        time.sleep(random.uniform(0.02, 0.15))
+
+
 def saver():
     while True:
         time.sleep(60)
-        try:
-            tape.save()
-        except Exception:
-            pass
+        for x in (tape, oflow):
+            try:
+                x.save()
+            except Exception:
+                pass
 
 
 @app.on_event('startup')
 def start():
     tape.load()
+    try:
+        oflow.load()
+    except Exception:
+        pass
     day = datetime.now(ET).strftime('%Y-%m-%d')
     fn = os.path.join(DATA_DIR, f'surface-{day}.jsonl')
     if os.path.exists(fn):
@@ -151,6 +182,12 @@ def start():
         state['feed'] = DatabentoFeed(tape, os.environ['DATABENTO_API_KEY'], os.environ.get('FUT_SYMBOL', 'NQ.v.0'))
         state['feed'].start()
     threading.Thread(target=options_loop, daemon=True).start()
+    if DEMO:
+        threading.Thread(target=demo_opt_trades, daemon=True).start()
+    elif os.environ.get('THETA_STREAM', '1') == '1':
+        from providers.theta_stream import ThetaStream
+        state['ostream'] = ThetaStream(oflow, ROOT, get_chain=lambda: (state['chain'], state.get('spot')))
+        state['ostream'].start()
     threading.Thread(target=saver, daemon=True).start()
 
 
@@ -165,7 +202,9 @@ def health():
     f = state['feed']
     return dict(ok=True, demo=DEMO, futures=('demo' if DEMO else (f.status if f else 'no key')), futures_err=f.err if f else None,
                 last=tape.last, last_age=round(time.time() - tape.last_ts, 1) if tape.last_ts else None,
-                options_age=round(time.time() - state['opt_ts'], 1) if state['opt_ts'] else None, options_err=state['opt_err'], k=state['k'])
+                options_age=round(time.time() - state['opt_ts'], 1) if state['opt_ts'] else None, options_err=state['opt_err'], k=state['k'],
+                opt_stream=('demo' if DEMO else (state['ostream'].status if state['ostream'] else 'off')),
+                opt_stream_err=state['ostream'].err if state['ostream'] else None, opt_trades=oflow.tot['trades'])
 
 
 @app.get('/levels')
@@ -192,6 +231,8 @@ def levels(t: str | None = None):
     for name, L in (('', s['landscape']), ('0D ', s['landscape_0d'])):
         if not L: continue
         add(L['flip'], name + 'γ FLIP', 2.5); add(L['ceiling'], name + 'CEILING', 2); add(L['floor'], name + 'FLOOR', 2); add(L['peak'], name + 'γ PEAK', 1.5)
+    for x in oflow.flow_levels(2):     # strikes with the most one-sided premium today
+        add(x['strike'], 'FLOW ' + ('+' if x['net'] > 0 else '−'), 1.5 + min(1.0, x['share'] * 2))
     em = s['em0']
     return j(dict(ts=s['ts'], spot=s['spot'], k=state['k'], nq_last=tape.last, exp0=s['exp0'], atm_iv=s['atm_iv'],
                   em0=dict(qqq=em['em'], nq=em['em'] * state['k'] if state['k'] else None) if em else None,
@@ -271,6 +312,23 @@ def bars(key: str = '60s', n: int = 600, fp: int = 0, t: str | None = None):
 def flow(t: str | None = None):
     auth(t)
     return j(dict(cvd_series=tape.cvd_series(), profile_rth=tape.volume_profile('rth'), profile_eth=tape.volume_profile('eth'), tpo=tape.tpo_profile(), **tape.summary()))
+
+
+@app.get('/options/flow')
+def opt_flow(min_prem: float | None = None, only0d: int = 0, kind: str | None = None, pct: float = 0.04, n: int = 150, t: str | None = None):
+    """options flow: day totals, cumulative bullish/bearish premium + delta per minute, net premium by strike, tape of large orders"""
+    auth(t)
+    k = state['k']
+    tp = oflow.tape(min(n, 500), min_prem, bool(only0d), kind)
+    for o in tp:
+        o['nq'] = nq(o['strike'])
+    st_ = oflow.by_strike(pct, bool(only0d))
+    for r in st_:
+        r['nq'] = nq(r['strike'])
+    sm = oflow.summary()
+    sm['delta_nq'] = (sm['delta'] * (sm['spot'] or 0) / ((sm['spot'] or 0) * k * 20)) if k and sm['spot'] else None   # ≈ NQ contracts
+    return j(dict(summary=sm, series=oflow.series(), strikes=st_, tape=tp, k=k, min_prem=min_prem or oflow.min_prem,
+                  stream=('demo' if DEMO else (state['ostream'].status if state['ostream'] else 'off'))))
 
 
 @app.websocket('/ws')

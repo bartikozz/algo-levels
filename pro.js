@@ -181,6 +181,46 @@
     }
   }
 
+  // ── Options flow: cumulative bullish vs bearish premium + net delta (left), net premium by strike (right)
+  function optflow(cv, D, o) {
+    const { c, w, h } = setup(cv);
+    if (!D || !D.series || !D.series.length) return empty(c, w, h, 'Zatím žádné obchody s opcemi (stream ' + ((D && D.stream) || '—') + ').');
+    const S = D.summary, ser = D.series, half = Math.floor(w * 0.6), L = 8, top = 34, bot = h - 18;
+    // header stats
+    c.textAlign = 'left'; c.fillStyle = C.txt2;
+    const bias = S.bias || 0, bc = bias > 0.1 ? `rgb(${C.pos})` : bias < -0.1 ? `rgb(${C.neg})` : C.gold;
+    c.fillText(`Bullish ${fmtM(S.bull)} $  ·  Bearish ${fmtM(S.bear)} $  ·  P/C prémie ${S.pc_prem != null ? S.pc_prem.toFixed(2) : '—'}  ·  Sweepy ${S.sweeps} · Bloky ${S.blocks}`, L, 9);
+    c.fillStyle = bc; c.fillText(`NET ${S.net >= 0 ? '+' : ''}${fmtM(S.net)} $ (${(bias * 100).toFixed(0)} %)  ·  0DTE ${S.net_0d >= 0 ? '+' : ''}${fmtM(S.net_0d)} $  ·  Δ ${S.delta >= 0 ? '+' : ''}${fmtM(S.delta)} akcií${S.delta_nq != null ? ` ≈ ${S.delta_nq >= 0 ? '+' : ''}${S.delta_nq.toFixed(0)} NQ` : ''}`, L, 23);
+    // cumulative premium lines
+    const X = i => L + i * (half - L - 50) / Math.max(1, ser.length - 1);
+    const vmax = Math.max(1, ...ser.map(r => Math.max(r[1], r[2])));
+    const Y = v => top + (1 - v / vmax) * (bot - top);
+    const dv = ser.map(r => r[3]), d0 = Math.min(0, ...dv), d1 = Math.max(0, ...dv);
+    const YD = v => top + (d1 - v) / (d1 - d0 || 1) * (bot - top);
+    c.strokeStyle = C.grid; c.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) { const y = top + i * (bot - top) / 4; c.beginPath(); c.moveTo(L, y); c.lineTo(half - 50, y); c.stroke(); c.fillStyle = C.txt; c.textAlign = 'left'; c.fillText(fmtM(vmax * (1 - i / 4)), half - 46, y); }
+    const line = (idx, col, Yf, wdt) => { c.strokeStyle = col; c.lineWidth = wdt; c.beginPath(); ser.forEach((r, i) => i ? c.lineTo(X(i), Yf(r[idx])) : c.moveTo(X(i), Yf(r[idx]))); c.stroke(); };
+    c.fillStyle = 'rgba(201,166,107,.35)'; if (d0 < 0 && d1 > 0) c.fillRect(L, YD(0), half - L - 50, 1);
+    line(3, 'rgba(201,166,107,.85)', YD, 1);
+    line(1, `rgb(${C.pos})`, Y, 2); line(2, `rgb(${C.neg})`, Y, 2);
+    c.fillStyle = C.txt; c.textAlign = 'left'; c.fillText(o.label(ser[0][0]), L, h - 7); c.textAlign = 'right'; c.fillText(o.label(ser[ser.length - 1][0]), half - 50, h - 7);
+    c.textAlign = 'left'; c.fillStyle = `rgb(${C.pos})`; c.fillText('■ bullish $', L + 80, h - 7); c.fillStyle = `rgb(${C.neg})`; c.fillText('■ bearish $', L + 170, h - 7); c.fillStyle = C.gold; c.fillText('— Δ akcie', L + 260, h - 7);
+    // net premium by strike (axis in NQ)
+    const rows = (D.strikes || []).filter(r => r.contracts > 0);
+    if (rows.length) {
+      const x0 = half + 70, W = w - x0 - 8, mid = x0 + W / 2, mx = Math.max(1, ...rows.map(r => Math.abs(r.net)));
+      const p0 = rows[0].strike, p1 = rows[rows.length - 1].strike, YS = p => top + (p1 - p) / (p1 - p0 || 1) * (bot - top), rh = Math.max(2, Math.min(12, (bot - top) / rows.length - 1));
+      c.fillStyle = C.txt2; c.textAlign = 'left'; c.fillText('Net prémie po strikech (call+put, bull − bear)', half + 10, top - 12);
+      c.fillStyle = 'rgba(255,255,255,.15)'; c.fillRect(mid, top, 1, bot - top);
+      const step = Math.max(1, Math.ceil(rows.length / Math.max(1, (bot - top) / 12)));
+      rows.forEach((r, i) => { const y = YS(r.strike) - rh / 2, len = Math.abs(r.net) / mx * (W / 2);
+        c.fillStyle = r.net >= 0 ? `rgba(${C.pos},.8)` : `rgba(${C.neg},.8)`; c.fillRect(r.net >= 0 ? mid : mid - len, y, len, rh);
+        if (i % step === 0 || Math.abs(r.net) > mx * 0.5) { c.fillStyle = Math.abs(r.net) > mx * 0.5 ? C.txt2 : C.txt; c.textAlign = 'right'; c.fillText(`${r.strike} · ${r.nq ? r.nq.toFixed(0) : ''}`, x0 - 4, y + rh / 2); }
+        if (Math.abs(r.net) > mx * 0.5) { const t = fmtM(r.net), tw = c.measureText(t).width, out = r.net >= 0 ? mid + len + 3 + tw < w : mid - len - 3 - tw > x0; c.textAlign = (r.net >= 0) === out ? 'left' : 'right'; c.fillStyle = out ? C.txt2 : C.bg; c.fillText(t, r.net >= 0 ? (out ? mid + len + 3 : mid + len - 3) : (out ? mid - len - 3 : mid - len + 3), y + rh / 2); } });
+      if (S.spot && S.spot >= p0 && S.spot <= p1) { const y = YS(S.spot); c.strokeStyle = C.white; c.setLineDash([4, 3]); c.beginPath(); c.moveTo(x0, y); c.lineTo(w - 8, y); c.stroke(); c.setLineDash([]); }
+    }
+  }
+
   // ── footprint overlay on the main chart: "bid × ask" per price inside each visible bar
   function footprint(cv, bars, map, o) {
     const dpr = window.devicePixelRatio || 1, w = o.w, h = o.h;
@@ -203,5 +243,5 @@
     }
   }
 
-  root.Pro = { levelsChart, matrix, vol, landscape, flow, footprint };
+  root.Pro = { levelsChart, matrix, vol, landscape, flow, optflow, footprint };
 })(typeof window !== 'undefined' ? window : globalThis);
