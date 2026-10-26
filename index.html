@@ -381,6 +381,13 @@ function load(){ try{ const s=JSON.parse(localStorage.getItem('algoLevels.v1')||
   return {...DEF,...s,layers:{...DEF.layers,...(s.layers||{})}}; }catch(e){ return structuredClone(DEF); } }
 function save(){ try{ localStorage.setItem('algoLevels.v1', JSON.stringify(S)); }catch(e){} }
 const S = load();
+// one-click setup links: ?server=http://127.0.0.1:8090 (&stoken=…) → saved into settings, then removed from the URL
+(() => { try {
+  const q = new URLSearchParams(location.search); let ch = false;
+  if (q.has('server')) { S.server = q.get('server').trim().replace(/\/$/, ''); ch = true; }
+  if (q.has('stoken')) { S.srvToken = q.get('stoken'); ch = true; }
+  if (ch) { save(); history.replaceState(null, '', location.pathname + location.hash); }
+} catch(e){} })();
 S.showPrev = false; // previous-session GEX levels are not shown (clean view)
 // one-tap setup from a link: index.html#w=<worker url>&t=<token> (hash is never sent to a server)
 try {
