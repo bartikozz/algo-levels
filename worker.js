@@ -514,10 +514,10 @@ export default {
       if (parts[0] === 'srv') {
         if (!env.SNAP) return json({ error: 'KV binding SNAP missing' }, 500, cors);
         if (parts[1] === 'set') {
-          const u = (url.searchParams.get('url') || '').trim();
-          if (!/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(u)) return json({ error: 'bad url' }, 400, cors);
-          await env.SNAP.put('srv:url', JSON.stringify({ url: u, at: Date.now() }));
-          return json({ ok: true, url: u }, 200, cors);
+          let h = null; try { h = new URL(url.searchParams.get('url') || ''); } catch (e) {}
+          if (!h || h.protocol !== 'https:' || !h.hostname.endsWith('.trycloudflare.com') || h.pathname !== '/') return json({ error: 'bad url' }, 400, cors);
+          await env.SNAP.put('srv:url', JSON.stringify({ url: h.origin, at: Date.now() }));
+          return json({ ok: true, url: h.origin }, 200, cors);
         }
         return json((await env.SNAP.get('srv:url', 'json')) || { url: null }, 200, cors);
       }
