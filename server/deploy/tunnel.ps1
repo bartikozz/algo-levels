@@ -10,8 +10,8 @@ Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
 while ($true) {
   $log = "$R\tunnel.log"
   Remove-Item $log, "$R\tunnel.url" -ErrorAction SilentlyContinue
-  # cmd does the stderr redirection (cloudflared prints the tunnel address to stderr)
-  $p = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', "`"`"$cf`" tunnel --no-autoupdate --url http://127.0.0.1:8090 2> `"$log`"`"" -WindowStyle Hidden -PassThru
+  # cloudflared prints the tunnel address to stderr; run it inside this (minimized) window
+  $p = Start-Process -FilePath $cf -ArgumentList 'tunnel', '--no-autoupdate', '--url', 'http://127.0.0.1:8090' -RedirectStandardError $log -NoNewWindow -PassThru
   $u = $null
   for ($i = 0; $i -lt 90 -and -not $u; $i++) {
     Start-Sleep 1
@@ -20,11 +20,11 @@ while ($true) {
   if ($u) {
     Set-Content -Encoding ascii "$R\tunnel.url" $u
     Write-Host "$(Get-Date -Format HH:mm:ss) tunel: $u  (server ho zapíše do Workeru)"
-    $p.WaitForExit()
+    while (Get-Process -Id $p.Id -ErrorAction SilentlyContinue) { Start-Sleep 5 }
     Write-Host "$(Get-Date -Format HH:mm:ss) tunel spadl – restartuji"
   } else {
     Write-Host "$(Get-Date -Format HH:mm:ss) tunel nevrátil adresu – zkouším znovu"
-    Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
+    try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
   }
   Start-Sleep 5
 }
