@@ -797,7 +797,8 @@ async function loadGex(){
   const keys = Object.keys(jobs);
   const res = await Promise.allSettled(keys.map(k => jobs[k]));
   const g = {}, errs = [];
-  res.forEach((r,i) => r.status === 'fulfilled' ? (g[keys[i]] = r.value) : errs.push(r.reason.message));
+  const old = st.data.gex || {};
+  res.forEach((r,i) => r.status === 'fulfilled' ? (g[keys[i]] = r.value) : (errs.push(r.reason.message), old[keys[i]] && (g[keys[i]] = old[keys[i]])));   // a failed poll (e.g. rate limit) keeps the last good data
   st.data.gex = g;
   return errs;
 }
@@ -1206,7 +1207,10 @@ function drawFocus(out){
 }
 function focusCards(r){
   const act = ['short', 'long'].map(side => fz.segs.find(s => !s.t1 && s.side === side)).filter(Boolean);
-  if (!act.length) return '<div class="fzc"><span class="m">◎ Žádná zóna s dost silnou konfluencí v dosahu.</span></div>';
+  if (!act.length) {
+    const g = st.data.gex || {}, why = !(g.zero || g.full) ? ` · GEXbot data se nenačetla (${esc($('upd').textContent || '')})` : gexStale() ? ' · GEXbot data jsou starší než 15 min' : '';
+    return `<div class="fzc"><span class="m">◎ Žádná zóna s dost silnou konfluencí v dosahu${why}.</span></div>`;
+  }
   return act.map(s => {
     const d = s.p - r.last, l = r.levels.find(x => Math.abs(x.price - s.p) <= S.tol), h = l && levelHist(l);
     const near = Math.abs(d) <= S.alertDist;
