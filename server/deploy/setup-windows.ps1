@@ -20,7 +20,7 @@ if (-not $py) { throw 'Python se nepodařilo nainstalovat (winget). Nainstaluj P
 Write-Host "   $py"
 
 Write-Host '== Cloudflare tunel (telefon)' -ForegroundColor Cyan
-if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\cloudflared\cloudflared.exe")) { winget install -e --id Cloudflare.cloudflared --silent --accept-source-agreements --accept-package-agreements | Out-Null }
+if (-not (Test-Path "$R\cloudflared.exe")) { try { Invoke-WebRequest 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile "$R\cloudflared.exe" } catch { Write-Host "   cloudflared se nepodařilo stáhnout: $_" } }
 
 Write-Host '== kód serveru' -ForegroundColor Cyan
 $zip = Join-Path $env:TEMP 'algo-levels.zip'; $tmp = Join-Path $env:TEMP 'algo-levels-src'

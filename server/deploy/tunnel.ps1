@@ -2,7 +2,7 @@
 # the server publishes it in the Worker so phones find it (Data server = auto). Runs forever, restarts the tunnel if it dies.
 $ErrorActionPreference = 'Continue'
 $R = Split-Path -Parent $MyInvocation.MyCommand.Path
-$cf = (Get-Command cloudflared -ErrorAction SilentlyContinue).Source
+$cf = if (Test-Path "$R\cloudflared.exe") { "$R\cloudflared.exe" } else { (Get-Command cloudflared -ErrorAction SilentlyContinue).Source }
 if (-not $cf) { foreach ($p in @("${env:ProgramFiles(x86)}\cloudflared\cloudflared.exe", "$env:ProgramFiles\cloudflared\cloudflared.exe", "$env:LOCALAPPDATA\Microsoft\WinGet\Links\cloudflared.exe")) { if (Test-Path $p) { $cf = $p; break } } }
 if (-not $cf) { Write-Host 'cloudflared nenalezen (winget install --id Cloudflare.cloudflared).'; Start-Sleep 600; exit 1 }
 Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
