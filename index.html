@@ -407,6 +407,7 @@ const S = load();
   const q = new URLSearchParams(location.search); let ch = false;
   if (q.has('server')) { S.server = q.get('server').trim().replace(/\/$/, ''); ch = true; }
   if (q.has('stoken')) { S.srvToken = q.get('stoken'); ch = true; }
+  if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(S.server || '')) { S.server = 'auto'; ch = true; }   // phone can't use 127.0.0.1; auto = PC direct, phone via tunnel
   if (ch) { save(); history.replaceState(null, '', location.pathname + location.hash); }
 } catch(e){} })();
 S.showPrev = false; // previous-session GEX levels are not shown (clean view)
@@ -741,7 +742,7 @@ function etDateOf(sec){ return new Intl.DateTimeFormat('en-CA', { timeZone:'Amer
 // what the engine sees: stale GEX data is moved out of the main list (it becomes "previous" levels)
 function computeNow(){
   // options levels from the data server (ThetaData chain) replace the GEXbot NQ layers while fresh
-  st.data.extra = srvLevelsFresh() ? st.srv.levels.levels.filter(l => l.nq).map(l => ({ p:l.nq, tag:l.kind, w:l.w, src: /^FLOW/.test(l.kind) ? 'flow' : 'opt' })) : null;
+  st.data.extra = srvLevelsFresh() ? st.srv.levels.levels.filter(l => l.nq && !(/CW|PW/.test(l.kind) && Math.abs(l.q / 5 - Math.round(l.q / 5)) > 1e-6)).map(l => ({ p:l.nq, tag:l.kind, w:l.w, src: /^FLOW/.test(l.kind) ? 'flow' : 'opt' })) : null;
   if (st.data.extra && !st.demo) {
     const keep = S.layers; S.layers = { ...keep, gex0:false, gex1:false, gexFull:false, qqq:false };
     try { return computeNow0(); } finally { S.layers = keep; }
@@ -1109,11 +1110,20 @@ function levelHist(l){
   for (const t of l.tags) { const k = tagKind(t), x = k && KS.by[k]; if (x && x.n >= 5 && (!best || x.n > best.n)) best = { kind:k, n:x.n, rate:x.r / x.n }; }
   return best;
 }
+// Focus anchors: the big call / put walls only (GEXbot NQ walls #1–2, OI walls, QQQ walls on strikes ending 0/5, server walls)
+function bigWall(t){
+  const m = /^QQQ (?:CW |PW )?(\d+(?:\.\d+)?)/.exec(t);
+  if (m && !/CW|PW/.test(t)) return false;                     // plain QQQ strike without a wall
+  if (m) return +m[1] % 5 === 0;
+  return /^(0DTE|1DTE) (CW|PW) [12]$|^(CW|PW) [12]$|^OI (CW|PW)$|^(0D|1D|ALL) (CW|PW)/.test(t);
+}
 function focusRank(l, r){
   if (l.status && l.status.key === 'broken') return -1;
   if (l.score < Math.max(5, S.minScore)) return -1;  // only strong levels become the focus zone
   const ng = new Set(l.srcs.map(x => /^qqq|^chg|^opt/.test(x) ? 'opt' : x)).size;  // NQ + QQQ options = one family
-  if (ng < 2) return -1;           // …and only real confluence (≥ 2 independent sources: options + volume, EM, σ …)
+  const walls = l.tags.filter(bigWall).length;
+  if (!walls) return -1;                              // must sit on a big call / put wall
+  if (ng < 2 && walls < 2) return -1;                 // + another confluence (volume, EM, σ, FLOW …) or a second wall           // …and only real confluence (≥ 2 independent sources: options + volume, EM, σ …)
   if (fz.segs.some(s => s.t1 && s.end === 'hit' && Math.abs(s.p - l.price) <= S.tol)) return -1; // used today
   const em = r.info.em ? r.info.em.em : 120;
   let q = l.score;
