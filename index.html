@@ -77,6 +77,25 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .otape th:nth-child(2),.otape td:nth-child(2){text-align:left}
 .otape tr.bull td{color:#5ee0c8}.otape tr.bear td{color:#ff5fa2}
 .otape td i{font-style:normal;font-size:9px;padding:0 3px;border:1px solid currentColor;border-radius:3px;opacity:.8}
+header{flex-wrap:wrap}
+#biasBtn,#proBtn,#anaBtn,#statsBtn,#grip{display:none!important}
+.tabbar{flex-basis:100%;order:10;display:flex;gap:2px;margin:6px -16px -11px;padding:0 10px;overflow-x:auto;scrollbar-width:none}
+.tabbar::-webkit-scrollbar{display:none}
+.tabbar button{display:flex;align-items:center;gap:7px;padding:7px 14px 8px;font-size:12px;color:var(--muted);white-space:nowrap;
+  border:1px solid transparent;border-bottom:0;border-radius:9px 9px 0 0;position:relative;transition:color .15s,background .15s}
+.tabbar button i{font-style:normal;font-size:11px;opacity:.8;width:12px;text-align:center}
+.tabbar button:hover{color:var(--text);background:rgba(255,255,255,.03)}
+.tabbar button.on{color:var(--text);background:var(--bg);border-color:var(--line);margin-bottom:-1px;z-index:1}
+.tabbar button.on::after{content:'';position:absolute;left:10px;right:10px;top:-1px;height:2px;border-radius:2px;background:var(--gold)}
+body:not([data-tab="chart"]) .pg-chart{display:none!important}
+body:not([data-tab="levels"]) .pg-levels{display:none!important}
+.sheet.inline{position:static;inset:auto;display:none;background:none;z-index:auto}
+.sheet.inline.show{display:block}
+.sheet.inline .box{max-width:1500px;margin:0 auto;max-height:none;border:0;border-radius:0;background:transparent;padding-top:14px}
+.sheet.inline .box>h3:first-child{display:none}
+#aClose,#pClose,#bClose2,#sClose{display:none}
+body.focus .meta{display:none!important}
+@media (max-width:520px){header{gap:8px}.brand span{display:none}.quote{gap:6px}#px{font-size:15px}}
 .legend{position:absolute;left:8px;top:40px;z-index:3;font:11px 'JetBrains Mono',monospace;color:#9aa0a8;user-select:none}
 .legend .lgh{display:flex;gap:4px;align-items:center;margin-bottom:2px;color:#6b727c;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
 .legend .lgh button{border:1px solid var(--line2);background:rgba(7,8,10,.7);color:#9aa0a8;border-radius:4px;font-size:10px;padding:0 5px;cursor:pointer}
@@ -218,8 +237,16 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <button id="statsBtn" class="hbtn" aria-label="Statistiky levelů">▦</button>
   <a id="help" href="guide.html" aria-label="Jak to funguje">?</a>
   <button id="gear" aria-label="Nastavení">⚙</button>
+  <nav id="tabbar" class="tabbar">
+    <button data-tab="chart" class="on"><i>◎</i>Graf</button>
+    <button data-tab="levels"><i>≡</i>Levely</button>
+    <button data-tab="pro"><i style="color:#5ee0c8">◆</i>Options &amp; Flow</button>
+    <button data-tab="bias"><i>B</i>Bias</button>
+    <button data-tab="ana"><i>⊞</i>Analýza</button>
+    <button data-tab="stats"><i>▦</i>Deník</button>
+  </nav>
 </header>
-<div class="meta">
+<div class="meta pg-chart">
   <span id="src" class="badge">—</span>
   <span><i id="live" class="dotlive"></i><span id="upd">čekám na data</span></span>
   <span>EM <b id="mEm">—</b></span>
@@ -228,17 +255,17 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
   <span>QQQ×<b id="mRatio">—</b></span>
   <span id="biasBadge" class="badge" style="cursor:pointer" hidden>Bias —</span>
 </div>
-<div id="majors" class="majors"></div>
-<div id="chartWrap" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><canvas id="vpc"></canvas><canvas id="fpc"></canvas><select id="barSrc" class="barsrc" hidden></select><div id="zones" class="zones"></div><div id="zbar" class="zbar"><button data-z="out" title="Oddálit (−)">−</button><button data-z="in" title="Přiblížit (+)">+</button><span class="sp"></span><button data-z="left" title="Posunout doleva">‹</button><button data-z="right" title="Posunout doprava">›</button><span class="sp"></span><button data-z="reset" title="Zpět na výchozí pohled">↺</button></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button><div id="legend" class="legend"></div><div id="rpBar" class="rpbar" hidden></div></div>
+<div id="majors" class="majors pg-chart"></div>
+<div id="chartWrap" class="pg-chart" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><canvas id="vpc"></canvas><canvas id="fpc"></canvas><select id="barSrc" class="barsrc" hidden></select><div id="zones" class="zones"></div><div id="zbar" class="zbar"><button data-z="out" title="Oddálit (−)">−</button><button data-z="in" title="Přiblížit (+)">+</button><span class="sp"></span><button data-z="left" title="Posunout doleva">‹</button><button data-z="right" title="Posunout doprava">›</button><span class="sp"></span><button data-z="reset" title="Zpět na výchozí pohled">↺</button></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button><div id="legend" class="legend"></div><div id="rpBar" class="rpbar" hidden></div></div>
 <div id="grip" class="grip" role="separator" aria-label="Velikost grafu"><span></span></div>
-<div class="tabs">
+<div class="tabs pg-levels">
   <button data-f="all" class="on">Vše</button>
   <button data-f="near">±100 b.</button>
   <button data-f="opt">Jen s options</button>
   <button data-f="fresh">Untested</button>
   <button id="bTV">⧉ TradingView</button>
 </div>
-<div id="list"></div>
+<div id="list" class="pg-levels"></div>
 
 <div id="stats" class="sheet"><div class="box">
   <h3>STATISTIKY LEVELŮ</h3>
@@ -416,9 +443,10 @@ const VIS = [['sessVP','Volume profil ETH/RTH'],['compVP','VP 7D / 30D'],['lvn',
 const VIS_DEF = { n: Object.fromEntries(VIS.map(v => [v[0], true])), f: Object.fromEntries(VIS.map(v => [v[0], false])) };
 const vis = k => { const m = (S.vis && S.vis[S.focus ? 'f' : 'n']) || VIS_DEF[S.focus ? 'f' : 'n']; return m[k] !== undefined ? !!m[k] : VIS_DEF[S.focus ? 'f' : 'n'][k]; };
 function legendHTML(){
-  return `<div class="lgh"><span>${S.focus ? 'Focus' : 'Graf'}</span><button data-lg="all" title="Skrýt / ukázat vše">◐</button><button data-lg="fold" title="Sbalit">${S.lgFold ? '▾' : '▴'}</button></div>` +
-    (S.lgFold ? '' : VIS.map(([k, t]) => `<div class="lgi ${vis(k) ? '' : 'off'}" data-lg="${k}"><span>${t}</span><i>${vis(k) ? '👁' : '⊘'}</i></div>`).join(''));
+  return `<div class="lgh"><span>${S.focus ? 'Focus' : 'Graf'}</span><button data-lg="all" title="Skrýt / ukázat vše">◐</button><button data-lg="fold" title="Sbalit">${lgFolded() ? '▾' : '▴'}</button></div>` +
+    (lgFolded() ? '' : VIS.map(([k, t]) => `<div class="lgi ${vis(k) ? '' : 'off'}" data-lg="${k}"><span>${t}</span><i>${vis(k) ? '👁' : '⊘'}</i></div>`).join(''));
 }
+const lgFolded = () => S.focus ? S.lgFoldF !== false : !!S.lgFold;
 function drawLegend(){ const el = $('legend'); if (!el) return; const h = legendHTML(); if (el._h !== h) { el.innerHTML = h; el._h = h; } }
 function setVis(k){
   const m = S.focus ? 'f' : 'n'; S.vis = S.vis || structuredClone(VIS_DEF); S.vis[m] = { ...VIS_DEF[m], ...(S.vis[m] || {}) };
@@ -1133,7 +1161,7 @@ function drawFocus(out){
     const glow = chart.addLineSeries({ ...o, color: col + (dim ? '14' : '40'), lineWidth: 10, lastValueVisible:false });
     const core = chart.addLineSeries({ ...o, ...(active ? { autoscaleInfoProvider: undefined } : {}), color: dim ? col + '55' : col, lineWidth: 3, lastValueVisible: false, title: '' });
     // exact price always on the price scale (label stays even when the segment is off-screen)
-    if (active) fz.axis.push(series.createPriceLine({ price: s.p, color: col, lineWidth: 1, lineStyle: 2, lineVisible: false, axisLabelVisible: true,
+    if (active) fz.axis.push(series.createPriceLine({ price: s.p, color: col + '8c', lineWidth: 1, lineStyle: 2, lineVisible: true, axisLabelVisible: true, axisLabelColor: col, axisLabelTextColor: '#07080a',
       title: `${s.side === 'short' ? '▼ SHORT' : '▲ LONG'} ${s.score}` }));
     const d = [{ time:t0, value:s.p }, { time:t1, value:s.p }];
     glow.setData(d); core.setData(d); fz.series.push(glow, core);
@@ -1167,7 +1195,7 @@ function checkFocusAlerts(){
     }
   }
 }
-$('focBtn').onclick = () => { S.focus = !S.focus; save(); $('focBtn').classList.toggle('on', S.focus); fz.hash = ''; ['vpc', 'gexp'].forEach(id => { const c = $(id); if (c) c._k = ''; }); render(); drawLegend(); };
+$('focBtn').onclick = () => { S.focus = !S.focus; save(); document.body.classList.toggle('focus', !!S.focus); setTimeout(fitChart, 0); $('focBtn').classList.toggle('on', S.focus); fz.hash = ''; ['vpc', 'gexp'].forEach(id => { const c = $(id); if (c) c._k = ''; }); render(); drawLegend(); };
 $('focBtn').classList.toggle('on', !!S.focus);
 window.__focus = { fz, tick: () => { computeNow(); render(); checkAlerts(); } };
 
@@ -1817,7 +1845,7 @@ function chartNav(a){
     ts.setVisibleLogicalRange({ from: n - 240, to: n + (ts.options().rightOffset || 8) }); ts.scrollToRealTime();
   }
 }
-$('legend').addEventListener('click', e => { const b = e.target.closest('[data-lg]'); if (!b) return; const k = b.dataset.lg; if (k === 'fold') { S.lgFold = !S.lgFold; save(); drawLegend(); } else setVis(k); });
+$('legend').addEventListener('click', e => { const b = e.target.closest('[data-lg]'); if (!b) return; const k = b.dataset.lg; if (k === 'fold') { const f = S.focus ? 'lgFoldF' : 'lgFold'; S[f] = !lgFolded(); save(); drawLegend(); } else setVis(k); });
 $('zbar').addEventListener('click', e => { const b = e.target.closest('button'); if (b) chartNav(b.dataset.z); });
 $('chartWrap').addEventListener('touchstart', () => { const z = $('zbar'); z.classList.add('touch'); clearTimeout(z._t); z._t = setTimeout(() => z.classList.remove('touch'), 4000); }, { passive: true });
 document.addEventListener('keydown', e => {
@@ -1828,13 +1856,47 @@ document.addEventListener('keydown', e => {
 });
 
 
+// ───────── browser-style tabs: Graf (clean chart) · Levely · Options & Flow · Bias · Analýza · Deník
+const TAB_SHEETS = { pro:['pro','proBtn','pClose'], bias:['bias','biasBtn','bClose2'], ana:['ana','anaBtn','aClose'], stats:['stats','statsBtn','sClose'] };
+Object.values(TAB_SHEETS).forEach(([id]) => $(id).classList.add('inline'));
+function fitChart(){
+  if (document.body.dataset.tab !== 'chart') return;
+  const el = $('chart'), top = el.getBoundingClientRect().top + window.scrollY;
+  el.style.height = Math.max(260, window.innerHeight - top - 6) + 'px';
+}
+let tabBusy = false;
+function setTab(tab, fromSheet){
+  if (tabBusy) return; tabBusy = true;
+  try {
+    document.body.dataset.tab = tab; S.tab = tab; save();
+    [...$('tabbar').children].forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+    for (const [t, [id, open, close]] of Object.entries(TAB_SHEETS)) {
+      const shown = $(id).classList.contains('show');
+      if (t === tab && !shown && !fromSheet) $(open).click();
+      if (t !== tab && shown) $(close).click();
+    }
+    window.scrollTo(0, 0);
+    if (tab === 'chart') setTimeout(fitChart, 0);
+  } finally { tabBusy = false; }
+}
+$('tabbar').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (b) setTab(b.dataset.tab); });
+// anything that opens a sheet (bias badge, shortcuts …) switches to its tab; closing it goes back to the chart
+for (const [t, [id]] of Object.entries(TAB_SHEETS)) new MutationObserver(() => {
+  const shown = $(id).classList.contains('show');
+  if (shown && document.body.dataset.tab !== t) setTab(t, true);
+  else if (!shown && document.body.dataset.tab === t && !tabBusy) setTab('chart');
+}).observe($(id), { attributes:true, attributeFilter:['class'] });
+window.addEventListener('resize', fitChart);
+document.body.classList.toggle('focus', !!S.focus);
+setTab(S.tab === 'levels' ? 'levels' : 'chart');
+
 // resizable chart: drag the grip down to enlarge, tap to toggle normal/big
 (() => {
   const el = $('chart'), grip = $('grip');
   const maxH = () => Math.max(260, window.innerHeight - 150);
   const normal = () => Math.round(window.innerHeight * 0.46);
   const setH = h => { el.style.height = Math.round(Math.min(maxH(), Math.max(200, h))) + 'px'; };
-  if (S.chartH) setH(S.chartH);
+  // height is fitted to the window by fitChart() (tabs layout)
   let y0 = 0, h0 = 0, moved = false, down = false;
   grip.addEventListener('pointerdown', e => {
     down = true; moved = false; y0 = e.clientY; h0 = el.getBoundingClientRect().height;
