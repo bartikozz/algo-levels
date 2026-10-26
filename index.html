@@ -96,6 +96,21 @@ body:not([data-tab="levels"]) .pg-levels{display:none!important}
 #aClose,#pClose,#bClose2,#sClose{display:none}
 body.focus .meta{display:none!important}
 @media (max-width:520px){header{gap:8px}.brand span{display:none}.quote{gap:6px}#px{font-size:15px}}
+.keylv{padding:12px 16px 4px;max-width:1100px}
+.keylv h4{font:600 10px var(--mono);letter-spacing:.14em;color:var(--muted);margin:0 0 8px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.keylv h4 span{font-weight:400;letter-spacing:0;color:#6b727c}
+.keylv table{width:100%;border-collapse:collapse;font:12px var(--mono)}
+.keylv td,.keylv th{padding:5px 8px;border-top:1px solid #12151b;text-align:right;white-space:nowrap}
+.keylv th{color:#6b727c;font-weight:400;font-size:10px;letter-spacing:.06em;border-top:0}
+.keylv td:first-child,.keylv th:first-child{text-align:left}
+.keylv td:nth-child(2),.keylv th:nth-child(2){text-align:left;color:#7b828c;white-space:normal}
+.keylv tr.cw td:first-child{color:#5fb3c6}.keylv tr.pw td:first-child{color:#c77dba}.keylv tr.iv td:first-child{color:#c9a66b}
+.keylv tr.gm td:first-child{color:#f0a020}.keylv tr.fl td:first-child{color:#e6e8eb}.keylv tr.em td:first-child{color:#8fa3d9}
+.keylv tr.px td{background:rgba(201,166,107,.08);color:#e6e8eb;font-weight:700;border-top:1px solid rgba(201,166,107,.4);border-bottom:1px solid rgba(201,166,107,.4)}
+.keylv tr.near td{background:rgba(255,255,255,.035)}
+.keylv td b{font-weight:700;color:#e6e8eb}
+.keylv .up{color:#2fc59f}.keylv .dn{color:#f05a6e}
+.keylv .empty{color:#6b727c;font-size:11px;padding:6px 0}
 .legend{position:absolute;left:8px;top:40px;z-index:3;font:11px 'JetBrains Mono',monospace;color:#9aa0a8;user-select:none}
 .legend .lgh{display:flex;gap:4px;align-items:center;margin-bottom:2px;color:#6b727c;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
 .legend .lgh button{border:1px solid var(--line2);background:rgba(7,8,10,.7);color:#9aa0a8;border-radius:4px;font-size:10px;padding:0 5px;cursor:pointer}
@@ -258,6 +273,7 @@ body.focus .meta{display:none!important}
 <div id="majors" class="majors pg-chart"></div>
 <div id="chartWrap" class="pg-chart" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><canvas id="vpc"></canvas><canvas id="fpc"></canvas><select id="barSrc" class="barsrc" hidden></select><div id="zones" class="zones"></div><div id="zbar" class="zbar"><button data-z="out" title="Oddálit (−)">−</button><button data-z="in" title="Přiblížit (+)">+</button><span class="sp"></span><button data-z="left" title="Posunout doleva">‹</button><button data-z="right" title="Posunout doprava">›</button><span class="sp"></span><button data-z="reset" title="Zpět na výchozí pohled">↺</button></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button><div id="legend" class="legend"></div><div id="rpBar" class="rpbar" hidden></div></div>
 <div id="grip" class="grip" role="separator" aria-label="Velikost grafu"><span></span></div>
+<div id="keyLv" class="keylv pg-levels"></div>
 <div class="tabs pg-levels">
   <button data-f="all" class="on">Vše</button>
   <button data-f="near">±100 b.</button>
@@ -315,6 +331,7 @@ body.focus .meta{display:none!important}
   <div class="sfil" id="pSub"></div>
   <canvas id="cvPro" class="anacv" style="height:66dvh"></canvas>
   <p class="hint" id="pNote"></p>
+  <div id="pKey" class="keylv" hidden></div>
   <div id="pTape" class="otape" hidden></div>
   <div class="btns"><button id="pClose">Zavřít</button></div>
 </div></div>
@@ -1493,7 +1510,7 @@ async function proShow(){
   const sub = PRO_SUB[t];
   $('pSub').innerHTML = sub ? sub.map(([k, n]) => `<button data-s="${k}" class="${(pr.sub[t] || sub[0][0]) === k ? 'on' : ''}">${n}</button>`).join('') : '';
   const cv = $('cvPro'), note = m => $('pNote').textContent = m;
-  $('pTape').hidden = t !== 'oflow';
+  $('pTape').hidden = t !== 'oflow'; $('pKey').hidden = t !== 'levels'; $('pKey')._h = '';
   if (!S.server) { note('Nastav adresu datového serveru v ⚙ → Data server.'); Pro.levelsChart(cv, [], [], {}); return; }
   try {
     const h = await fetch(S.server + '/health', { cache:'no-store' }).then(r => r.json()).catch(() => null);
@@ -1870,6 +1887,73 @@ document.addEventListener('keydown', e => {
   if (m) { e.preventDefault(); chartNav(m); }
 });
 
+
+// ───────── key options levels table (IV walls, call/put walls, γ flip, ceiling/floor, FLOW, EM) — price ladder around NQ
+const KEY_DESC = [
+  [/^0D CW1$/, 'Call wall 0DTE', 'cw', 'největší call gamma dnešní expirace – strop dne'],
+  [/^0D PW1$/, 'Put wall 0DTE', 'pw', 'největší put gamma dnešní expirace – podlaha dne'],
+  [/^0D CW2$/, 'Call wall 0DTE #2', 'cw', ''], [/^0D PW2$/, 'Put wall 0DTE #2', 'pw', ''],
+  [/^1D CW1$/, 'Call wall 1DTE', 'cw', 'zítřejší expirace'], [/^1D PW1$/, 'Put wall 1DTE', 'pw', 'zítřejší expirace'],
+  [/^ALL CW1$/, 'Call wall (vše)', 'cw', 'celý řetězec podle OI'], [/^ALL PW1$/, 'Put wall (vše)', 'pw', 'celý řetězec podle OI'],
+  [/^0D CWv$/, 'Call wall 0DTE (vol)', 'cw', 'podle dnešního volume'], [/^0D PWv$/, 'Put wall 0DTE (vol)', 'pw', 'podle dnešního volume'],
+  [/^IVPK HI$/, 'IV wall nad cenou', 'iv', 'IV výš než hladký smile – koncentrovaná poptávka'],
+  [/^IVPK LO$/, 'IV wall pod cenou', 'iv', 'IV výš než hladký smile – koncentrovaná poptávka'],
+  [/^0D γ FLIP$/, 'γ flip 0DTE', 'gm', 'pod ním dealeři zesilují pohyb, nad ním tlumí'],
+  [/^γ FLIP$/, 'γ flip', 'gm', 'přechod kladné / záporné dealer gammy (≤ 45 dní)'],
+  [/CEILING$/, 'Ceiling', 'gm', 'největší kladná dealer gamma'], [/FLOOR$/, 'Floor', 'gm', 'největší záporná dealer gamma'],
+  [/γ PEAK$/, 'γ peak', 'gm', 'maximum dealer gammy – magnet'],
+  [/^FLOW \+$/, 'FLOW +', 'fl', 'strike s nejvíc bullish prémií dnes'], [/^FLOW −$/, 'FLOW −', 'fl', 'strike s nejvíc bearish prémií dnes'],
+];
+function keyRows(){
+  const r = st.res, rows = []; if (!r) return rows;
+  const L = srvLevelsFresh() ? st.srv.levels : null, k = (L && L.k) || (r.info && r.info.ratio) || null;
+  const seen = new Set();
+  if (L) for (const x of L.levels) {
+    const d = KEY_DESC.find(m => m[0].test(x.kind)); if (!d || !x.nq) continue;
+    const name = (/^0D /.test(x.kind) && /CEILING|FLOOR|PEAK/.test(x.kind) ? '0DTE ' : '') + d[1];
+    const key = name + x.q; if (seen.has(key)) continue; seen.add(key);
+    rows.push({ name, cls:d[2], desc:d[3], q:x.q, p:x.nq, src:'ThetaData' });
+  }
+  // GEXbot (always available with the Worker)
+  const G = st.data.gex || {}, z = G.zero;
+  if (z && !gexStale()) {
+    if (Number.isFinite(z.zero_gamma)) rows.push({ name:'Zero gamma (GEXbot)', cls:'gm', desc:'0DTE NQ_NDX', p:z.zero_gamma, src:'GEXbot' });
+    if (Number.isFinite(z.major_pos_vol)) rows.push({ name:'+γ major (GEXbot)', cls:'cw', desc:'0DTE NQ_NDX', p:z.major_pos_vol, src:'GEXbot' });
+    if (Number.isFinite(z.major_neg_vol)) rows.push({ name:'−γ major (GEXbot)', cls:'pw', desc:'0DTE NQ_NDX', p:z.major_neg_vol, src:'GEXbot' });
+  }
+  const E = r.info && r.info.em;
+  if (E && Number.isFinite(E.anchor)) {
+    rows.push({ name:'EM +1', cls:'em', desc:`horní hrana očekávaného pohybu (±${E.em.toFixed(0)} b.)`, p:E.anchor + E.em, src:'EM' });
+    rows.push({ name:'EM −1', cls:'em', desc:'dolní hrana očekávaného pohybu', p:E.anchor - E.em, src:'EM' });
+  }
+  if (L && L.em0 && L.em0.nq && E && Number.isFinite(E.anchor)) {
+    rows.push({ name:'EM straddle +', cls:'em', desc:`0DTE ATM straddle ±${L.em0.nq.toFixed(0)} b.`, p:E.anchor + L.em0.nq, src:'ThetaData' });
+    rows.push({ name:'EM straddle −', cls:'em', desc:'', p:E.anchor - L.em0.nq, src:'ThetaData' });
+  }
+  for (const x of rows) { if (x.q == null && k) x.q = x.p / k; x.dist = x.p - r.last; }
+  return rows.sort((a, b) => b.p - a.p);
+}
+function keyTableHTML(){
+  const r = st.res; if (!r) return '';
+  const rows = keyRows(), L = srvLevelsFresh() ? st.srv.levels : null;
+  const head = `<h4>KLÍČOVÉ OPTIONS LEVELY <span>${L ? `ThetaData ${new Date(L.ts * 1000).toLocaleTimeString('cs-CZ', { hour:'2-digit', minute:'2-digit' })} · ${L.regime === 'positive' ? '+γ' : '−γ'} režim · ATM IV ${L.atm_iv ? (L.atm_iv * 100).toFixed(1) + ' %' : '—'}${(() => { const z = L.dead_zone_0d || L.dead_zone; return z && L.k ? ` · dead zone ${(z.lo * L.k).toFixed(0)}–${(z.hi * L.k).toFixed(0)}` : ''; })()}` : 'server nepřipojen – jen GEXbot + EM'}</span></h4>`;
+  if (!rows.length) return head + '<div class="empty">Zatím žádné levely.</div>';
+  const fz0 = fz.segs.filter(s => !s.t1).map(s => s.p);
+  let html = head + '<table><tr><th>LEVEL</th><th>CO TO JE</th><th>QQQ</th><th>NQ</th><th>VZDÁL.</th></tr>', pxd = false;
+  for (const x of rows) {
+    if (!pxd && x.p < r.last) { html += `<tr class="px"><td>NQ CENA</td><td></td><td>${r.info && r.info.ratio ? (r.last / r.info.ratio).toFixed(2) : ''}</td><td>${fmtP(r.last)}</td><td>0</td></tr>`; pxd = true; }
+    const foc = fz0.some(p => Math.abs(p - x.p) <= S.tol);
+    html += `<tr class="${x.cls}${Math.abs(x.dist) <= 50 ? ' near' : ''}"><td>${foc ? '◎ ' : ''}${esc(x.name)}</td><td>${esc(x.desc)}</td><td>${x.q != null ? x.q.toFixed(2) : ''}</td><td><b>${fmtP(x.p)}</b></td><td class="${x.dist > 0 ? 'up' : 'dn'}">${x.dist > 0 ? '+' : ''}${x.dist.toFixed(0)}</td></tr>`;
+  }
+  if (!pxd) html += `<tr class="px"><td>NQ CENA</td><td></td><td></td><td>${fmtP(r.last)}</td><td>0</td></tr>`;
+  return html + '</table>';
+}
+function drawKeyTables(){
+  const h = keyTableHTML();
+  if (document.body.dataset.tab === 'levels') { const el = $('keyLv'); if (el && el._h !== h) { el.innerHTML = h; el._h = h; } }
+  const p = $('pKey'); if (p && !p.hidden && p._h !== h) { p.innerHTML = h; p._h = h; }
+}
+setInterval(() => { try { drawKeyTables(); } catch(e){} }, 2000);
 
 // ───────── browser-style tabs: Graf (clean chart) · Levely · Options & Flow · Bias · Analýza · Deník
 const TAB_SHEETS = { pro:['pro','proBtn','pClose'], bias:['bias','biasBtn','bClose2'], ana:['ana','anaBtn','aClose'], stats:['stats','statsBtn','sClose'] };
