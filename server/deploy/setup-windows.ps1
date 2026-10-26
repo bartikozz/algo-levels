@@ -58,6 +58,9 @@ if (-not (Test-Path "$R\theta\creds.txt")) {
 Write-Host '== spouštěč' -ForegroundColor Cyan
 @"
 @echo off
+rem stop an old Theta Terminal / server first (ThetaData allows one terminal per account → HTTP 478 otherwise)
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='java.exe'\" | ? CommandLine -match 'ThetaTerminal' | %% { Stop-Process -Id `$_.ProcessId -Force }; Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | ? CommandLine -match 'uvicorn app:app' | %% { Stop-Process -Id `$_.ProcessId -Force }"
+timeout /t 2 /nobreak >nul
 cd /d "$R\theta"
 start "Theta Terminal" /min "$java" -Xmx2g -jar ThetaTerminalv3.jar
 timeout /t 15 /nobreak >nul
@@ -66,6 +69,7 @@ start "Algo server" /min "$R\server\.venv\Scripts\python.exe" -m uvicorn app:app
 "@ | Set-Content -Encoding ascii "$R\start-algo.cmd"
 $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Algo server.lnk'
 $ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut($lnk); $s.TargetPath = "$R\start-algo.cmd"; $s.WorkingDirectory = $R; $s.Save()
+$st = Join-Path ([Environment]::GetFolderPath('Startup')) 'Algo server.lnk'; $s2 = $ws.CreateShortcut($st); $s2.TargetPath = "$R\start-algo.cmd"; $s2.WorkingDirectory = $R; $s2.WindowStyle = 7; $s2.Save()
 
 Write-Host '== start' -ForegroundColor Cyan
 Start-Process "$R\start-algo.cmd" -WindowStyle Minimized
