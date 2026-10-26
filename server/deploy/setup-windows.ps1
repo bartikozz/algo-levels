@@ -51,6 +51,7 @@ CORS_ORIGINS=https://bartikozz.github.io
 # token + Worker address (same token as the Worker / terminal) → used by the server and the tunnel registration
 function Set-EnvKey($k, $v) { $f = "$R\server\.env"; $c = Get-Content $f; if ($c -match "^$k=") { $c = $c -replace "^$k=.*", "$k=$v" } else { $c += "$k=$v" }; Set-Content -Encoding ascii $f $c }
 $cur = @{}; Get-Content "$R\server\.env" | ForEach-Object { if ($_ -match '^\s*([A-Z_]+)\s*=\s*(.*)$') { $cur[$matches[1]] = $matches[2].Trim() } }
+if (-not $cur['WORKER_URL'] -and $env:ALGO_WORKER) { Set-EnvKey 'WORKER_URL' $env:ALGO_WORKER.TrimEnd('/'); $cur['WORKER_URL'] = $env:ALGO_WORKER }
 if (-not $cur['WORKER_URL']) { Set-EnvKey 'WORKER_URL' (Read-Host '   Adresa tvého Workeru (https://….workers.dev, stejná jako v terminálu ⚙)').Trim().TrimEnd('/') }
 if (-not $cur['ACCESS_TOKEN']) { $sec = Read-Host '   Token Workeru (stejný jako v terminálu ⚙)' -AsSecureString; Set-EnvKey 'ACCESS_TOKEN' ([Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))); Remove-Variable sec }
 
@@ -92,4 +93,5 @@ Push-Location "$R\server"; & "$R\server\.venv\Scripts\python.exe" -m providers.t
 Write-Host ''
 try { Write-Host (Invoke-WebRequest 'http://127.0.0.1:8090/health' -UseBasicParsing).Content } catch { Write-Host "server: $_" }
 Write-Host ''
+Start-Process 'https://bartikozz.github.io/algo-levels/?server=auto'
 Write-Host "Hotovo. Server se spouští sám po přihlášení (nebo ikona 'Algo server').  Terminál na PC i telefonu: ⚙ → Data server: auto" -ForegroundColor Green
