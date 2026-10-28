@@ -2235,12 +2235,14 @@ async function pushPublish(force){
     st.pushKey = key; st.pushAt = Date.now();
   } catch(e){}
 }
-$('sPush').onchange = () => { S.push = $('sPush').checked; save(); st.pushKey = ''; pushPublish(true); };
+$('sPush').onchange = async () => { S.push = $('sPush').checked; save(); if (S.push) await pushAdopt(); st.pushKey = ''; pushPublish(true); };
 $('sNear').onchange = () => { S.pushNear = Math.max(3, +$('sNear').value || 15); save(); st.pushKey = ''; pushPublish(true); };
 $('bTopicCopy').onclick = async () => { try { await navigator.clipboard.writeText(pushTopic()); toast('Téma zkopírováno'); } catch(e) { $('sTopic').select(); } };
 $('bTopicNew').onclick = () => { S.ntfyTopic = ''; pushTopic(); pushUI(); st.pushKey = ''; pushPublish(true); toast('Nové téma – v aplikaci ntfy se přihlas k novému'); };
 $('bPushTest').onclick = async () => { try { await api('/focus/test?topic=' + encodeURIComponent(pushTopic())); toast('Test odeslán – podívej se do telefonu'); } catch(e) { toast('Test se nepovedl: ' + e.message + ' (je nasazený nový Worker?)'); } };
-pushUI();
+// one topic for all devices: adopt the one already stored in the Worker (set by the PC or the phone)
+async function pushAdopt(){ if (!S.worker || st.demo) return; try { const c = await api('/focus'); if (c && c.topic && c.topic !== S.ntfyTopic) { S.ntfyTopic = c.topic; save(); pushUI(); } } catch(e){} }
+pushUI(); pushAdopt();
 setInterval(() => pushPublish(false), 30000);
 
 // ───────── browser-style tabs: Graf (clean chart) · Levely · Options & Flow · Bias · Analýza · Deník
