@@ -92,6 +92,38 @@ function etParts(sec) {
   return { date: `${o.year}-${o.month}-${o.day}`, min: (+o.hour % 24) * 60 + +o.minute };
 }
 
+// ── phone push via ntfy.sh (the topic is a private random name the terminal generates)
+async function ntfy(topic, title, msg, prio = 'high', tags = '') {
+  const P = { min: 1, low: 2, default: 3, high: 4, urgent: 5 }[prio] || 4;
+  return fetch('https://ntfy.sh/', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ topic, title, message: msg, priority: P, tags: tags ? [tags] : [] }) });
+}
+const fmtNQ = v => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// every minute: live NQ (GEXbot spot + the terminal's measured basis) vs the active Focus zones → push "near" and "hit" once per zone
+async function focusWatch(env) {
+  const cfg = await env.SNAP.get('fz:cur', 'json');
+  if (!cfg || !cfg.topic || !cfg.zones || !cfg.zones.length) return;
+  const now = Date.now() / 1000, td = etParts(now + 6 * 3600).date;
+  if (cfg.date !== td || now * 1000 - cfg.at > 20 * 3600e3) return;
+  const m = await gx(env, 'NQ_NDX/classic/gex_zero/majors');
+  if (!Number.isFinite(m.spot) || (Number.isFinite(m.timestamp) && now - m.timestamp > 300)) return;
+  const px = m.spot + (cfg.basis || 0), key = `fzst:${td}`, st = (await env.SNAP.get(key, 'json')) || {};
+  let changed = false;
+  for (const z of cfg.zones) {
+    const id = `${z.side}:${z.p}`, d = z.p - px, side = z.side === 'short' ? 'SHORT' : 'LONG';
+    const hit = z.side === 'short' ? px >= z.p - cfg.touch : px <= z.p + cfg.touch;
+    const tags = (z.tags || []).join(', ');
+    if (hit && !st[id + ':hit']) {
+      st[id + ':hit'] = st[id + ':near'] = now; changed = true;
+      await ntfy(cfg.topic, `◎ ${side} zóna zasažena · ${fmtNQ(z.p)}`, `NQ ${fmtNQ(px)} · skóre ${z.score} · ${tags}\nSleduj footprint na ${z.side === 'short' ? 'short' : 'long'}.`, 'urgent', z.side === 'short' ? 'red_circle' : 'green_circle');
+    } else if (!hit && Math.abs(d) <= cfg.near && !st[id + ':near']) {
+      st[id + ':near'] = now; changed = true;
+      await ntfy(cfg.topic, `◎ ${side} zóna ${fmtNQ(z.p)} – cena ${Math.abs(d).toFixed(0)} b.`, `NQ ${fmtNQ(px)} · skóre ${z.score} · ${tags}`, 'high', 'eyes');
+    }
+  }
+  if (changed) await env.SNAP.put(key, JSON.stringify(st), { expirationTtl: 3 * 86400 });
+}
+
 async function gx(env, path) {
   const r = await fetch(`https://api.gex.bot/v2/${path}`, {
     headers: { Authorization: `Bearer ${env.GEXBOT_API_KEY}`, 'User-Agent': 'algo-levels/1.0', Accept: 'application/json' },
@@ -411,6 +443,7 @@ async function outlookRecord(env, days) {
 export default {
   async scheduled(event, env, ctx) {
     if (!env.SNAP || !env.GEXBOT_API_KEY) return;
+    if (String(event.cron).trim() === '* * * * *') { ctx.waitUntil(focusWatch(env).catch(() => {})); return; }   // phone push for Focus zones
     if (String(event.cron).startsWith('*/15')) {
       ctx.waitUntil(captureLevels(env).catch(() => {}));
       // NY AM outlook at 9:00 and 10:15 ET (weekdays), graded after noon
@@ -520,6 +553,28 @@ export default {
           return json({ ok: true, url: h.origin }, 200, cors);
         }
         return json((await env.SNAP.get('srv:url', 'json')) || { url: null }, 200, cors);
+      }
+
+      // ── phone push (ntfy) for Focus zones: /focus/set?z=[…]&b=basis&topic=…&near=…&touch=…, /focus/test?topic=…
+      if (parts[0] === 'focus') {
+        if (!env.SNAP) return json({ error: 'KV binding SNAP missing' }, 500, cors);
+        const topic = (url.searchParams.get('topic') || '').trim();
+        if (!/^[A-Za-z0-9_-]{8,64}$/.test(topic)) return json({ error: 'bad topic' }, 400, cors);
+        if (parts[1] === 'test') {
+          const r = await ntfy(topic, '◎ Algo Levels – test', 'Upozornění na Focus zóny fungují. Přijde, když se cena přiblíží k zóně a když ji zasáhne.', 'high', 'white_check_mark');
+          return json({ ok: r.ok }, r.ok ? 200 : 502, cors);
+        }
+        if (parts[1] === 'set') {
+          let zones = []; try { zones = JSON.parse(url.searchParams.get('z') || '[]'); } catch (e) {}
+          zones = (Array.isArray(zones) ? zones : []).filter(z => z && (z.side === 'short' || z.side === 'long') && Number.isFinite(+z.p)).slice(0, 4)
+            .map(z => ({ side: z.side, p: +z.p, score: +z.score || 0, tags: (Array.isArray(z.tags) ? z.tags : []).slice(0, 4).map(String) }));
+          const cfg = { date: url.searchParams.get('date') || etParts(Date.now() / 1000 + 6 * 3600).date, zones, topic,
+            basis: +url.searchParams.get('b') || 0, near: Math.min(60, Math.max(3, +url.searchParams.get('near') || 15)),
+            touch: Math.min(10, Math.max(0, +url.searchParams.get('touch') || 3)), at: Date.now() };
+          await env.SNAP.put('fz:cur', JSON.stringify(cfg));
+          return json({ ok: true, zones: zones.length }, 200, cors);
+        }
+        return json((await env.SNAP.get('fz:cur', 'json')) || {}, 200, cors);
       }
 
       // ── GEXbot

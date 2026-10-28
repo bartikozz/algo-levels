@@ -131,6 +131,7 @@ body.focus .meta{display:none!important}
 .ofleg i{font-style:normal}
 .ofstrikes{width:100%;height:min(60dvh,560px);min-height:300px;border:1px solid var(--line);border-radius:8px;display:block}
 @media (max-width:760px){.ofgrid{grid-template-columns:1fr}.ofchart{height:52dvh}.ofstrikes{height:60dvh}}
+.pushbox{margin:4px 0 6px}
 .legend{position:absolute;left:8px;top:40px;z-index:3;font:11px 'JetBrains Mono',monospace;color:#9aa0a8;user-select:none}
 .legend .lgh{display:flex;gap:4px;align-items:center;margin-bottom:2px;color:#6b727c;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
 .legend .lgh button{border:1px solid var(--line2);background:rgba(7,8,10,.7);color:#9aa0a8;border-radius:4px;font-size:10px;padding:0 5px;cursor:pointer}
@@ -389,6 +390,14 @@ body.focus .meta{display:none!important}
     <div class="f"><label>Vzdálenost (b.)</label><input id="sAD" type="number" step="1"></div>
     <div class="f"><label>Min skóre</label><input id="sAS" type="number" step="0.5"></div>
     <div class="f"><label>Silná zóna (b.)</label><input id="sMS" type="number" step="1"></div>
+  </div>
+  <h4>PUSH NA TELEFON (ntfy)</h4>
+  <label class="cb"><input id="sPush" type="checkbox"> Poslat upozornění na telefon, když se cena přiblíží k Focus zóně a když ji zasáhne (i se zavřeným terminálem)</label>
+  <div class="pushbox">
+    <div class="f full"><label>Tvoje soukromé téma v aplikaci ntfy</label><input id="sTopic" type="text" readonly autocapitalize="off" spellcheck="false"></div>
+    <div class="btns" style="margin-top:6px"><button id="bTopicCopy">Kopírovat téma</button><button id="bPushTest">Poslat test</button><button id="bTopicNew">Nové téma</button></div>
+    <div class="grid2"><div class="f"><label>Upozornit na blízko (b.)</label><input id="sNear" type="number" step="1"></div></div>
+    <p class="hint" id="pushHint">1) Nainstaluj aplikaci <b>ntfy</b> (App Store / Google Play, zdarma). 2) V ní + → Subscribe to topic → vlož téma výše (server ntfy.sh). 3) Zapni zaškrtávátko a dej Poslat test. Worker pak každou minutu hlídá cenu proti aktivním Focus zónám.</p>
   </div>
   <h4>VRSTVY</h4>
   <div class="grid2" id="layers"></div>
@@ -1131,7 +1140,7 @@ function fzLoad(date){
   fz.date = date; fz.alerted = {};
   try { fz.segs = JSON.parse(localStorage.getItem('algoLevels.focus.' + date) || '[]'); } catch(e){ fz.segs = []; }
 }
-function fzSave(){ if (st.replay) return; try { localStorage.setItem('algoLevels.focus.' + fz.date, JSON.stringify(fz.segs)); } catch(e){} }
+function fzSave(){ if (st.replay) return; try { localStorage.setItem('algoLevels.focus.' + fz.date, JSON.stringify(fz.segs)); } catch(e){} try { pushPublish(false); } catch(e){} }
 // level tag → journal kind (so the zone can carry its measured reaction rate)
 function tagKind(t){
   let m;
@@ -2212,6 +2221,27 @@ function ofLegend(p){
   const f = Pro.fmtM;
   $('ofLeg').innerHTML = `<i>${A.hhmm(r[0])}</i><i style="color:#5ee0c8">bull ${f(r[1])} $</i><i style="color:#ff5fa2">bear ${f(r[2])} $</i><i style="color:#c9a66b">Δ ${f(r[3])}</i>${q != null ? `<i>QQQ ${q.toFixed(2)}</i>` : ''}`;
 }
+
+// ───────── phone push (ntfy): the Worker watches the active Focus zones every minute and pushes "near" / "hit"
+function pushTopic(){ if (!S.ntfyTopic) { const a = new Uint8Array(12); crypto.getRandomValues(a); S.ntfyTopic = 'algo-' + [...a].map(x => x.toString(36).padStart(2, '0')).join('').slice(0, 20); save(); } return S.ntfyTopic; }
+function pushUI(){ $('sPush').checked = !!S.push; $('sTopic').value = pushTopic(); $('sNear').value = S.pushNear || 15; }
+async function pushPublish(force){
+  if (!S.push || !S.worker || st.demo || st.replay || !st.res) return;
+  const z = fz.segs.filter(s => !s.t1).map(s => ({ side:s.side, p:s.p, score:s.score, tags:s.tags.slice(0, 4) }));
+  const key = JSON.stringify([z, Math.round(st.basis || 0), S.pushNear || 15, st.res.today]);
+  if (!force && key === st.pushKey && Date.now() - (st.pushAt || 0) < 10 * 60e3) return;
+  try {
+    await api(`/focus/set?topic=${encodeURIComponent(pushTopic())}&date=${st.res.today}&b=${encodeURIComponent((st.basis || 0).toFixed(2))}&near=${S.pushNear || 15}&touch=${S.touch || 3}&z=${encodeURIComponent(JSON.stringify(z))}`);
+    st.pushKey = key; st.pushAt = Date.now();
+  } catch(e){}
+}
+$('sPush').onchange = () => { S.push = $('sPush').checked; save(); st.pushKey = ''; pushPublish(true); };
+$('sNear').onchange = () => { S.pushNear = Math.max(3, +$('sNear').value || 15); save(); st.pushKey = ''; pushPublish(true); };
+$('bTopicCopy').onclick = async () => { try { await navigator.clipboard.writeText(pushTopic()); toast('Téma zkopírováno'); } catch(e) { $('sTopic').select(); } };
+$('bTopicNew').onclick = () => { S.ntfyTopic = ''; pushTopic(); pushUI(); st.pushKey = ''; pushPublish(true); toast('Nové téma – v aplikaci ntfy se přihlas k novému'); };
+$('bPushTest').onclick = async () => { try { await api('/focus/test?topic=' + encodeURIComponent(pushTopic())); toast('Test odeslán – podívej se do telefonu'); } catch(e) { toast('Test se nepovedl: ' + e.message + ' (je nasazený nový Worker?)'); } };
+pushUI();
+setInterval(() => pushPublish(false), 30000);
 
 // ───────── browser-style tabs: Graf (clean chart) · Levely · Options & Flow · Bias · Analýza · Deník
 const TAB_SHEETS = { pro:['pro','proBtn','pClose'], bias:['bias','biasBtn','bClose2'], ana:['ana','anaBtn','aClose'], stats:['stats','statsBtn','sClose'] };

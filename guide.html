@@ -289,6 +289,7 @@ footer{max-width:880px;margin:0 auto;padding:24px 16px 48px;color:var(--muted);f
   <p><strong>Legenda vlevo nahoře</strong> funguje jako v TradingView: 👁 / ⊘ skryje nebo ukáže kresbu (volume profily, VP 7D/30D, LVN pásy, GEX profil, QQQ zóny, EM, čáry, objem, CVD). <strong>Skrytí je jen vizuální, levely dál vstupují do konfluence a Focusu.</strong> Normální pohled a Focus mají viditelnost zvlášť: Focus začíná se vším skrytým. ◐ skryje nebo ukáže vše, ▴ legendu sbalí.</p>
   <p><strong>Timeframe:</strong> přepínač 1m / 5m / 15m vlevo nahoře v grafu skládá svíčky z minutových dat; poslední svíčka se pohybuje plynule. Zóny, EM a profily se přepočítají na zvolený timeframe.</p>
   <p><strong>Záložky nahoře</strong> fungují jako v prohlížeči: <em>Graf</em> (jen graf, ve Focusu jen zóny), <em>Levely</em> (seznam všech levelů s filtry), <em>Options &amp; Flow</em> (PRO data ze serveru), <em>Bias</em>, <em>Analýza</em> a <em>Deník</em> (statistiky levelů). Ve Focusu je na grafu jen svíčka a aktivní zóny: tenká přerušovaná čára přes graf a štítek s přesnou cenou na ose. Řádek s metrikami je skrytý a legenda sbalená (▾ ji rozbalí).</p>
+  <p><strong>Push na telefon:</strong> ⚙ → Push na telefon (ntfy). Terminál pošle aktivní Focus zóny do Workeru a Worker každou minutu porovná živou cenu NQ (GEXbot + změřená báze) se zónami. Pošle jedno upozornění, když se cena přiblíží (výchozí 15 b.), a jedno, když zónu zasáhne – i když je terminál zavřený. Na telefonu stačí aplikace ntfy přihlášená k tvému tématu.</p>
 </section>
 
 <section id="vp-sec">
