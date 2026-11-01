@@ -11,8 +11,10 @@
 //    to an OHLC estimate — the status box top-right shows which one is used.
 //  • Single prints from 1-minute data (on any chart timeframe): price rows (1 tick) traded by only ONE 1-minute
 //    bar of the RTH (optionally ETH) session. They disappear as soon as price touches them.
+//  • EM Grid (bartikozz): expected-move levels from the 19:00 ET anchor. With "Jen u EM levelů" every LVN zone,
+//    single print, shelf and HVN is shown only when an EM grid level sits inside it (± tolerance).
 //  • Optional: shelves (abrupt volume step) and HVN bands.
-indicator("AMT LVN Zones FP", "LVN Zones", overlay = true, max_boxes_count = 500, max_lines_count = 100, max_labels_count = 200)
+indicator("AMT LVN Zones FP", "LVN Zones", overlay = true, max_boxes_count = 500, max_lines_count = 200, max_labels_count = 200)
 
 // ───────── inputs
 gP        = "Composite profil"
@@ -59,6 +61,14 @@ showCore  = input.bool(true, "Jádro LVN (nejtenčí cena) jako čára", group =
 coreCol   = input.color(color.rgb(200, 200, 200), "Jádro", group = gV)
 showScale = input.bool(true, "Nejbližší zóny na cenové ose", group = gV)
 showInfo  = input.bool(true, "Stav dat (footprint / odhad)", group = gV)
+
+gEM       = "EM Grid"
+emShow    = input.bool(true, "Kreslit EM grid", group = gEM)
+emOnly    = input.bool(true, "Jen u EM levelů (filtr všech úrovní)", group = gEM, tooltip = "LVN zóny, single prints, shelfy a HVN se ukážou jen tehdy, když v nich (± tolerance) leží EM level.")
+emTol     = input.float(3.0, "Tolerance k EM levelu (body)", minval = 0.0, step = 0.5, group = gEM)
+emAnchCol = input.color(color.new(#FFFFFF, 0), "Anchor", group = gEM)
+emMainCol = input.color(color.new(#EF5350, 0), "Celé násobky", group = gEM)
+emSubCol  = input.color(color.new(#9E9E9E, 30), "Mezilevely", group = gEM)
 
 gSP       = "Single prints (TPO)"
 spOnR     = input.bool(true, "Single prints z RTH", group = gSP)
@@ -118,6 +128,64 @@ if newDay and map.size(mDay) > 0
             map.remove(mComp, k)
         else
             map.put(mComp, k, nv)
+
+// ───────── EM Grid (locked model, identical to the EM Grid indicator)
+BD        = 0.35
+BW        = 0.35
+BM        = 0.30
+IV_MIX    = 0.4
+IV_TICKER = "CBOE:VXN"
+STEP      = 0.15
+N_LVL     = 7
+SCALAR    = 1.27
+
+f_yzVar(len) =>
+    o = math.log(open / close[1])
+    c = math.log(close / open)
+    rs = math.log(high / close) * math.log(high / open) + math.log(low / close) * math.log(low / open)
+    k = 0.34 / (1.34 + (len + 1) / (len - 1))
+    vo = math.pow(ta.stdev(o, len), 2)
+    vc = math.pow(ta.stdev(c, len), 2)
+    vrs = ta.sma(rs, len)
+    math.max(vo + k * vc + (1 - k) * vrs, 0)
+
+f_har() =>
+    v1 = f_yzVar(5)
+    v2 = f_yzVar(10)
+    v3 = f_yzVar(22)
+    ws = BD + BW + BM
+    float r = ws > 0 ? (BD * v1[1] + BW * v2[1] + BM * v3[1]) / ws : na
+    r
+
+dayVar = request.security(syminfo.tickerid, "D", f_har(), lookahead = barmerge.lookahead_off)
+ivRaw  = request.security(IV_TICKER, "D", close[1], ignore_invalid_symbol = true, lookahead = barmerge.lookahead_off)
+ivOk   = not na(ivRaw) and ivRaw > 0
+float emHV   = na(dayVar) ? na : math.sqrt(dayVar) * close
+float emIV   = ivOk ? close * (ivRaw / 100) / math.sqrt(252) : na
+float emBase = ivOk and not na(emIV) ? IV_MIX * emIV + (1 - IV_MIX) * emHV : emHV
+float emNow  = na(emBase) ? na : emBase * SCALAR
+
+emNewSess = ta.change(time("D", "1900-1900", "America/New_York")) != 0
+var float emAnchor = na
+var float emFem    = na
+var int   emBar    = na
+if emNewSess
+    emAnchor := open
+    emFem    := emNow
+    emBar    := bar_index
+
+// EM level inside [lo − tol, hi + tol] → its name ("A", "+0.45", "-1.05"), "" when none
+emHit(float lo, float hi) =>
+    string r = ""
+    if not na(emAnchor) and not na(emFem) and emFem > 0
+        float best = 1e100
+        float mid = (lo + hi) / 2
+        for i = -N_LVL to N_LVL
+            float lv = emAnchor + emFem * STEP * i
+            if lv >= lo - emTol and lv <= hi + emTol and math.abs(lv - mid) < best
+                best := math.abs(lv - mid)
+                r := i == 0 ? "A" : (i > 0 ? "+" : "-") + str.tostring(math.abs(i) * STEP, "#.##")
+    r
 
 // ───────── session profiles (PD = previous RTH, ETH = overnight, RTH = today)
 inRth    = not na(time(timeframe.period, sessRth, "America/New_York"))
@@ -481,7 +549,8 @@ if barstate.islast
                 float dep = array.get(zd, i)
                 float cp = array.get(zc, i)
                 bool strong = dep >= strongD
-                bool show = mode == "Všechny" or conf or (mode == "Potvrzené + silné" and strong)
+                string emL = emHit(lo, hi)
+                bool show = (mode == "Všechny" or conf or (mode == "Potvrzené + silné" and strong)) and (not emOnly or emL != "")
                 if show and shown < maxZ
                     shown += 1
                     box.new(x1, hi, xR, lo, border_color = na, bgcolor = color.new(lvnCol, conf ? alphaConf : alphaBase))
@@ -489,7 +558,7 @@ if barstate.islast
                         line.new(x1, cp, xR, cp, color = color.new(coreCol, conf ? 20 : 55), width = 1, style = line.style_dotted)
                     if showLbl
                         string src = str.trim((cPd ? "PD " : "") + (cEt ? "ETH " : "") + (cRt ? "RTH" : ""))
-                        string txt = str.tostring(math.round_to_mintick(lo), format.mintick) + "–" + str.tostring(math.round_to_mintick(hi), format.mintick) + "  • " + str.tostring(math.round_to_mintick(cp), format.mintick) + "  " + str.tostring(math.round(dep * 100)) + "%" + (conf ? "  " + src : "")
+                        string txt = str.tostring(math.round_to_mintick(lo), format.mintick) + "–" + str.tostring(math.round_to_mintick(hi), format.mintick) + "  • " + str.tostring(math.round_to_mintick(cp), format.mintick) + "  " + str.tostring(math.round(dep * 100)) + "%" + (conf ? "  " + src : "") + (emL != "" ? "  EM " + emL : "")
                         label.new(xR, cp, txt, style = label.style_label_left, color = color.new(color.black, 100), textcolor = conf ? color.new(lvnCol, 0) : color.new(lvnCol, 35), size = size.small, tooltip = "LVN zóna " + str.tostring(lo, format.mintick) + "–" + str.tostring(hi, format.mintick) + "\nJádro (nejtenčí cena): " + str.tostring(math.round_to_mintick(cp), format.mintick) + "\nHloubka údolí: " + str.tostring(math.round(dep * 100)) + " %" + (conf ? "\nPotvrzeno v: " + src : "\nNepotvrzeno session profilem"))
                     // nearest shown zones for the price scale
                     if lo > close and (na(nUpLo) or lo < nUpLo)
@@ -534,7 +603,7 @@ if barstate.islast
                             for z = 0 to array.size(zl) - 1
                                 if p > array.get(zl, z) + rowSz and p < array.get(zh, z) - rowSz
                                     inZone := true
-                        if isMax and not inZone
+                        if isMax and not inZone and (not emOnly or emHit(p, p) != "")
                             line.new(x1, p, xR, p, color = color.new(shCol, 30), style = line.style_dashed)
                             drawnS += 1
 
@@ -553,7 +622,7 @@ if barstate.islast
                             float u = array.get(cSm, rr)
                             if u > v or (d > 0 and u == v)
                                 isMax := false
-                    if isMax
+                    if isMax and (not emOnly or emHit((cK + r * tpr) * tk, (cK + (r + 1) * tpr) * tk) != "")
                         int ea = r
                         int eb = r
                         while ea > 0 and array.get(cSm, ea - 1) >= 0.7 * v
@@ -592,8 +661,11 @@ if barstate.islast
             float hi = array.get(spH, i)
             int xb = math.max(array.get(spB, i), bar_index - 9000)
             string src = array.get(spS, i) == 0 ? "RTH" : "ETH"
+            string emS = emHit(lo, hi)
+            if emOnly and emS == ""
+                continue
             box.new(xb, hi, xR2, lo, border_color = color.new(spCol, 45), border_style = line.style_dashed, bgcolor = color.new(spCol, 85))
-            label.new(xR2, (lo + hi) / 2, "SP " + str.tostring(math.round_to_mintick(lo), format.mintick) + "–" + str.tostring(math.round_to_mintick(hi), format.mintick) + "  " + src + " " + str.format_time(array.get(spT, i), "dd.MM.", "America/New_York"), style = label.style_label_left, color = color.new(color.black, 100), textcolor = spCol, size = size.small, tooltip = "Single prints (nevyplněné) – " + src + " session " + str.format_time(array.get(spT, i), "dd.MM.yyyy", "America/New_York"))
+            label.new(xR2, (lo + hi) / 2, "SP " + str.tostring(math.round_to_mintick(lo), format.mintick) + "–" + str.tostring(math.round_to_mintick(hi), format.mintick) + "  " + src + " " + str.format_time(array.get(spT, i), "dd.MM.", "America/New_York") + (emS != "" ? "  EM " + emS : ""), style = label.style_label_left, color = color.new(color.black, 100), textcolor = spCol, size = size.small, tooltip = "Single prints (nevyplněné) – " + src + " session " + str.format_time(array.get(spT, i), "dd.MM.yyyy", "America/New_York"))
             if lo > close and (na(nSpUp) or lo < nSpUp)
                 nSpUp := lo
             if hi < close and (na(nSpDn) or hi > nSpDn)
@@ -618,8 +690,23 @@ if barstate.islast
                     for i = 0 to array.size(dl) - 1
                         float lo = array.get(dl, i)
                         float hi = array.get(dh, i)
+                        string emD = emHit(lo, hi)
+                        if emOnly and emD == ""
+                            continue
                         box.new(math.max(b0, bar_index - 9000), hi, xR2, lo, border_color = color.new(spCol, 65), border_style = line.style_dotted, bgcolor = color.new(spCol, 92))
-                        label.new(xR2, (lo + hi) / 2, "SP dnes " + str.tostring(math.round_to_mintick(lo), format.mintick) + "–" + str.tostring(math.round_to_mintick(hi), format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = color.new(spCol, 40), size = size.small)
+                        label.new(xR2, (lo + hi) / 2, "SP dnes " + str.tostring(math.round_to_mintick(lo), format.mintick) + "–" + str.tostring(math.round_to_mintick(hi), format.mintick) + (emD != "" ? "  EM " + emD : ""), style = label.style_label_left, color = color.new(color.black, 100), textcolor = color.new(spCol, 40), size = size.small)
+
+// ───────── EM grid drawing (current 19:00 ET session)
+if barstate.islast and emShow and not na(emAnchor) and not na(emFem)
+    int xs = math.max(emBar, bar_index - 9000)
+    int xe = bar_index + ext + (showProf ? profW : 0)
+    for i = -N_LVL to N_LVL
+        float m = STEP * math.abs(i)
+        bool whole = i != 0 and math.abs(m - math.round(m)) < 0.001
+        color c = i == 0 ? emAnchCol : whole ? emMainCol : emSubCol
+        float p = math.round_to_mintick(emAnchor + emFem * STEP * i)
+        line.new(xs, p, xe, p, color = c, width = whole ? 2 : 1)
+        label.new(xs, p, i == 0 ? "Anchor" : (i > 0 ? "+" : "-") + str.tostring(m, "#.##"), style = label.style_label_right, color = color.new(color.black, 100), textcolor = c, size = size.tiny)
 
 // ───────── nearest zones on the price scale (exact prices, also in replay)
 plot(showScale ? nUpLo : na, "LVN nad: hrana", color.new(lvnCol, 0), display = display.price_scale)
@@ -630,8 +717,11 @@ plot(showScale ? nIn   : na, "V LVN: jádro", color.new(color.yellow, 0), displa
 plot(showScale ? nSpUp : na, "Single print nad", color.new(spCol, 0), display = display.price_scale)
 plot(showScale ? nSpDn : na, "Single print pod", color.new(spCol, 0), display = display.price_scale)
 
-var table info = table.new(position.top_right, 1, 1)
+var table info = table.new(position.top_right, 1, 2)
 if showInfo and barstate.islast
     bool live = not na(fp)
     string t = (live ? "Footprint ✓" : "Footprint ✗ – odhad z OHLC") + "  ·  " + str.tostring(math.round(100.0 * fpBars / math.max(allBars, 1))) + " % barů s FP"
     table.cell(info, 0, 0, t, text_color = live ? color.rgb(94, 224, 200) : color.rgb(255, 120, 120), text_size = size.small, bgcolor = color.new(color.black, 60))
+    if not na(emFem) and emFem > 0
+        float z = (close - emAnchor) / emFem
+        table.cell(info, 0, 1, "EM 1x " + str.tostring(emFem, "#") + " b  ·  krok " + str.tostring(emFem * STEP, "#") + " b  ·  pozice " + str.tostring(z, "+#.##;-#.##") + "x" + (emOnly ? "  ·  filtr EM ✓" : ""), text_color = color.white, text_size = size.small, bgcolor = color.new(color.black, 60))
