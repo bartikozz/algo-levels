@@ -1,0 +1,373 @@
+//@version=6
+// AMT LVN Zones FP — LVN zones drawn as bands across the chart (MotiveWave style) from a multi-day composite
+// footprint volume profile (real volume at price, TradingView Premium / Ultimate).
+//  • LVN zone = contiguous price rows whose volume is ≤ X × the smaller of the two surrounding volume peaks
+//               (a real valley between two nodes, not a tail). Width = the whole thin area.
+//  • Confirmation: a zone that also sits on an LVN of the previous RTH (PD), the overnight (ETH) or today's RTH
+//               profile is drawn brighter and labelled with those profiles.
+//  • Optional: shelves (abrupt volume step) and HVN bands.
+indicator("AMT LVN Zones FP", "LVN Zones", overlay = true, max_boxes_count = 500, max_lines_count = 100, max_labels_count = 100)
+
+// ───────── inputs
+gP        = "Composite profil"
+days      = input.int(10, "Dní v profilu", minval = 1, maxval = 30, group = gP, tooltip = "Globex dny (18:00–17:00 NY). Graf musí mít načtenou historii za tolik dní.")
+tpr       = input.int(8, "Ticků na řádek", minval = 1, maxval = 80, group = gP, tooltip = "NQ/MNQ: 4 = 1 bod, 8 = 2 body, 20 = 5 bodů")
+smoothPts = input.float(6.0, "Vyhlazení (body)", minval = 0.0, maxval = 50.0, step = 1.0, group = gP)
+showProf  = input.bool(true, "Ukázat profil vpravo", group = gP)
+profW     = input.int(60, "Šířka profilu (bary)", minval = 10, maxval = 300, group = gP)
+
+gL        = "LVN zóny"
+lvnFrac   = input.float(0.5, "LVN: objem ≤ × nižšího okolního vrcholu", minval = 0.1, maxval = 0.9, step = 0.05, group = gL)
+winPts    = input.float(80.0, "Okno pro okolní vrcholy (body)", minval = 10.0, maxval = 600.0, step = 5.0, group = gL)
+minWPts   = input.float(4.0, "Min. šířka zóny (body)", minval = 0.0, maxval = 100.0, step = 1.0, group = gL)
+mergePts  = input.float(4.0, "Spojit zóny bližší než (body)", minval = 0.0, maxval = 50.0, step = 1.0, group = gL)
+maxZ      = input.int(30, "Max. zón (nejbližší k ceně)", minval = 1, maxval = 80, group = gL)
+
+gC        = "Konfluence (PD / ETH / RTH)"
+useConf   = input.bool(true, "Kontrolovat session profily", group = gC)
+onlyConf  = input.bool(false, "Ukázat jen potvrzené zóny", group = gC)
+sessWin   = input.float(30.0, "Okno session profilů (body)", minval = 5.0, maxval = 300.0, step = 5.0, group = gC)
+confTol   = input.float(3.0, "Tolerance (body)", minval = 0.0, step = 0.5, group = gC)
+sessRth   = input.session("0930-1600", "RTH (čas NY)", group = gC)
+sessEth   = input.session("1800-0930", "ETH / overnight (čas NY)", group = gC)
+
+gO        = "Další uzly"
+showS     = input.bool(true, "Shelfy", group = gO)
+shelfPts  = input.float(10.0, "Shelf okno (body)", minval = 2.0, maxval = 100.0, step = 1.0, group = gO)
+shelfRat  = input.float(2.5, "Shelf skok objemu (×)", minval = 1.5, maxval = 10.0, step = 0.1, group = gO)
+showH     = input.bool(false, "HVN pásy", group = gO)
+hvnMult   = input.float(1.5, "HVN práh (× průměr)", minval = 1.0, step = 0.05, group = gO)
+
+gV        = "Vzhled"
+backBars  = input.int(1500, "Pásy doleva (bary)", minval = 50, maxval = 5000, group = gV)
+ext       = input.int(10, "Mezera vpravo (bary)", minval = 0, maxval = 200, group = gV)
+lvnCol    = input.color(color.rgb(140, 140, 140), "LVN zóna", group = gV)
+alphaBase = input.int(80, "Průhlednost nepotvrzené", minval = 0, maxval = 100, group = gV)
+alphaConf = input.int(58, "Průhlednost potvrzené", minval = 0, maxval = 100, group = gV)
+profCol   = input.color(color.rgb(230, 230, 230), "Profil", group = gV)
+shCol     = input.color(color.rgb(255, 183, 77), "Shelf", group = gV)
+hvnCol    = input.color(color.rgb(94, 224, 200), "HVN", group = gV)
+showLbl   = input.bool(true, "Popisky potvrzení", group = gV)
+
+// ───────── footprint of the bar → rows (key = row bottom in ticks, snapped to the row grid)
+footprint fp = request.footprint(tpr, 70, 300)
+float tk    = syminfo.mintick
+float rowSz = tk * tpr
+rowKey(float p) => int(math.floor(p / rowSz + 1e-6)) * tpr
+toRows(float pts) => math.max(1, int(math.round(pts / rowSz)))
+
+curK = array.new_int()
+curV = array.new_float()
+if not na(fp)
+    rs = footprint.rows(fp)
+    if array.size(rs) > 0
+        for i = 0 to array.size(rs) - 1
+            r = array.get(rs, i)
+            array.push(curK, rowKey(volume_row.down_price(r)))
+            array.push(curV, volume_row.total_volume(r))
+else
+    k0 = rowKey(low)
+    k1 = rowKey(high)
+    cnt = int(math.round((k1 - k0) / tpr)) + 1
+    for j = 0 to cnt - 1
+        array.push(curK, k0 + j * tpr)
+        array.push(curV, nz(volume) / cnt)
+
+// ───────── composite over the last N Globex days (finished days kept in flat arrays, current day live)
+newDay = timeframe.change("D")
+var map<int, float> mDay  = map.new<int, float>()
+var map<int, float> mComp = map.new<int, float>()
+var array<int>   sDay = array.new_int()
+var array<int>   sKey = array.new_int()
+var array<float> sVol = array.new_float()
+var int dayN = 0
+if newDay and map.size(mDay) > 0
+    for k in map.keys(mDay)
+        array.push(sDay, dayN)
+        array.push(sKey, k)
+        array.push(sVol, map.get(mDay, k))
+    map.clear(mDay)
+    dayN += 1
+    while array.size(sDay) > 0 and array.get(sDay, 0) <= dayN - days
+        array.shift(sDay)
+        k = array.shift(sKey)
+        v = array.shift(sVol)
+        nv = nz(map.get(mComp, k)) - v
+        if nv <= 1e-9
+            map.remove(mComp, k)
+        else
+            map.put(mComp, k, nv)
+
+// ───────── session profiles (PD = previous RTH, ETH = overnight, RTH = today)
+inRth    = not na(time(timeframe.period, sessRth, "America/New_York"))
+inEth    = not na(time(timeframe.period, sessEth, "America/New_York"))
+rthEnd   = not inRth and inRth[1]
+ethStart = inEth and not inEth[1]
+var map<int, float> mRth = map.new<int, float>()
+var map<int, float> mEth = map.new<int, float>()
+var map<int, float> mPd  = map.new<int, float>()
+if rthEnd
+    mPd := map.copy(mRth)
+    map.clear(mRth)
+if ethStart
+    map.clear(mEth)
+
+if barstate.isconfirmed and array.size(curK) > 0
+    for i = 0 to array.size(curK) - 1
+        k = array.get(curK, i)
+        v = array.get(curV, i)
+        map.put(mDay, k, nz(map.get(mDay, k)) + v)
+        map.put(mComp, k, nz(map.get(mComp, k)) + v)
+        if inRth
+            map.put(mRth, k, nz(map.get(mRth, k)) + v)
+        if inEth
+            map.put(mEth, k, nz(map.get(mEth, k)) + v)
+
+// ───────── profile helpers
+build(map<int, float> m, int sN) =>
+    int kMin = 0
+    int n = 0
+    vol = array.new_float()
+    sm  = array.new_float()
+    if map.size(m) > 4
+        keys = map.keys(m)
+        kMin := int(array.min(keys))
+        int kMax = int(array.max(keys))
+        n := math.min(4000, int(math.round((kMax - kMin) / tpr)) + 1)
+        vol := array.new_float(n, 0.0)
+        for k in keys
+            int idx = int(math.round((k - kMin) / tpr))
+            if idx >= 0 and idx < n
+                array.set(vol, idx, array.get(vol, idx) + map.get(m, k))
+        sm := array.new_float(n, 0.0)
+        for r = 0 to n - 1
+            float acc = 0.0
+            float wsum = 0.0
+            for d = -sN to sN
+                int rr = r + d
+                if rr >= 0 and rr < n
+                    float w = sN + 1 - math.abs(d)
+                    acc += array.get(vol, rr) * w
+                    wsum += w
+            array.set(sm, r, acc / wsum)
+    [kMin, n, vol, sm]
+
+// L[r] = max a[r-W .. r-1], R[r] = max a[r+1 .. r+W]  (O(n), van Herk / Gil-Werman blocks)
+winMax(array<float> a, int n, int W) =>
+    L = array.new_float(math.max(n, 1), 0.0)
+    R = array.new_float(math.max(n, 1), 0.0)
+    if n > 1
+        g  = array.new_float(n, 0.0)
+        h  = array.new_float(n, 0.0)
+        pm = array.new_float(n, 0.0)
+        qm = array.new_float(n, 0.0)
+        for i = 0 to n - 1
+            float v = array.get(a, i)
+            if i % W == 0
+                array.set(g, i, v)
+            else
+                array.set(g, i, math.max(array.get(g, i - 1), v))
+            if i == 0
+                array.set(pm, i, v)
+            else
+                array.set(pm, i, math.max(array.get(pm, i - 1), v))
+        for i = n - 1 to 0
+            float v = array.get(a, i)
+            if i % W == W - 1 or i == n - 1
+                array.set(h, i, v)
+            else
+                array.set(h, i, math.max(array.get(h, i + 1), v))
+            if i == n - 1
+                array.set(qm, i, v)
+            else
+                array.set(qm, i, math.max(array.get(qm, i + 1), v))
+        for r = 0 to n - 1
+            if r >= 1
+                int x = r - W
+                if x <= 0
+                    array.set(L, r, array.get(pm, r - 1))
+                else
+                    array.set(L, r, math.max(array.get(h, x), array.get(g, r - 1)))
+            if r <= n - 2
+                int y = r + W
+                if y >= n - 1
+                    array.set(R, r, array.get(qm, r + 1))
+                else
+                    array.set(R, r, math.max(array.get(h, r + 1), array.get(g, y)))
+    [L, R]
+
+lvnZones(int kMin, int n, array<float> sm, int W) =>
+    zl = array.new_float()
+    zh = array.new_float()
+    if n > 4
+        [L, R] = winMax(sm, n, W)
+        int mg = int(math.round(mergePts / rowSz))
+        int mw = int(math.round(minWPts / rowSz))
+        int a = -1
+        int b = -1
+        for r = 1 to n - 2
+            float rf = math.min(array.get(L, r), array.get(R, r))
+            bool isLow = rf > 0 and array.get(sm, r) <= lvnFrac * rf
+            if isLow
+                if a < 0
+                    a := r
+                    b := r
+                else if r - b - 1 <= mg
+                    b := r
+                else
+                    if b - a + 1 >= mw
+                        array.push(zl, (kMin + a * tpr) * tk)
+                        array.push(zh, (kMin + (b + 1) * tpr) * tk)
+                    a := r
+                    b := r
+        if a >= 0 and b - a + 1 >= mw
+            array.push(zl, (kMin + a * tpr) * tk)
+            array.push(zh, (kMin + (b + 1) * tpr) * tk)
+    [zl, zh]
+
+overlaps(float lo, float hi, array<float> zl, array<float> zh) =>
+    bool ok = false
+    if array.size(zl) > 0
+        for i = 0 to array.size(zl) - 1
+            if array.get(zl, i) <= hi + confTol and array.get(zh, i) >= lo - confTol
+                ok := true
+    ok
+
+// ───────── draw (last bar, redrawn on every update)
+if barstate.islast
+    for l in line.all
+        line.delete(l)
+    for bx in box.all
+        box.delete(bx)
+    for lb in label.all
+        label.delete(lb)
+
+    int sN = int(math.round(smoothPts / rowSz))
+    [cK, cN, cVol, cSm] = build(mComp, sN)
+    int x1 = math.max(0, bar_index - backBars)
+    int xP = bar_index + ext
+    int xR = xP + (showProf ? profW : 0)
+
+    if cN > 4
+        [zl, zh] = lvnZones(cK, cN, cSm, toRows(winPts))
+        pdL = array.new_float()
+        pdH = array.new_float()
+        etL = array.new_float()
+        etH = array.new_float()
+        rtL = array.new_float()
+        rtH = array.new_float()
+        if useConf
+            int sw = toRows(sessWin)
+            [k1, n1, v1, s1] = build(mPd, sN)
+            [a1, b1] = lvnZones(k1, n1, s1, sw)
+            pdL := a1
+            pdH := b1
+            [k2, n2, v2, s2] = build(mEth, sN)
+            [a2, b2] = lvnZones(k2, n2, s2, sw)
+            etL := a2
+            etH := b2
+            [k3, n3, v3, s3] = build(mRth, sN)
+            [a3, b3] = lvnZones(k3, n3, s3, sw)
+            rtL := a3
+            rtH := b3
+
+        // LVN zones, nearest to price first
+        int nz_ = array.size(zl)
+        if nz_ > 0
+            dist = array.new_float()
+            for i = 0 to nz_ - 1
+                float lo = array.get(zl, i)
+                float hi = array.get(zh, i)
+                array.push(dist, close > hi ? close - hi : close < lo ? lo - close : 0.0)
+            ord = array.sort_indices(dist, order.ascending)
+            for j = 0 to math.min(maxZ, nz_) - 1
+                int i = array.get(ord, j)
+                float lo = array.get(zl, i)
+                float hi = array.get(zh, i)
+                bool cPd = useConf and overlaps(lo, hi, pdL, pdH)
+                bool cEt = useConf and overlaps(lo, hi, etL, etH)
+                bool cRt = useConf and overlaps(lo, hi, rtL, rtH)
+                bool conf = cPd or cEt or cRt
+                if not onlyConf or conf
+                    box.new(x1, hi, xR, lo, border_color = na, bgcolor = color.new(lvnCol, conf ? alphaConf : alphaBase))
+                    if showLbl and conf
+                        string src = str.trim((cPd ? "PD " : "") + (cEt ? "ETH " : "") + (cRt ? "RTH" : ""))
+                        label.new(xR, (lo + hi) / 2, "LVN " + str.tostring(math.round_to_mintick(lo), format.mintick) + "–" + str.tostring(math.round_to_mintick(hi), format.mintick) + "  " + src, style = label.style_label_left, color = color.new(color.black, 100), textcolor = lvnCol, size = size.small, tooltip = "LVN zóna potvrzená v: " + src)
+
+        // shelves (outside LVN zones)
+        if showS
+            int K = toRows(shelfPts)
+            float mean = array.avg(cSm)
+            if cN > 2 * K + 2 and mean > 0
+                ratio = array.new_float(cN + 1, 0.0)
+                for b = K to cN - K
+                    float sA = 0.0
+                    float sB = 0.0
+                    for d = 0 to K - 1
+                        sA += array.get(cSm, b + d)
+                        sB += array.get(cSm, b - 1 - d)
+                    float hiS = math.max(sA, sB) / K
+                    float loS = math.max(math.min(sA, sB) / K, mean * 0.02)
+                    if hiS >= mean
+                        array.set(ratio, b, hiS / loS)
+                int drawnS = 0
+                for b = K to cN - K
+                    float q = array.get(ratio, b)
+                    if q >= shelfRat and drawnS < 40
+                        bool isMax = true
+                        for d = -K to K
+                            int bb = b + d
+                            if d != 0 and bb >= 0 and bb <= cN
+                                float u = array.get(ratio, bb)
+                                if u > q or (d > 0 and u == q)
+                                    isMax := false
+                        float p = (cK + b * tpr) * tk
+                        bool inZone = false
+                        if array.size(zl) > 0
+                            for z = 0 to array.size(zl) - 1
+                                if p > array.get(zl, z) + rowSz and p < array.get(zh, z) - rowSz
+                                    inZone := true
+                        if isMax and not inZone
+                            line.new(x1, p, xR, p, color = color.new(shCol, 30), style = line.style_dashed)
+                            drawnS += 1
+
+        // HVN bands (optional)
+        if showH
+            float mean = array.avg(cSm)
+            int W = math.max(1, int(toRows(winPts) / 2))
+            int drawnH = 0
+            for r = 1 to cN - 2
+                float v = array.get(cSm, r)
+                if v >= hvnMult * mean and drawnH < 20
+                    bool isMax = true
+                    for d = -W to W
+                        int rr = r + d
+                        if d != 0 and rr >= 0 and rr < cN
+                            float u = array.get(cSm, rr)
+                            if u > v or (d > 0 and u == v)
+                                isMax := false
+                    if isMax
+                        int ea = r
+                        int eb = r
+                        while ea > 0 and array.get(cSm, ea - 1) >= 0.7 * v
+                            ea -= 1
+                        while eb < cN - 1 and array.get(cSm, eb + 1) >= 0.7 * v
+                            eb += 1
+                        box.new(x1, (cK + (eb + 1) * tpr) * tk, xR, (cK + ea * tpr) * tk, border_color = na, bgcolor = color.new(hvnCol, 88))
+                        drawnH += 1
+
+        // composite profile histogram on the right (≤ 250 boxes)
+        if showProf
+            int bk = math.max(1, int(math.ceil(cN / 250.0)))
+            int nb = int(math.ceil(cN / bk))
+            agg = array.new_float(nb, 0.0)
+            for r = 0 to cN - 1
+                int j = math.min(nb - 1, int(r / bk))
+                array.set(agg, j, array.get(agg, j) + array.get(cVol, r))
+            float vMax = array.max(agg)
+            if vMax > 0
+                for j = 0 to nb - 1
+                    int len = int(math.round(profW * array.get(agg, j) / vMax))
+                    if len > 0
+                        float yb = (cK + j * bk * tpr) * tk
+                        box.new(xR - len, yb + bk * rowSz, xR, yb, border_color = na, bgcolor = color.new(profCol, 55))
