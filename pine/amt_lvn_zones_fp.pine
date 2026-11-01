@@ -5,13 +5,17 @@
 //               (a real valley between two nodes, not a tail). Width = the whole thin area.
 //  • Confirmation: a zone that also sits on an LVN of the previous RTH (PD), the overnight (ETH) or today's RTH
 //               profile is drawn brighter and labelled with those profiles.
+//  • Refined: zones are found on the smoothed profile, then edges and the core (thinnest 3 rows) are refined on
+//    the raw 1-point footprint rows; depth = how empty the valley is vs. the surrounding nodes.
+//  • Works in Bar Replay (everything is drawn on the last / replayed bar). Bars without footprint data fall back
+//    to an OHLC estimate — the status box top-right shows which one is used.
 //  • Optional: shelves (abrupt volume step) and HVN bands.
 indicator("AMT LVN Zones FP", "LVN Zones", overlay = true, max_boxes_count = 500, max_lines_count = 100, max_labels_count = 100)
 
 // ───────── inputs
 gP        = "Composite profil"
 days      = input.int(10, "Dní v profilu", minval = 1, maxval = 30, group = gP, tooltip = "Globex dny (18:00–17:00 NY). Graf musí mít načtenou historii za tolik dní.")
-tpr       = input.int(8, "Ticků na řádek", minval = 1, maxval = 80, group = gP, tooltip = "NQ/MNQ: 4 = 1 bod, 8 = 2 body, 20 = 5 bodů")
+tpr       = input.int(4, "Ticků na řádek", minval = 1, maxval = 80, group = gP, tooltip = "NQ/MNQ: 4 = 1 bod, 8 = 2 body, 20 = 5 bodů")
 smoothPts = input.float(6.0, "Vyhlazení (body)", minval = 0.0, maxval = 50.0, step = 1.0, group = gP)
 showProf  = input.bool(true, "Ukázat profil vpravo", group = gP)
 profW     = input.int(60, "Šířka profilu (bary)", minval = 10, maxval = 300, group = gP)
@@ -25,7 +29,8 @@ maxZ      = input.int(30, "Max. zón (nejbližší k ceně)", minval = 1, maxval
 
 gC        = "Konfluence (PD / ETH / RTH)"
 useConf   = input.bool(true, "Kontrolovat session profily", group = gC)
-onlyConf  = input.bool(false, "Ukázat jen potvrzené zóny", group = gC)
+mode      = input.string("Potvrzené + silné", "Které zóny ukázat", options = ["Potvrzené + silné", "Jen potvrzené", "Všechny"], group = gC, tooltip = "Silná = hloubka údolí ≥ práh níže (objem v jádru zóny proti okolním uzlům).")
+strongD   = input.float(0.75, "Silná zóna: hloubka ≥", minval = 0.3, maxval = 0.98, step = 0.01, group = gC)
 sessWin   = input.float(30.0, "Okno session profilů (body)", minval = 5.0, maxval = 300.0, step = 5.0, group = gC)
 confTol   = input.float(3.0, "Tolerance (body)", minval = 0.0, step = 0.5, group = gC)
 sessRth   = input.session("0930-1600", "RTH (čas NY)", group = gC)
@@ -47,7 +52,11 @@ alphaConf = input.int(58, "Průhlednost potvrzené", minval = 0, maxval = 100, g
 profCol   = input.color(color.rgb(230, 230, 230), "Profil", group = gV)
 shCol     = input.color(color.rgb(255, 183, 77), "Shelf", group = gV)
 hvnCol    = input.color(color.rgb(94, 224, 200), "HVN", group = gV)
-showLbl   = input.bool(true, "Popisky potvrzení", group = gV)
+showLbl   = input.bool(true, "Popisky zón", group = gV)
+showCore  = input.bool(true, "Jádro LVN (nejtenčí cena) jako čára", group = gV)
+coreCol   = input.color(color.rgb(200, 200, 200), "Jádro", group = gV)
+showScale = input.bool(true, "Nejbližší zóny na cenové ose", group = gV)
+showInfo  = input.bool(true, "Stav dat (footprint / odhad)", group = gV)
 
 // ───────── footprint of the bar → rows (key = row bottom in ticks, snapped to the row grid)
 footprint fp = request.footprint(tpr, 70, 300)
@@ -196,13 +205,19 @@ winMax(array<float> a, int n, int W) =>
                     array.set(R, r, math.max(array.get(h, r + 1), array.get(g, y)))
     [L, R]
 
-lvnZones(int kMin, int n, array<float> sm, int W) =>
+// LVN zones: detect on the smoothed profile, refine edges + core on the raw footprint volume
+// → [low, high, core price, depth 0..1]
+lvnZones(int kMin, int n, array<float> vol, array<float> sm, int W, int sN) =>
     zl = array.new_float()
     zh = array.new_float()
+    zc = array.new_float()
+    zd = array.new_float()
     if n > 4
         [L, R] = winMax(sm, n, W)
         int mg = int(math.round(mergePts / rowSz))
         int mw = int(math.round(minWPts / rowSz))
+        ra = array.new_int()
+        rb = array.new_int()
         int a = -1
         int b = -1
         for r = 1 to n - 2
@@ -215,15 +230,47 @@ lvnZones(int kMin, int n, array<float> sm, int W) =>
                 else if r - b - 1 <= mg
                     b := r
                 else
-                    if b - a + 1 >= mw
-                        array.push(zl, (kMin + a * tpr) * tk)
-                        array.push(zh, (kMin + (b + 1) * tpr) * tk)
+                    array.push(ra, a)
+                    array.push(rb, b)
                     a := r
                     b := r
-        if a >= 0 and b - a + 1 >= mw
-            array.push(zl, (kMin + a * tpr) * tk)
-            array.push(zh, (kMin + (b + 1) * tpr) * tk)
-    [zl, zh]
+        if a >= 0
+            array.push(ra, a)
+            array.push(rb, b)
+        if array.size(ra) > 0
+            for z = 0 to array.size(ra) - 1
+                int za = array.get(ra, z)
+                int zb = array.get(rb, z)
+                // refine edges on raw volume inside the smoothed run ± smoothing radius
+                int s0 = math.max(1, za - sN)
+                int s1 = math.min(n - 2, zb + sN)
+                int fa = -1
+                int fb = -1
+                for r = s0 to s1
+                    float rf = math.min(array.get(L, r), array.get(R, r))
+                    if rf > 0 and array.get(vol, r) <= lvnFrac * rf
+                        if fa < 0
+                            fa := r
+                        fb := r
+                if fa < 0
+                    fa := za
+                    fb := zb
+                if fb - fa + 1 >= mw
+                    // core = thinnest 3-row window inside the refined zone
+                    int core = fa
+                    float best = 1e100
+                    for r = fa to fb
+                        float t3 = array.get(vol, r - 1) + array.get(vol, r) + array.get(vol, r + 1)
+                        if t3 < best
+                            best := t3
+                            core := r
+                    float rfc = math.min(array.get(L, core), array.get(R, core))
+                    float dep = rfc > 0 ? 1.0 - array.get(sm, core) / rfc : 0.0
+                    array.push(zl, (kMin + fa * tpr) * tk)
+                    array.push(zh, (kMin + (fb + 1) * tpr) * tk)
+                    array.push(zc, (kMin + core * tpr) * tk + rowSz / 2)
+                    array.push(zd, math.max(0.0, math.min(1.0, dep)))
+    [zl, zh, zc, zd]
 
 overlaps(float lo, float hi, array<float> zl, array<float> zh) =>
     bool ok = false
@@ -233,8 +280,23 @@ overlaps(float lo, float hi, array<float> zl, array<float> zh) =>
                 ok := true
     ok
 
-// ───────── draw (last bar, redrawn on every update)
+// ───────── draw (last bar — in Bar Replay that is the replayed bar — redrawn on every update)
+var float nUpLo = na
+var float nUpC  = na
+var float nDnHi = na
+var float nDnC  = na
+var float nIn   = na
+var int   fpBars = 0
+var int   allBars = 0
+if barstate.isconfirmed
+    allBars += 1
+    fpBars += na(fp) ? 0 : 1
 if barstate.islast
+    nUpLo := na
+    nUpC  := na
+    nDnHi := na
+    nDnC  := na
+    nIn   := na
     for l in line.all
         line.delete(l)
     for bx in box.all
@@ -249,7 +311,7 @@ if barstate.islast
     int xR = xP + (showProf ? profW : 0)
 
     if cN > 4
-        [zl, zh] = lvnZones(cK, cN, cSm, toRows(winPts))
+        [zl, zh, zc, zd] = lvnZones(cK, cN, cVol, cSm, toRows(winPts), sN)
         pdL = array.new_float()
         pdH = array.new_float()
         etL = array.new_float()
@@ -259,15 +321,15 @@ if barstate.islast
         if useConf
             int sw = toRows(sessWin)
             [k1, n1, v1, s1] = build(mPd, sN)
-            [a1, b1] = lvnZones(k1, n1, s1, sw)
+            [a1, b1, c1, d1] = lvnZones(k1, n1, v1, s1, sw, sN)
             pdL := a1
             pdH := b1
             [k2, n2, v2, s2] = build(mEth, sN)
-            [a2, b2] = lvnZones(k2, n2, s2, sw)
+            [a2, b2, c2, d2] = lvnZones(k2, n2, v2, s2, sw, sN)
             etL := a2
             etH := b2
             [k3, n3, v3, s3] = build(mRth, sN)
-            [a3, b3] = lvnZones(k3, n3, s3, sw)
+            [a3, b3, c3, d3] = lvnZones(k3, n3, v3, s3, sw, sN)
             rtL := a3
             rtH := b3
 
@@ -280,7 +342,8 @@ if barstate.islast
                 float hi = array.get(zh, i)
                 array.push(dist, close > hi ? close - hi : close < lo ? lo - close : 0.0)
             ord = array.sort_indices(dist, order.ascending)
-            for j = 0 to math.min(maxZ, nz_) - 1
+            int shown = 0
+            for j = 0 to nz_ - 1
                 int i = array.get(ord, j)
                 float lo = array.get(zl, i)
                 float hi = array.get(zh, i)
@@ -288,11 +351,28 @@ if barstate.islast
                 bool cEt = useConf and overlaps(lo, hi, etL, etH)
                 bool cRt = useConf and overlaps(lo, hi, rtL, rtH)
                 bool conf = cPd or cEt or cRt
-                if not onlyConf or conf
+                float dep = array.get(zd, i)
+                float cp = array.get(zc, i)
+                bool strong = dep >= strongD
+                bool show = mode == "Všechny" or conf or (mode == "Potvrzené + silné" and strong)
+                if show and shown < maxZ
+                    shown += 1
                     box.new(x1, hi, xR, lo, border_color = na, bgcolor = color.new(lvnCol, conf ? alphaConf : alphaBase))
-                    if showLbl and conf
+                    if showCore
+                        line.new(x1, cp, xR, cp, color = color.new(coreCol, conf ? 20 : 55), width = 1, style = line.style_dotted)
+                    if showLbl
                         string src = str.trim((cPd ? "PD " : "") + (cEt ? "ETH " : "") + (cRt ? "RTH" : ""))
-                        label.new(xR, (lo + hi) / 2, "LVN " + str.tostring(math.round_to_mintick(lo), format.mintick) + "–" + str.tostring(math.round_to_mintick(hi), format.mintick) + "  " + src, style = label.style_label_left, color = color.new(color.black, 100), textcolor = lvnCol, size = size.small, tooltip = "LVN zóna potvrzená v: " + src)
+                        string txt = str.tostring(math.round_to_mintick(lo), format.mintick) + "–" + str.tostring(math.round_to_mintick(hi), format.mintick) + "  • " + str.tostring(math.round_to_mintick(cp), format.mintick) + "  " + str.tostring(math.round(dep * 100)) + "%" + (conf ? "  " + src : "")
+                        label.new(xR, cp, txt, style = label.style_label_left, color = color.new(color.black, 100), textcolor = conf ? color.new(lvnCol, 0) : color.new(lvnCol, 35), size = size.small, tooltip = "LVN zóna " + str.tostring(lo, format.mintick) + "–" + str.tostring(hi, format.mintick) + "\nJádro (nejtenčí cena): " + str.tostring(math.round_to_mintick(cp), format.mintick) + "\nHloubka údolí: " + str.tostring(math.round(dep * 100)) + " %" + (conf ? "\nPotvrzeno v: " + src : "\nNepotvrzeno session profilem"))
+                    // nearest shown zones for the price scale
+                    if lo > close and (na(nUpLo) or lo < nUpLo)
+                        nUpLo := lo
+                        nUpC := cp
+                    if hi < close and (na(nDnHi) or hi > nDnHi)
+                        nDnHi := hi
+                        nDnC := cp
+                    if lo <= close and hi >= close
+                        nIn := cp
 
         // shelves (outside LVN zones)
         if showS
@@ -371,3 +451,16 @@ if barstate.islast
                     if len > 0
                         float yb = (cK + j * bk * tpr) * tk
                         box.new(xR - len, yb + bk * rowSz, xR, yb, border_color = na, bgcolor = color.new(profCol, 55))
+
+// ───────── nearest zones on the price scale (exact prices, also in replay)
+plot(showScale ? nUpLo : na, "LVN nad: hrana", color.new(lvnCol, 0), display = display.price_scale)
+plot(showScale ? nUpC  : na, "LVN nad: jádro", color.new(coreCol, 0), display = display.price_scale)
+plot(showScale ? nDnHi : na, "LVN pod: hrana", color.new(lvnCol, 0), display = display.price_scale)
+plot(showScale ? nDnC  : na, "LVN pod: jádro", color.new(coreCol, 0), display = display.price_scale)
+plot(showScale ? nIn   : na, "V LVN: jádro", color.new(color.yellow, 0), display = display.price_scale)
+
+var table info = table.new(position.top_right, 1, 1)
+if showInfo and barstate.islast
+    bool live = not na(fp)
+    string t = (live ? "Footprint ✓" : "Footprint ✗ – odhad z OHLC") + "  ·  " + str.tostring(math.round(100.0 * fpBars / math.max(allBars, 1))) + " % barů s FP"
+    table.cell(info, 0, 0, t, text_color = live ? color.rgb(94, 224, 200) : color.rgb(255, 120, 120), text_size = size.small, bgcolor = color.new(color.black, 60))
