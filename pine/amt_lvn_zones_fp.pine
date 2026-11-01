@@ -9,8 +9,10 @@
 //    the raw 1-point footprint rows; depth = how empty the valley is vs. the surrounding nodes.
 //  • Works in Bar Replay (everything is drawn on the last / replayed bar). Bars without footprint data fall back
 //    to an OHLC estimate — the status box top-right shows which one is used.
+//  • Single prints (TPO): price rows touched by only one 30-min period of the RTH (optionally ETH) session —
+//    gaps between distributions. Kept on the chart until price fills them (partially filled ones shrink).
 //  • Optional: shelves (abrupt volume step) and HVN bands.
-indicator("AMT LVN Zones FP", "LVN Zones", overlay = true, max_boxes_count = 500, max_lines_count = 100, max_labels_count = 100)
+indicator("AMT LVN Zones FP", "LVN Zones", overlay = true, max_boxes_count = 500, max_lines_count = 100, max_labels_count = 200)
 
 // ───────── inputs
 gP        = "Composite profil"
@@ -57,6 +59,17 @@ showCore  = input.bool(true, "Jádro LVN (nejtenčí cena) jako čára", group =
 coreCol   = input.color(color.rgb(200, 200, 200), "Jádro", group = gV)
 showScale = input.bool(true, "Nejbližší zóny na cenové ose", group = gV)
 showInfo  = input.bool(true, "Stav dat (footprint / odhad)", group = gV)
+
+gSP       = "Single prints (TPO)"
+spOnR     = input.bool(true, "Single prints z RTH", group = gSP)
+spOnE     = input.bool(false, "Single prints z ETH (overnight)", group = gSP)
+spDev     = input.bool(true, "Ukázat i vznikající (běžící session)", group = gSP)
+tpoMin    = input.int(30, "TPO perioda (min)", minval = 5, maxval = 120, group = gSP)
+spRowPts  = input.float(1.0, "Řádek (body)", minval = 0.25, maxval = 20.0, step = 0.25, group = gSP)
+spMinPts  = input.float(3.0, "Min. délka (body)", minval = 0.25, maxval = 100.0, step = 0.25, group = gSP)
+spTails   = input.bool(false, "Včetně tailů na extrémech (excess)", group = gSP)
+spMax     = input.int(30, "Max. nevyplněných", minval = 1, maxval = 100, group = gSP)
+spCol     = input.color(color.rgb(100, 181, 246), "Single prints", group = gSP)
 
 // ───────── footprint of the bar → rows (key = row bottom in ticks, snapped to the row grid)
 footprint fp = request.footprint(tpr, 70, 300)
@@ -131,6 +144,134 @@ if barstate.isconfirmed and array.size(curK) > 0
             map.put(mRth, k, nz(map.get(mRth, k)) + v)
         if inEth
             map.put(mEth, k, nz(map.get(mEth, k)) + v)
+
+// ───────── single prints (TPO): count of distinct periods per price row, per session
+float spSz = math.max(tk, math.round(spRowPts / tk) * tk)
+spK(float p) => int(math.floor(p / spSz + 1e-6))
+rthStart = inRth and not inRth[1]
+ethEnd   = not inEth and inEth[1]
+var int t0R = na
+var int t0E = na
+var int b0R = na
+var int b0E = na
+var map<int, int> cR = map.new<int, int>()
+var map<int, int> pR = map.new<int, int>()
+var map<int, int> cE = map.new<int, int>()
+var map<int, int> pE = map.new<int, int>()
+if rthStart
+    map.clear(cR)
+    map.clear(pR)
+    t0R := time
+    b0R := bar_index
+if ethStart
+    map.clear(cE)
+    map.clear(pE)
+    t0E := time
+    b0E := bar_index
+
+spTouch(map<int, int> cnt, map<int, int> per, int prd) =>
+    int k0 = spK(low)
+    int k1 = spK(high)
+    if k1 - k0 < 2000
+        for k = k0 to k1
+            if nz(map.get(per, k), -1) != prd
+                map.put(per, k, prd)
+                map.put(cnt, k, nz(map.get(cnt, k)) + 1)
+    0
+
+// runs of single-period rows → [low, high]; final = session finished, otherwise only rows from finished periods
+spRuns(map<int, int> cnt, map<int, int> per, int curPrd, bool final) =>
+    lo = array.new_float()
+    hi = array.new_float()
+    if map.size(cnt) > 2
+        keys = map.keys(cnt)
+        int kMin = int(array.min(keys))
+        int kMax = int(array.max(keys))
+        int minLen = math.max(1, int(math.round(spMinPts / spSz)))
+        int a = -1
+        int b = -1
+        if kMax - kMin < 4000
+            for k = kMin to kMax + 1
+                bool single = false
+                if k <= kMax
+                    single := nz(map.get(cnt, k)) == 1 and (final or nz(map.get(per, k), curPrd) < curPrd)
+                if single
+                    if a < 0
+                        a := k
+                    b := k
+                else if a >= 0
+                    bool atEdge = a == kMin or b == kMax
+                    if b - a + 1 >= minLen and (spTails or not atEdge)
+                        array.push(lo, a * spSz)
+                        array.push(hi, (b + 1) * spSz)
+                    a := -1
+    [lo, hi]
+
+spAdd(array<float> L, array<float> H, array<int> B, array<int> T, array<int> S, array<int> M, array<float> lo, array<float> hi, int b0, int t0, int src) =>
+    if array.size(lo) > 0
+        for i = 0 to array.size(lo) - 1
+            array.push(L, array.get(lo, i))
+            array.push(H, array.get(hi, i))
+            array.push(B, b0)
+            array.push(T, t0)
+            array.push(S, src)
+            array.push(M, bar_index)
+    while array.size(L) > spMax
+        array.shift(L)
+        array.shift(H)
+        array.shift(B)
+        array.shift(T)
+        array.shift(S)
+        array.shift(M)
+    0
+
+var array<float> spL = array.new_float()
+var array<float> spH = array.new_float()
+var array<int>   spB = array.new_int()
+var array<int>   spT = array.new_int()
+var array<int>   spS = array.new_int()
+var array<int>   spM = array.new_int()
+
+if barstate.isconfirmed
+    if inRth and spOnR and not na(t0R)
+        spTouch(cR, pR, int((time - t0R) / (tpoMin * 60000)))
+    if inEth and spOnE and not na(t0E)
+        spTouch(cE, pE, int((time - t0E) / (tpoMin * 60000)))
+if rthEnd and spOnR and not na(b0R)
+    [fl, fh] = spRuns(cR, pR, 0, true)
+    spAdd(spL, spH, spB, spT, spS, spM, fl, fh, b0R, t0R, 0)
+if ethEnd and spOnE and not na(b0E)
+    [gl, gh] = spRuns(cE, pE, 0, true)
+    spAdd(spL, spH, spB, spT, spS, spM, gl, gh, b0E, t0E, 1)
+
+// fill: price trading into a single print removes (or shrinks) it
+if barstate.isconfirmed and array.size(spL) > 0
+    for i = array.size(spL) - 1 to 0
+        if array.get(spM, i) < bar_index
+            float lo = array.get(spL, i)
+            float hi = array.get(spH, i)
+            if high >= lo and low <= hi
+                bool del = false
+                if low <= lo and high >= hi
+                    del := true
+                else if high >= hi
+                    hi := low
+                else if low <= lo
+                    lo := high
+                else if hi - high >= low - lo
+                    lo := high
+                else
+                    hi := low
+                if del or hi - lo < spSz
+                    array.remove(spL, i)
+                    array.remove(spH, i)
+                    array.remove(spB, i)
+                    array.remove(spT, i)
+                    array.remove(spS, i)
+                    array.remove(spM, i)
+                else
+                    array.set(spL, i, lo)
+                    array.set(spH, i, hi)
 
 // ───────── profile helpers
 build(map<int, float> m, int sN) =>
@@ -452,12 +593,57 @@ if barstate.islast
                         float yb = (cK + j * bk * tpr) * tk
                         box.new(xR - len, yb + bk * rowSz, xR, yb, border_color = na, bgcolor = color.new(profCol, 55))
 
+// ───────── single prints drawing (after the main block, which clears all drawings first)
+var float nSpUp = na
+var float nSpDn = na
+if barstate.islast
+    nSpUp := na
+    nSpDn := na
+    int xR2 = bar_index + ext + (showProf ? profW : 0)
+    if array.size(spL) > 0
+        for i = 0 to array.size(spL) - 1
+            float lo = array.get(spL, i)
+            float hi = array.get(spH, i)
+            int xb = math.max(array.get(spB, i), bar_index - 9000)
+            string src = array.get(spS, i) == 0 ? "RTH" : "ETH"
+            box.new(xb, hi, xR2, lo, border_color = color.new(spCol, 45), border_style = line.style_dashed, bgcolor = color.new(spCol, 85))
+            label.new(xR2, (lo + hi) / 2, "SP " + str.tostring(math.round_to_mintick(lo), format.mintick) + "–" + str.tostring(math.round_to_mintick(hi), format.mintick) + "  " + src + " " + str.format_time(array.get(spT, i), "dd.MM.", "America/New_York"), style = label.style_label_left, color = color.new(color.black, 100), textcolor = spCol, size = size.small, tooltip = "Single prints (nevyplněné) – " + src + " session " + str.format_time(array.get(spT, i), "dd.MM.yyyy", "America/New_York"))
+            if lo > close and (na(nSpUp) or lo < nSpUp)
+                nSpUp := lo
+            if hi < close and (na(nSpDn) or hi > nSpDn)
+                nSpDn := hi
+    if spDev
+        for s_ = 0 to 1
+            bool on = s_ == 0 ? (spOnR and inRth and not na(t0R)) : (spOnE and inEth and not na(t0E))
+            if on
+                int t0 = s_ == 0 ? t0R : t0E
+                int b0 = s_ == 0 ? b0R : b0E
+                int prd = int((time - t0) / (tpoMin * 60000))
+                dl = array.new_float()
+                dh = array.new_float()
+                if s_ == 0
+                    [ra_, rb_] = spRuns(cR, pR, prd, false)
+                    dl := ra_
+                    dh := rb_
+                else
+                    [ea_, eb_] = spRuns(cE, pE, prd, false)
+                    dl := ea_
+                    dh := eb_
+                if array.size(dl) > 0
+                    for i = 0 to array.size(dl) - 1
+                        float lo = array.get(dl, i)
+                        float hi = array.get(dh, i)
+                        box.new(math.max(b0, bar_index - 9000), hi, xR2, lo, border_color = color.new(spCol, 65), border_style = line.style_dotted, bgcolor = color.new(spCol, 92))
+                        label.new(xR2, (lo + hi) / 2, "SP vzniká " + str.tostring(math.round_to_mintick(lo), format.mintick) + "–" + str.tostring(math.round_to_mintick(hi), format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = color.new(spCol, 40), size = size.small)
+
 // ───────── nearest zones on the price scale (exact prices, also in replay)
 plot(showScale ? nUpLo : na, "LVN nad: hrana", color.new(lvnCol, 0), display = display.price_scale)
 plot(showScale ? nUpC  : na, "LVN nad: jádro", color.new(coreCol, 0), display = display.price_scale)
 plot(showScale ? nDnHi : na, "LVN pod: hrana", color.new(lvnCol, 0), display = display.price_scale)
 plot(showScale ? nDnC  : na, "LVN pod: jádro", color.new(coreCol, 0), display = display.price_scale)
 plot(showScale ? nIn   : na, "V LVN: jádro", color.new(color.yellow, 0), display = display.price_scale)
+plot(showScale ? nSpUp : na, "Single print nad", color.new(spCol, 0), display = display.price_scale)
+plot(showScale ? nSpDn : na, "Single print pod", color.new(spCol, 0), display = display.price_scale)
 
 var table info = table.new(position.top_right, 1, 1)
 if showInfo and barstate.islast
