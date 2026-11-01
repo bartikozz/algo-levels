@@ -9,8 +9,8 @@
 //    the raw 1-point footprint rows; depth = how empty the valley is vs. the surrounding nodes.
 //  • Works in Bar Replay (everything is drawn on the last / replayed bar). Bars without footprint data fall back
 //    to an OHLC estimate — the status box top-right shows which one is used.
-//  • Single prints (TPO): price rows touched by only one 30-min period of the RTH (optionally ETH) session —
-//    gaps between distributions. Kept on the chart until price fills them (partially filled ones shrink).
+//  • Single prints from 1-minute data (on any chart timeframe): price rows (1 tick) traded by only ONE 1-minute
+//    bar of the RTH (optionally ETH) session. They disappear as soon as price touches them.
 //  • Optional: shelves (abrupt volume step) and HVN bands.
 indicator("AMT LVN Zones FP", "LVN Zones", overlay = true, max_boxes_count = 500, max_lines_count = 100, max_labels_count = 200)
 
@@ -63,10 +63,9 @@ showInfo  = input.bool(true, "Stav dat (footprint / odhad)", group = gV)
 gSP       = "Single prints (TPO)"
 spOnR     = input.bool(true, "Single prints z RTH", group = gSP)
 spOnE     = input.bool(false, "Single prints z ETH (overnight)", group = gSP)
-spDev     = input.bool(true, "Ukázat i vznikající (běžící session)", group = gSP)
-tpoMin    = input.int(30, "TPO perioda (min)", minval = 5, maxval = 120, group = gSP)
-spRowPts  = input.float(1.0, "Řádek (body)", minval = 0.25, maxval = 20.0, step = 0.25, group = gSP)
-spMinPts  = input.float(3.0, "Min. délka (body)", minval = 0.25, maxval = 100.0, step = 0.25, group = gSP)
+spDev     = input.bool(true, "Ukázat i dnešní (běžící session)", group = gSP)
+spRowPts  = input.float(0.25, "Řádek (body)", minval = 0.25, maxval = 20.0, step = 0.25, group = gSP, tooltip = "0.25 = 1 tick (nejpřesnější)")
+spMinPts  = input.float(2.0, "Min. délka (body)", minval = 0.25, maxval = 100.0, step = 0.25, group = gSP)
 spTails   = input.bool(false, "Včetně tailů na extrémech (excess)", group = gSP)
 spMax     = input.int(30, "Max. nevyplněných", minval = 1, maxval = 100, group = gSP)
 spCol     = input.color(color.rgb(100, 181, 246), "Single prints", group = gSP)
@@ -169,18 +168,21 @@ if ethStart
     t0E := time
     b0E := bar_index
 
-spTouch(map<int, int> cnt, map<int, int> per, int prd) =>
-    int k0 = spK(low)
-    int k1 = spK(high)
-    if k1 - k0 < 2000
+// 1-minute bars inside the chart bar (on a 1m chart: the bar itself)
+[lh1, ll1, lt1] = request.security_lower_tf(syminfo.tickerid, "1", [high, low, time])
+
+spTouch(map<int, int> cnt, map<int, int> per, float h, float l, int prd) =>
+    int k0 = spK(l)
+    int k1 = spK(h)
+    if k1 - k0 < 2000 and k1 >= k0
         for k = k0 to k1
             if nz(map.get(per, k), -1) != prd
                 map.put(per, k, prd)
                 map.put(cnt, k, nz(map.get(cnt, k)) + 1)
     0
 
-// runs of single-period rows → [low, high]; final = session finished, otherwise only rows from finished periods
-spRuns(map<int, int> cnt, map<int, int> per, int curPrd, bool final) =>
+// runs of rows traded by exactly one 1-minute bar → [low, high]
+spRuns(map<int, int> cnt) =>
     lo = array.new_float()
     hi = array.new_float()
     if map.size(cnt) > 2
@@ -190,11 +192,9 @@ spRuns(map<int, int> cnt, map<int, int> per, int curPrd, bool final) =>
         int minLen = math.max(1, int(math.round(spMinPts / spSz)))
         int a = -1
         int b = -1
-        if kMax - kMin < 4000
+        if kMax - kMin < 8000
             for k = kMin to kMax + 1
-                bool single = false
-                if k <= kMax
-                    single := nz(map.get(cnt, k)) == 1 and (final or nz(map.get(per, k), curPrd) < curPrd)
+                bool single = k <= kMax and nz(map.get(cnt, k)) == 1
                 if single
                     if a < 0
                         a := k
@@ -203,7 +203,7 @@ spRuns(map<int, int> cnt, map<int, int> per, int curPrd, bool final) =>
                     bool atEdge = a == kMin or b == kMax
                     if b - a + 1 >= minLen and (spTails or not atEdge)
                         array.push(lo, a * spSz)
-                        array.push(hi, (b + 1) * spSz)
+                        array.push(hi, (b + 1) * spSz - tk)
                     a := -1
     [lo, hi]
 
@@ -232,46 +232,32 @@ var array<int>   spT = array.new_int()
 var array<int>   spS = array.new_int()
 var array<int>   spM = array.new_int()
 
-if barstate.isconfirmed
-    if inRth and spOnR and not na(t0R)
-        spTouch(cR, pR, int((time - t0R) / (tpoMin * 60000)))
-    if inEth and spOnE and not na(t0E)
-        spTouch(cE, pE, int((time - t0E) / (tpoMin * 60000)))
+if barstate.isconfirmed and array.size(lh1) > 0
+    for j = 0 to array.size(lh1) - 1
+        float h1 = array.get(lh1, j)
+        float l1 = array.get(ll1, j)
+        int   m1 = int(array.get(lt1, j) / 60000)
+        if not na(h1) and not na(l1)
+            // touch = finished single print disappears
+            if array.size(spL) > 0
+                for i = array.size(spL) - 1 to 0
+                    if array.get(spM, i) < bar_index and h1 >= array.get(spL, i) and l1 <= array.get(spH, i)
+                        array.remove(spL, i)
+                        array.remove(spH, i)
+                        array.remove(spB, i)
+                        array.remove(spT, i)
+                        array.remove(spS, i)
+                        array.remove(spM, i)
+            if inRth and spOnR and not na(t0R)
+                spTouch(cR, pR, h1, l1, m1)
+            if inEth and spOnE and not na(t0E)
+                spTouch(cE, pE, h1, l1, m1)
 if rthEnd and spOnR and not na(b0R)
-    [fl, fh] = spRuns(cR, pR, 0, true)
+    [fl, fh] = spRuns(cR)
     spAdd(spL, spH, spB, spT, spS, spM, fl, fh, b0R, t0R, 0)
 if ethEnd and spOnE and not na(b0E)
-    [gl, gh] = spRuns(cE, pE, 0, true)
+    [gl, gh] = spRuns(cE)
     spAdd(spL, spH, spB, spT, spS, spM, gl, gh, b0E, t0E, 1)
-
-// fill: price trading into a single print removes (or shrinks) it
-if barstate.isconfirmed and array.size(spL) > 0
-    for i = array.size(spL) - 1 to 0
-        if array.get(spM, i) < bar_index
-            float lo = array.get(spL, i)
-            float hi = array.get(spH, i)
-            if high >= lo and low <= hi
-                bool del = false
-                if low <= lo and high >= hi
-                    del := true
-                else if high >= hi
-                    hi := low
-                else if low <= lo
-                    lo := high
-                else if hi - high >= low - lo
-                    lo := high
-                else
-                    hi := low
-                if del or hi - lo < spSz
-                    array.remove(spL, i)
-                    array.remove(spH, i)
-                    array.remove(spB, i)
-                    array.remove(spT, i)
-                    array.remove(spS, i)
-                    array.remove(spM, i)
-                else
-                    array.set(spL, i, lo)
-                    array.set(spH, i, hi)
 
 // ───────── profile helpers
 build(map<int, float> m, int sN) =>
@@ -618,15 +604,14 @@ if barstate.islast
             if on
                 int t0 = s_ == 0 ? t0R : t0E
                 int b0 = s_ == 0 ? b0R : b0E
-                int prd = int((time - t0) / (tpoMin * 60000))
                 dl = array.new_float()
                 dh = array.new_float()
                 if s_ == 0
-                    [ra_, rb_] = spRuns(cR, pR, prd, false)
+                    [ra_, rb_] = spRuns(cR)
                     dl := ra_
                     dh := rb_
                 else
-                    [ea_, eb_] = spRuns(cE, pE, prd, false)
+                    [ea_, eb_] = spRuns(cE)
                     dl := ea_
                     dh := eb_
                 if array.size(dl) > 0
@@ -634,7 +619,7 @@ if barstate.islast
                         float lo = array.get(dl, i)
                         float hi = array.get(dh, i)
                         box.new(math.max(b0, bar_index - 9000), hi, xR2, lo, border_color = color.new(spCol, 65), border_style = line.style_dotted, bgcolor = color.new(spCol, 92))
-                        label.new(xR2, (lo + hi) / 2, "SP vzniká " + str.tostring(math.round_to_mintick(lo), format.mintick) + "–" + str.tostring(math.round_to_mintick(hi), format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = color.new(spCol, 40), size = size.small)
+                        label.new(xR2, (lo + hi) / 2, "SP dnes " + str.tostring(math.round_to_mintick(lo), format.mintick) + "–" + str.tostring(math.round_to_mintick(hi), format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = color.new(spCol, 40), size = size.small)
 
 // ───────── nearest zones on the price scale (exact prices, also in replay)
 plot(showScale ? nUpLo : na, "LVN nad: hrana", color.new(lvnCol, 0), display = display.price_scale)
