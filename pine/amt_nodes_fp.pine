@@ -1,0 +1,290 @@
+//@version=6
+// AMT Nodes FP — only HVNs, LVNs and shelves, and only where several profiles agree.
+// Three footprint volume profiles (real volume at price, TradingView Premium / Ultimate):
+//   PD  = previous RTH session      ETH = overnight session (18:00–9:30 NY)      RTH = current RTH (developing)
+// A node is drawn only when the same kind of node sits at the same price in at least N of these profiles.
+//   HVN   = high-volume node (acceptance)             → box
+//   LVN   = low-volume valley between two nodes        → solid line
+//   Shelf = abrupt step in volume (edge of acceptance) → dashed line
+indicator("AMT Nodes FP", "AMT Nodes", overlay = true, max_boxes_count = 100, max_lines_count = 200, max_labels_count = 200)
+
+// ───────── inputs
+gP       = "Profily (footprint)"
+tpr      = input.int(4, "Ticků na řádek", minval = 1, maxval = 40, group = gP, tooltip = "NQ/MNQ: 4 ticky = 1 bod")
+sessRth  = input.session("0930-1600", "RTH (čas NY)", group = gP)
+sessEth  = input.session("1800-0930", "ETH / overnight (čas NY)", group = gP)
+smoothN  = input.int(2, "Vyhlazení (řádky)", minval = 0, maxval = 8, group = gP)
+
+gN       = "Uzly"
+showH    = input.bool(true, "HVN", group = gN)
+hvnMult  = input.float(1.5, "HVN práh (× průměr profilu)", minval = 1.0, step = 0.05, group = gN)
+edgeFrac = input.float(0.6, "HVN šířka (podíl vrcholu)", minval = 0.2, maxval = 0.95, step = 0.05, group = gN)
+showL    = input.bool(true, "LVN", group = gN)
+lvnMult  = input.float(0.55, "LVN práh (× průměr profilu)", minval = 0.05, maxval = 1.0, step = 0.05, group = gN)
+lvnDepth = input.float(2.0, "LVN hloubka (okolní uzly ≥ × údolí)", minval = 1.2, maxval = 10.0, step = 0.1, group = gN)
+showS    = input.bool(true, "Shelfy", group = gN)
+shelfK   = input.int(4, "Shelf okno (řádky)", minval = 2, maxval = 20, group = gN)
+shelfRat = input.float(2.5, "Shelf skok objemu (×)", minval = 1.5, maxval = 10.0, step = 0.1, group = gN)
+sep      = input.int(4, "Min. rozestup uzlů (řádky)", minval = 1, maxval = 20, group = gN)
+
+gC       = "Konfluence"
+minMatch = input.int(2, "Min. profilů se stejným uzlem", minval = 2, maxval = 3, group = gC)
+tol      = input.float(2.0, "Tolerance LVN / shelf (body)", minval = 0.25, step = 0.25, group = gC)
+hvnTol   = input.float(5.0, "Tolerance HVN (body)", minval = 0.25, step = 0.25, group = gC)
+matchMd  = input.string("Stejný typ", "Shoda typu", options = ["Stejný typ", "LVN = Shelf", "Jakýkoliv uzel"], group = gC)
+needEth  = input.bool(false, "ETH profil musí sedět vždy", group = gC)
+maxDist  = input.float(250.0, "Max. vzdálenost od ceny (body)", minval = 10.0, group = gC)
+maxLv    = input.int(25, "Max. úrovní", minval = 1, maxval = 60, group = gC)
+
+gV       = "Vzhled"
+backBars = input.int(150, "Délka čáry doleva (bary)", minval = 10, maxval = 2000, group = gV)
+ext      = input.int(20, "Prodloužení doprava (bary)", minval = 0, maxval = 300, group = gV)
+hvnCol   = input.color(color.rgb(120, 124, 135), "HVN", group = gV)
+lvnCol   = input.color(color.rgb(179, 136, 255), "LVN", group = gV)
+shCol    = input.color(color.rgb(255, 183, 77), "Shelf", group = gV)
+showLbl  = input.bool(true, "Popisky", group = gV)
+
+// ───────── footprint of the bar → rows (key = row bottom in ticks, snapped to the row grid)
+footprint fp = request.footprint(tpr, 70, 300)
+float tk    = syminfo.mintick
+float rowSz = tk * tpr
+rowKey(float p) => int(math.floor(p / rowSz + 1e-6)) * tpr
+
+curK = array.new_int()
+curV = array.new_float()
+if not na(fp)
+    rs = footprint.rows(fp)
+    if array.size(rs) > 0
+        for i = 0 to array.size(rs) - 1
+            r = array.get(rs, i)
+            array.push(curK, rowKey(volume_row.down_price(r)))
+            array.push(curV, volume_row.total_volume(r))
+else
+    k0 = rowKey(low)
+    k1 = rowKey(high)
+    cnt = int(math.round((k1 - k0) / tpr)) + 1
+    for j = 0 to cnt - 1
+        array.push(curK, k0 + j * tpr)
+        array.push(curV, nz(volume) / cnt)
+
+// ───────── session profiles
+inRth    = not na(time(timeframe.period, sessRth, "America/New_York"))
+inEth    = not na(time(timeframe.period, sessEth, "America/New_York"))
+rthEnd   = not inRth and inRth[1]
+ethStart = inEth and not inEth[1]
+
+var map<int, float> mRth = map.new<int, float>()
+var map<int, float> mEth = map.new<int, float>()
+var map<int, float> mPd  = map.new<int, float>()
+if rthEnd
+    mPd := map.copy(mRth)
+    map.clear(mRth)
+if ethStart
+    map.clear(mEth)
+if barstate.isconfirmed and array.size(curK) > 0
+    for i = 0 to array.size(curK) - 1
+        k = array.get(curK, i)
+        v = array.get(curV, i)
+        if inRth
+            map.put(mRth, k, nz(map.get(mRth, k)) + v)
+        if inEth
+            map.put(mEth, k, nz(map.get(mEth, k)) + v)
+
+// ───────── node detection in one profile → [type 1 HVN / 2 LVN / 3 shelf, price, low, high]
+nodes(map<int, float> m) =>
+    tp = array.new_int()
+    px = array.new_float()
+    lo = array.new_float()
+    hi = array.new_float()
+    if map.size(m) > 6
+        keys = map.keys(m)
+        int kMin = int(array.min(keys))
+        int kMax = int(array.max(keys))
+        int n = math.min(2000, int(math.round((kMax - kMin) / tpr)) + 1)
+        vol = array.new_float(n, 0.0)
+        for k in keys
+            int idx = int(math.round((k - kMin) / tpr))
+            if idx >= 0 and idx < n
+                array.set(vol, idx, array.get(vol, idx) + map.get(m, k))
+        sm = array.new_float(n, 0.0)
+        for r = 0 to n - 1
+            float acc = 0.0
+            float wsum = 0.0
+            for d = -smoothN to smoothN
+                int rr = r + d
+                if rr >= 0 and rr < n
+                    float w = smoothN + 1 - math.abs(d)
+                    acc += array.get(vol, rr) * w
+                    wsum += w
+            array.set(sm, r, acc / wsum)
+        float mean = array.avg(sm)
+        // HVN: local maxima above the threshold
+        if showH and n > 2 and mean > 0
+            for r = 1 to n - 2
+                float v = array.get(sm, r)
+                if v >= hvnMult * mean
+                    bool isMax = true
+                    for d = -sep to sep
+                        int rr = r + d
+                        if d != 0 and rr >= 0 and rr < n
+                            float u = array.get(sm, rr)
+                            if u > v or (d > 0 and u == v)
+                                isMax := false
+                    if isMax
+                        int ea = r
+                        int eb = r
+                        while ea > 0 and array.get(sm, ea - 1) >= edgeFrac * v
+                            ea -= 1
+                        while eb < n - 1 and array.get(sm, eb + 1) >= edgeFrac * v
+                            eb += 1
+                        array.push(tp, 1)
+                        array.push(px, (kMin + r * tpr) * tk + rowSz / 2)
+                        array.push(lo, (kMin + ea * tpr) * tk)
+                        array.push(hi, (kMin + (eb + 1) * tpr) * tk)
+        // LVN: local minima below the threshold with a real node on both sides
+        if showL and n > 2 and mean > 0
+            int span = sep * 4
+            for r = 1 to n - 2
+                float v = array.get(sm, r)
+                if v <= lvnMult * mean
+                    bool isMin = true
+                    for d = -sep to sep
+                        int rr = r + d
+                        if d != 0 and rr >= 0 and rr < n
+                            float u = array.get(sm, rr)
+                            if u < v or (d > 0 and u == v)
+                                isMin := false
+                    if isMin
+                        float lMax = 0.0
+                        float rMax = 0.0
+                        for d = 1 to span
+                            if r - d >= 0
+                                lMax := math.max(lMax, array.get(sm, r - d))
+                            if r + d < n
+                                rMax := math.max(rMax, array.get(sm, r + d))
+                        float fl = math.max(v, mean * 0.05)
+                        if lMax >= lvnDepth * fl and rMax >= lvnDepth * fl and math.min(lMax, rMax) >= 0.8 * mean
+                            float c = (kMin + r * tpr) * tk + rowSz / 2
+                            array.push(tp, 2)
+                            array.push(px, c)
+                            array.push(lo, c - rowSz / 2)
+                            array.push(hi, c + rowSz / 2)
+        // Shelf: boundary where the average volume of the K rows on one side is ≥ X × the other side
+        if showS and n > 2 * shelfK + 2 and mean > 0
+            ratio = array.new_float(n + 1, 0.0)
+            for b = shelfK to n - shelfK
+                float sA = 0.0
+                float sB = 0.0
+                for d = 0 to shelfK - 1
+                    sA += array.get(sm, b + d)
+                    sB += array.get(sm, b - 1 - d)
+                float hiS = math.max(sA, sB) / shelfK
+                float loS = math.max(math.min(sA, sB) / shelfK, mean * 0.02)
+                if hiS >= mean
+                    array.set(ratio, b, hiS / loS)
+            for b = shelfK to n - shelfK
+                float q = array.get(ratio, b)
+                if q >= shelfRat
+                    bool isMax = true
+                    for d = -shelfK to shelfK
+                        int bb = b + d
+                        if d != 0 and bb >= 0 and bb <= n
+                            float u = array.get(ratio, bb)
+                            if u > q or (d > 0 and u == q)
+                                isMax := false
+                    if isMax
+                        float p = (kMin + b * tpr) * tk
+                        array.push(tp, 3)
+                        array.push(px, p)
+                        array.push(lo, p - tk)
+                        array.push(hi, p + tk)
+    [tp, px, lo, hi]
+
+addNodes(array<int> T, array<float> P, array<float> L, array<float> H, array<int> S, array<int> t, array<float> p, array<float> l, array<float> h, int src) =>
+    if array.size(t) > 0
+        for i = 0 to array.size(t) - 1
+            array.push(T, array.get(t, i))
+            array.push(P, array.get(p, i))
+            array.push(L, array.get(l, i))
+            array.push(H, array.get(h, i))
+            array.push(S, src)
+    0
+
+compat(int a, int b) =>
+    matchMd == "Jakýkoliv uzel" ? true : matchMd == "LVN = Shelf" ? (a == b or (a != 1 and b != 1)) : a == b
+
+isNear(int ta, float pa, int tb, float pb) =>
+    math.abs(pa - pb) <= (ta == 1 and tb == 1 ? hvnTol : tol)
+
+// ───────── confluence + drawing (last bar only, redrawn on every update)
+if barstate.islast
+    for l in line.all
+        line.delete(l)
+    for b in box.all
+        box.delete(b)
+    for lb in label.all
+        label.delete(lb)
+
+    [t0, p0, l0, h0] = nodes(mPd)
+    [t1, p1, l1, h1] = nodes(mEth)
+    [t2, p2, l2, h2] = nodes(mRth)
+    T = array.new_int()
+    P = array.new_float()
+    L = array.new_float()
+    H = array.new_float()
+    S = array.new_int()
+    addNodes(T, P, L, H, S, t0, p0, l0, h0, 0)
+    addNodes(T, P, L, H, S, t1, p1, l1, h1, 1)
+    addNodes(T, P, L, H, S, t2, p2, l2, h2, 2)
+
+    int N = array.size(T)
+    used = array.new_bool(N, false)
+    int drawn = 0
+    int x1 = math.max(0, bar_index - backBars)
+    int x2 = bar_index + ext
+    if N > 1
+        for i = 0 to N - 1
+            if drawn >= maxLv
+                break
+            if not array.get(used, i)
+                int   tI = array.get(T, i)
+                float pI = array.get(P, i)
+                int   sI = array.get(S, i)
+                bool hasPd  = sI == 0
+                bool hasEth = sI == 1
+                bool hasRth = sI == 2
+                grp = array.new_int()
+                array.push(grp, i)
+                float sP = pI
+                float sL = array.get(L, i)
+                float sH = array.get(H, i)
+                for j = 0 to N - 1
+                    if j != i and not array.get(used, j)
+                        int sJ = array.get(S, j)
+                        if sJ != sI and compat(tI, array.get(T, j)) and isNear(tI, pI, array.get(T, j), array.get(P, j))
+                            array.push(grp, j)
+                            sP += array.get(P, j)
+                            sL += array.get(L, j)
+                            sH += array.get(H, j)
+                            hasPd  := hasPd or sJ == 0
+                            hasEth := hasEth or sJ == 1
+                            hasRth := hasRth or sJ == 2
+                int cntSrc = (hasPd ? 1 : 0) + (hasEth ? 1 : 0) + (hasRth ? 1 : 0)
+                int gn = array.size(grp)
+                float aP = sP / gn
+                if cntSrc >= minMatch and (not needEth or hasEth) and math.abs(aP - close) <= maxDist
+                    for g in grp
+                        array.set(used, g, true)
+                    drawn += 1
+                    int wd = cntSrc >= 3 ? 2 : 1
+                    color col = tI == 1 ? hvnCol : tI == 2 ? lvnCol : shCol
+                    string nm = tI == 1 ? "HVN" : tI == 2 ? "LVN" : "Shelf"
+                    string src = (hasPd ? "PD " : "") + (hasEth ? "ETH " : "") + (hasRth ? "RTH" : "")
+                    if tI == 1
+                        float bLo = math.round_to_mintick(sL / gn)
+                        float bHi = math.round_to_mintick(sH / gn)
+                        box.new(x1, bHi, x2, bLo, border_color = color.new(col, cntSrc >= 3 ? 40 : 70), bgcolor = color.new(col, cntSrc >= 3 ? 72 : 82))
+                    else
+                        line.new(x1, aP, x2, aP, color = col, width = wd, style = tI == 3 ? line.style_dashed : line.style_solid)
+                    if showLbl
+                        label.new(x2, aP, nm + " " + str.tostring(math.round_to_mintick(aP), format.mintick) + "  " + str.trim(src), style = label.style_label_left, color = color.new(color.black, 100), textcolor = col, size = size.small, tooltip = nm + " sedí v profilech: " + str.trim(src))
