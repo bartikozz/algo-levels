@@ -1239,30 +1239,34 @@ function focusUpdate(r){
   }
   fzSave();
 }
+// pendqnt-style label: confluence families + side + grade, e.g. "(V+) (G+) | SUPPORT - L"
+function fzFam(s){
+  const l = st.res && st.res.levels.find(x => Math.abs(x.price - s.p) <= S.tol);
+  const tags = (l ? l.tags : s.tags) || [], srcs = l ? l.srcs : [], has = re => tags.some(t => re.test(t)), fam = [];
+  if (srcs.includes('vp') || has(/POC|VAH|VAL|LVN|HVN/)) fam.push('V+');
+  if (srcs.some(x => /^opt|^qqq|^chg/.test(x)) || has(/CW|PW|ZG|GEX|γ/)) fam.push('G+');
+  if (srcs.includes('em') || has(/^EM/)) fam.push('E+');
+  if (srcs.includes('sig') || has(/σ/)) fam.push('σ+');
+  if (has(/FLOW/)) fam.push('F+');
+  return fam;
+}
+function fzLabel(s){
+  const fam = fzFam(s), grade = fam.length >= 3 || s.score >= 8 ? 'L' : 'M';
+  return `${fam.map(f => '(' + f + ')').join(' ')} | ${s.side === 'short' ? 'SURFACE' : 'SUPPORT'} - ${grade}`;
+}
 function drawFocus(out){
-  const segs = S.focus ? fz.segs : [];
-  const lastT = out.length ? out[out.length - 1].time : 0;
-  const hash = JSON.stringify(segs.map(s => [s.p, s.t0, s.t1, s.end, s.res])) + (segs.some(s => !s.t1) ? lastT : '');
+  const segs = S.focus ? fz.segs.filter(s => !s.t1) : [];
+  const hash = JSON.stringify(segs.map(s => [s.p, s.side, fzLabel(s)])) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus;
   if (hash === fz.hash) return; fz.hash = hash;
-  // numbered circles where price hit a focus zone: score + outcome (✔ reacted / ✘ broken)
-  try { series.setMarkers(segs.filter(s => s.end === 'hit').map(s => ({ time:D(s.t1), position: s.side === 'short' ? 'aboveBar' : 'belowBar',
-    shape:'circle', color: s.res === 'broken' ? '#f05a6e' : s.res === 'reacted' ? FZ_COL[s.side] : '#c9a66b',
-    text: `${s.score}${s.res === 'reacted' ? ' ✔' : s.res === 'broken' ? ' ✘' : ''}` })).sort((a, b) => a.time - b.time)); } catch(e){}
+  try { series.setMarkers([]); } catch(e){}
   fz.series.forEach(x => { try { chart.removeSeries(x); } catch(e){} }); fz.series = [];
   (fz.axis || []).forEach(l => { try { series.removePriceLine(l); } catch(e){} }); fz.axis = [];
-  for (const s of segs.filter(s => s.end !== 'replaced')) {
-    let t0 = D(s.t0); const t1 = Math.max(s.t1 ? D(s.t1) : lastT, t0 + 60);
-    if (!s.t1 && t1 - t0 < 90 * 60) { const want = t1 - 90 * 60, b = out.find(x => x.time >= want); if (b) t0 = b.time; }   // active zone: always a visible band (≥ 90 min, snapped to a bar)
-    const col = FZ_COL[s.side], active = !s.t1, dim = s.end === 'replaced';
-    const o = { priceLineVisible:false, crosshairMarkerVisible:false, autoscaleInfoProvider:() => null };
-    const glow = chart.addLineSeries({ ...o, color: col + (dim ? '14' : '40'), lineWidth: 10, lastValueVisible:false });
-    const core = chart.addLineSeries({ ...o, ...(active ? { autoscaleInfoProvider: undefined } : {}), color: dim ? col + '55' : col, lineWidth: 3, lastValueVisible: false, title: '' });
-    // exact price always on the price scale (label stays even when the segment is off-screen)
-    if (active) fz.axis.push(series.createPriceLine({ price: s.p, color: col + '8c', lineWidth: 1, lineStyle: 2, lineVisible: true, axisLabelVisible: true, axisLabelColor: col, axisLabelTextColor: '#07080a',
-      title: `${s.side === 'short' ? '▼ SHORT' : '▲ LONG'} ${s.score}` }));
-    const d = [{ time:t0, value:s.p }, { time:t1, value:s.p }];
-    glow.setData(d); core.setData(d); fz.series.push(glow, core);
-  }
+  // invisible anchor series: keeps the time scale populated when Focus hides every other series (LW 4.2 quirk → blank chart)
+  if (S.focus && out.length) { const a = chart.addLineSeries({ color:'rgba(0,0,0,0)', lineWidth:1, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false, autoscaleInfoProvider:() => segs.length ? { priceRange:{ minValue:Math.min(...segs.map(x => x.p)), maxValue:Math.max(...segs.map(x => x.p)) } } : null });
+    a.setData([{ time:out[0].time, value:out[0].close }, { time:out[out.length - 1].time, value:out[out.length - 1].close }]); fz.series.push(a); }
+  // one clean line per side across the whole chart, label on the line, exact price on the axis
+  for (const s of segs) fz.axis.push(series.createPriceLine({ price: s.p, color: '#a4a9b0', lineWidth: 1, lineStyle: 0, lineVisible: true,
+    axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: fzLabel(s) }));
 }
 function focusCards(r){
   const act = ['short', 'long'].map(side => fz.segs.find(s => !s.t1 && s.side === side)).filter(Boolean);
@@ -1273,7 +1277,7 @@ function focusCards(r){
   return act.map(s => {
     const d = s.p - r.last, l = r.levels.find(x => Math.abs(x.price - s.p) <= S.tol), h = l && levelHist(l);
     const near = Math.abs(d) <= S.alertDist;
-    return `<div class="fzc ${s.side} ${near ? 'near' : ''}"><span class="sd">◎ ${s.side === 'short' ? 'SHORT' : 'LONG'}</span>
+    return `<div class="fzc ${s.side} ${near ? 'near' : ''}"><span class="sd">${esc(fzLabel(s))}</span>
       <b>${fmtP(s.p)}</b><span class="m">${d > 0 ? '+' : ''}${d.toFixed(0)} b. · skóre ${s.score} · ${esc(s.tags.slice(0, 3).join(', '))}${h ? ` · hist. reakce ${Math.round(h.rate * 100)} % (n=${h.n})` : ''}</span></div>`;
   }).join('');
 }
@@ -2090,7 +2094,7 @@ const EXPLAIN = [
   [/★/, '★ hlavní QQQ strike', 'QQQ strike na 0/5 s největší gammou, převedený na NQ – v praxi nejsilnější options levely.'],
   [/QQQ/, 'QQQ strike', 'QQQ options level převedený na NQ (× poměr NQ/QQQ).'],
   [/Dead zone/, 'Dead zone', 'Pásmo, kde je dealer gamma kolem nuly – dealeři nic netlumí ani nezesilují, cena tu nemá oporu a projíždí volně.'],
-  [/SHORT|LONG|◎/, 'Focus zóna', 'Nejsilnější konfluence nad / pod cenou: skóre ≥ 5 a aspoň 2 nezávislé zdroje. Vstup potvrzuj footprintem.'],
+  [/SURFACE|SUPPORT|SHORT|LONG|◎/, 'Focus level', 'Nejsilnější konfluence nad cenou (SURFACE) / pod cenou (SUPPORT). V+ = volume profil, G+ = gamma / call-put wall, E+ = EM level, σ+ = σ grid, F+ = options flow. L = silná (≥ 3 zdroje nebo skóre ≥ 8), M = střední. Vstup potvrzuj footprintem.'],
 ];
 const PREFIX = [[/^0D /, '0DTE (dnešní expirace)'], [/^1D /, '1DTE (zítřejší expirace)'], [/^ALL /, 'celý řetězec do 45 dní'], [/7D/, 'složený profil 7 dní'], [/30D/, 'složený profil 30 dní'], [/^RTH /, 'dnešní RTH']];
 function explain(tag){
@@ -2123,7 +2127,7 @@ chart.subscribeCrosshairMove(prm => {
   const r = st.res; if (!r) return hideTip();
   const y = prm.point.y, near = p => { const c = series.priceToCoordinate(p); return c !== null && Math.abs(c - y) <= 6; };
   const items = [];
-  for (const s of fz.segs.filter(s => !s.t1)) if (near(s.p)) { items.push({ tag:(s.side === 'short' ? '◎ SHORT' : '◎ LONG') + ' · skóre ' + s.score, price:s.p }); s.tags.forEach(t => items.push({ tag:t, price:null })); }
+  for (const s of fz.segs.filter(s => !s.t1)) if (near(s.p)) { items.push({ tag:fzLabel(s) + ' · skóre ' + s.score, price:s.p }); s.tags.forEach(t => items.push({ tag:t, price:null })); }
   if (!items.length && vis('lines')) for (const l of r.levels) if (near(l.price) && (l.srcs.includes('opt') || l.srcs.includes('qqq'))) l.tags.slice(0, 4).forEach((t, i) => items.push({ tag:t, price:i ? null : l.price }));
   const E = r.info && r.info.em;
   if (!items.length && vis('em') && E) for (const [m, t] of [[1.5, 'EM +1.5'], [1, 'EM +1'], [.5, 'EM +½'], [0, 'Ref'], [-.5, 'EM −½'], [-1, 'EM −1'], [-1.5, 'EM −1.5']]) { const p = Math.round((E.anchor + m * E.em) * 4) / 4; if (near(p)) items.push({ tag:t, price:p }); }
