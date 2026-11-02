@@ -1206,28 +1206,69 @@ function bigWall(t){
   if (m) return +m[1] % 5 === 0;
   return /^(0DTE|1DTE) (CW|PW) [12]$|^(CW|PW) [12]$|^OI (CW|PW)$/.test(t);   // GEXbot walls; ThetaData walls only add score
 }
-function focusRank(l, r){
+// Level evaluation — YYY guide ch. 5 (greeks in practice) + ch. 6 (GEX, walls, flip, 0DTE) + 8/10 (shadow gamma, skew) + 12 (brackets) + 15 (σ)
+//  hard filters: big call / put wall (0/5 strike) + an independent confluence, not broken, not already used today,
+//                not a flip-inside-LVN acceleration zone, not outside the 1-day bracket by more than 25 %
+//  weight (multiplicative):
+//    gamma at the strike    dealer gamma concentration vs the biggest strike nearby (delta-hedging flow is the mechanism)
+//    regime                 spot above vol trigger = dealers long gamma, fades work; below = they chase, fades weaker
+//    0DTE                   0DTE wall = multi-expiry wall; last hour: 0DTE gamma (color) peaks → pin / sharp rejection
+//    vanna                  support in a selloff with IV rising: dealer vanna − amplifies the move (weaker floor), + cushions it
+//    shadow gamma           steep skew / downside underhedge → floors below spot understated risk
+//    structure              wall on composite HVN / ledge, σ ±1/±2 on the wall, LVN on the far side
+//    confluence families    each extra independent source; historical reaction rate of the tag type
+//    distance               inside the 1-day bracket, closer = more likely reached this session
+function focusRank(l, r, why){
   if (l.status && l.status.key === 'broken') return -1;
-  if (l.score < Math.max(5, S.minScore)) return -1;  // only strong levels become the focus zone
+  if (l.score < Math.max(5, S.minScore)) return -1;
   const ng = new Set(l.srcs.map(x => /^qqq|^chg|^opt/.test(x) ? 'opt' : x)).size;  // NQ + QQQ options = one family
-  const walls = l.tags.filter(bigWall).length;
+  const wt = l.tags.filter(bigWall), walls = wt.length;
   if (!walls) return -1;                              // must sit on a big call / put wall
+  // ch. 6.3: call wall = ceiling above spot, put wall = floor below spot
+  if (!wt.some(t => l.dist > 0 ? /CW/.test(t) : /PW/.test(t))) return -1;
   if (l.fast && !l.stack) return -1;                  // flip inside a composite LVN = acceleration zone, not a reversal level
-  if (ng < 2 && walls < 2) return -1;                 // + another confluence (volume, EM, σ, FLOW …) or a second wall           // …and only real confluence (≥ 2 independent sources: options + volume, EM, σ …)
+  if (ng < 2 && walls < 2) return -1;                 // + another independent confluence or a second wall
   if (fz.segs.some(s => s.t1 && s.end === 'hit' && Math.abs(s.p - l.price) <= S.tol)) return -1; // used today
-  const em = r.info.em ? r.info.em.em : 120;
+  const PL = (() => { try { return pl; } catch(e) { return {}; } })();
+  const W = why || [], mul = (k, txt) => { if (k !== 1) W.push([txt, k]); q *= k; };
+  const side = l.dist > 0 ? 'short' : 'long';
+  const br = (PL.vol && PL.vol.nq && PL.vol.nq.brackets && (l.dist > 0 ? (PL.vol.nq.brackets.d1_up || PL.vol.nq.brackets.d1) : (PL.vol.nq.brackets.d1_down || PL.vol.nq.brackets.d1)))
+    || (r.info.em ? r.info.em.em : 150);
+  if (Math.abs(l.dist) > br * 1.25) return -1;        // ch. 12: no targets outside the 1-day bracket without a strong reason
   let q = l.score;
-  if (l.tags.some(t => t.includes('★'))) q += 1;
-  if (l.stack) q *= 1.3;                              // wall on a composite HVN / prior ledge: much stronger ceiling / floor
-  // YYY ch. 6.4: 0DTE wall at the same strike as the multi-expiry wall carries more weight
-  if (l.tags.some(t => /^0DTE (CW|PW)/.test(t)) && l.tags.some(t => /^(CW|PW) [12]$|^OI (CW|PW)$/.test(t))) q *= 1.15;
-  // ch. 15.2: σ level on a wall or inside an LVN = statistically extended move into structure
-  if (l.tags.some(t => /^σ [+−](1|2)$/.test(t)) && (walls || l.tags.some(t => /LVN/.test(t)))) q *= 1.1;
-  q *= 1 + 0.12 * (ng - 2);          // each extra independent source adds weight
-  if (r.regime > 0) q *= 1.15;                      // positive gamma = reversals more likely
+  if (l.tags.some(t => t.includes('★'))) { q += 1; W.push(['QQQ ★ wall', 1]); }
+  // gamma concentration at the strike (ch. 5.1 / 6.1)
+  const o = fzOpt({ p:l.price, tags:l.tags, side });
+  if (o.gx != null) mul(0.7 + 0.7 * Math.min(1, o.gx), `gamma na striku ${Math.round(o.gx * 100)} % maxima`);
+  // regime (ch. 6.2): dealers long gamma above the vol trigger
+  const trig = (PL.out && PL.out.out && PL.out.out.levels && PL.out.out.levels.trigger) || null;
+  const longG = trig ? r.last > trig : r.regime > 0;
+  mul(longG ? 1.15 : 0.85, longG ? 'long gamma (nad triggerem)' : 'short gamma – fade slabší');
+  // 0DTE (ch. 5.1 / 6.4)
+  const is0 = l.tags.some(t => /^0DTE (CW|PW)/.test(t) || /^0D (CW|PW)/.test(t));
+  if (is0 && l.tags.some(t => /^(CW|PW) [12]$|^OI (CW|PW)$|^ALL (CW|PW)/.test(t))) mul(1.15, '0DTE wall = multi-expiry wall');
+  const e = A.et(Date.now() / 1000), mins = e.h * 60 + e.mi;
+  if (is0 && mins >= 900 && mins < 960) mul(1.2, 'poslední hodina – 0DTE gamma na maximu');
+  // vanna (ch. 5.3): selloff + IV spike → short-vanna dealers amplify; support only
+  const V = PL.vol, ivUp = V && V.hist && V.hist.front_change != null ? V.hist.front_change > 0.01 : false;
+  if (side === 'long' && o.v) mul(o.v < 0 && ivUp ? 0.85 : o.v > 0 ? 1.08 : 1, o.v < 0 && ivUp ? 'vanna − při rostoucí IV – podlaha slabší' : 'vanna + tlumí výprodej');
+  // shadow gamma / skew (ch. 8 / 10): downside underhedge
+  const sh = V && V.shadow && V.shadow[0];
+  if (side === 'long' && sh && sh.ratio_down > 1.15) mul(0.9, `shadow γ dolů ${sh.ratio_down.toFixed(2)}× – riziko podceněné`);
+  if (side === 'short' && V && V.skew && V.skew.squeeze) mul(0.9, 'call skew zvednutý – squeeze přes strop');
+  // structure (stack gamma with structure, ch. 15.2)
+  if (l.stack) mul(1.3, `wall na ${l.stack.on} ${l.stack.src}`);
+  if (l.tags.some(t => /^σ [+−](1|2)$/.test(t))) mul(1.1, 'σ ±1/±2 na wallu');
+  // confluence families + history
+  mul(1 + 0.12 * (ng - 2), `${ng} nezávislé zdroje`);
   const h = levelHist(l);
-  if (h && h.n >= 8 && fz.kindStats.avg > 0) q *= Math.min(1.5, Math.max(0.6, h.rate / fz.kindStats.avg));
-  return q / (1 + Math.abs(l.dist) / (0.5 * em));     // closer = more likely to be reached this session
+  if (h && h.n >= 8 && fz.kindStats.avg > 0) mul(Math.min(1.5, Math.max(0.6, h.rate / fz.kindStats.avg)), `historie ${Math.round(h.rate * 100)} % (n=${h.n})`);
+  // entropy gate (ch. 11.3)
+  if (st.gate && st.gate.label === 'ELEVATED') mul(0.85, 'entropie ELEVATED');
+  if (st.gate && st.gate.label === 'CRITICAL') mul(0.6, 'entropie CRITICAL');
+  const dq = 1 / (1 + Math.abs(l.dist) / (0.5 * br));
+  W.push([`vzdálenost ${Math.round(Math.abs(l.dist))} b. z bracketu ${Math.round(br)}`, dq]);
+  return q * dq;
 }
 function focusUpdate(r){
   if (!r) return;
@@ -1250,13 +1291,13 @@ function focusUpdate(r){
     const a = fz.segs.filter(s => !s.t1 && s.side === side);
     a.slice(0, -1).forEach(s => { s.t1 = lastT; s.end = 'replaced'; });
   }
-  const lv = r.levels.map(l => ({ l, q: focusRank(l, r) })).filter(x => x.q > 0);
+  const lv = r.levels.map(l => { const why = []; return { l, q: focusRank(l, r, why), why }; }).filter(x => x.q > 0);
   for (const side of ['short', 'long']) {
     const cand = lv.filter(x => side === 'short' ? x.l.dist > S.touch : x.l.dist < -S.touch).sort((a, b) => b.q - a.q);
     const best = cand[0], act = fz.segs.find(s => !s.t1 && s.side === side);
     const cur = act && cand.find(x => Math.abs(x.l.price - act.p) <= S.tol);
     if (act && cur && (!best || best === cur || best.q < cur.q * 1.25)) { // hysteresis: keep the active zone unless clearly beaten
-      act.score = cur.l.score; act.tags = cur.l.tags.slice(0, 4); act.p = cur.l.price; continue;
+      act.score = cur.l.score; act.tags = cur.l.tags.slice(0, 4); act.p = cur.l.price; act.why = cur.why; continue;
     }
     if (act) {
       if (lastT - act.t0 < 300) fz.segs.splice(fz.segs.indexOf(act), 1);   // flicker < 5 min: drop
@@ -1271,7 +1312,7 @@ function focusUpdate(r){
         let j = bars.length - 1; while (j >= open && !(bars[j].h >= p - S.touch && bars[j].l <= p + S.touch)) j--;
         const k = Math.max(open, j + 1); if (k < bars.length - 1) t0 = bars[k].t;
       }
-      fz.segs.push({ side, p:best.l.price, t0, score:best.l.score, tags:best.l.tags.slice(0, 4) });
+      fz.segs.push({ side, p:best.l.price, t0, score:best.l.score, tags:best.l.tags.slice(0, 4), why:best.why });
     }
   }
   fzSave();
@@ -1283,13 +1324,15 @@ function focusUpdate(r){
 function fzOpt(s){
   const tags = s.tags || [], hor = tags.some(t => /^(0DTE|1DTE|0D|1D) /.test(t)) ? 'S' : 'L';
   const L = srvLevelsFresh() ? st.srv.levels : null;
-  let g = 0, v = 0, surf = false;
+  let g = 0, v = 0, gx = null, vx = null, surf = false;
   const pick = (rows, iP, iG, iV) => {
     rows = (rows || []).filter(r => Number.isFinite(r[iP]));
     if (!rows.length) return;
     const r = rows.reduce((a, x) => Math.abs(x[iP] - s.p) < Math.abs(a[iP] - s.p) ? x : a);
     if (Math.abs(r[iP] - s.p) > 30) return;
     const mg = Math.max(...rows.map(x => Math.abs(x[iG] || 0))), mv = iV != null ? Math.max(...rows.map(x => Math.abs(x[iV] || 0))) : 0;
+    if (mg > 0) gx = Math.abs(r[iG]) / mg;
+    if (iV != null && mv > 0) vx = Math.abs(r[iV]) / mv;
     if (mg > 0 && Math.abs(r[iG]) >= 0.12 * mg) g = Math.sign(r[iG]);
     if (iV != null && mv > 0 && Math.abs(r[iV]) >= 0.12 * mv) v = Math.sign(r[iV]);
   };
@@ -1300,7 +1343,7 @@ function fzOpt(s){
     const G = st.data.gex || {}, z = hor === 'S' ? (G.zero || G.full) : (G.full || G.zero), last = st.res ? st.res.last : 0;
     if (z && Array.isArray(z.strikes)) { const o = Number.isFinite(z.spot) && Math.abs(z.spot - last) > 40 ? last - z.spot : 0; pick(z.strikes.map(x => [x[0] + o, x[1]]), 0, 1, null); }
   }
-  return { g, v, hor, type: surf ? 'SURFACE' : s.side === 'short' ? 'RESISTANCE' : 'SUPPORT' };
+  return { g, v, gx, vx, hor, surf, type: surf ? 'SURFACE' : s.side === 'short' ? 'RESISTANCE' : 'SUPPORT' };
 }
 function fzLabel(s){
   const o = fzOpt(s), t = [];
@@ -1353,7 +1396,7 @@ function focusCards0(r){
     const d = s.p - r.last, l = r.levels.find(x => Math.abs(x.price - s.p) <= S.tol), h = l && levelHist(l);
     const near = Math.abs(d) <= S.alertDist;
     return `<div class="fzc ${s.side} ${near ? 'near' : ''}"><span class="sd">${esc(fzLabel(s))}</span>
-      <b>${fmtP(s.p)}</b><span class="m">${d > 0 ? '+' : ''}${d.toFixed(0)} b. · skóre ${s.score} · ${esc(s.tags.slice(0, 3).join(', '))}${h ? ` · hist. reakce ${Math.round(h.rate * 100)} % (n=${h.n})` : ''}</span></div>`;
+      <b>${fmtP(s.p)}</b><span class="m" title="${esc((s.why || []).map(([t, k]) => `${t} ×${k.toFixed(2)}`).join('\n'))}">${d > 0 ? '+' : ''}${d.toFixed(0)} b. · skóre ${s.score} · ${esc(s.tags.slice(0, 3).join(', '))}${(s.why || []).length ? ' · ' + esc([...s.why].filter(w => w[1] !== 1 && !/^vzdálenost/.test(w[0])).sort((x, y) => Math.abs(Math.log(y[1])) - Math.abs(Math.log(x[1]))).slice(0, 2).map(w => `${w[0]} ${w[1] > 1 ? '↑' : '↓'}`).join(', ')) : ''}</span></div>`;
   }).join('');
 }
 function checkFocusAlerts(){
