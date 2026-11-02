@@ -1217,6 +1217,10 @@ function focusRank(l, r){
   const em = r.info.em ? r.info.em.em : 120;
   let q = l.score;
   if (l.tags.some(t => t.includes('★'))) q += 1;
+  // YYY ch. 6.4: 0DTE wall at the same strike as the multi-expiry wall carries more weight
+  if (l.tags.some(t => /^0DTE (CW|PW)/.test(t)) && l.tags.some(t => /^(CW|PW) [12]$|^OI (CW|PW)$/.test(t))) q *= 1.15;
+  // ch. 15.2: σ level on a wall or inside an LVN = statistically extended move into structure
+  if (l.tags.some(t => /^σ [+−](1|2)$/.test(t)) && (walls || l.tags.some(t => /LVN/.test(t)))) q *= 1.1;
   q *= 1 + 0.12 * (ng - 2);          // each extra independent source adds weight
   if (r.regime > 0) q *= 1.15;                      // positive gamma = reversals more likely
   const h = levelHist(l);
@@ -2492,7 +2496,7 @@ function planRender(){
     ${G.callWall ? plRow('Call wall' + (G.callWall0 && Math.abs(G.callWall0 - G.callWall) < 5 ? ' (= 0DTE ★)' : ''), plFmt(G.callWall), 'u') : ''}
     ${G.putWall ? plRow('Put wall' + (G.putWall0 && Math.abs(G.putWall0 - G.putWall) < 5 ? ' (= 0DTE ★)' : ''), plFmt(G.putWall), 'd') : ''}
     ${G.width ? plRow('Šířka range · pozice spotu', `${plFmt(G.width)} b. · ${G.pos != null ? Math.round(G.pos * 100) + ' % od put wall' : '—'}`) : ''}
-    ${G.maxPain ? plRow('Max pain týden · měsíc', `${plFmt(G.maxPain)} · ${plFmt(G.maxPainMonth)}`) : ''}
+    ${G.maxPain ? plRow('Max pain týden · měsíc' + ([4, 5].includes(new Date(c.sess + 'T12:00:00Z').getUTCDay()) ? ' (čt/pá: drift k MP)' : ''), `${plFmt(G.maxPain)} · ${plFmt(G.maxPainMonth)}`, [4, 5].includes(new Date(c.sess + 'T12:00:00Z').getUTCDay()) ? 'w' : '') : ''}
     ${G.net != null ? plRow('NET / ABS GEX (0–21 DTE)', `${Pro.fmtM(G.net)} / ${Pro.fmtM(G.abs)}${G.coiled ? ' · COILED' : ''}`, G.coiled ? 'w' : G.net > 0 ? 'u' : 'd') : ''}
     ${G.bigCalls ? plRow('Největší call / put OI', `${G.bigCalls.slice(0, 3).map(plFmt).join(', ')} / ${G.bigPuts.slice(0, 3).map(plFmt).join(', ')}`) : ''}
     <p class="pl-note">${o.gexRegime === 'SHORT GAMMA' ? 'Short gamma: vstup jen na levelu s footprintem, pak trail po 20 b. Nefadeovat momentum.' : 'Long gamma: fade extrémů, pevný malý stop (mentor 3 b. na ES), cíle předchozí struktura a 30min single prints.'}${G.match ? ' 0DTE wall = multi-expiry wall → level má víc váhy.' : ''}</p></div>`;
