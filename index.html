@@ -1312,7 +1312,11 @@ function fzLabel(s){
 }
 function drawFocus(out){
   const segs = S.focus ? fz.segs.filter(s => !s.t1) : [];
-  const hash = JSON.stringify(segs.map(s => [s.p, s.side, fzLabel(s)])) + JSON.stringify(st.res ? st.res.levels.filter(l => l.fast).map(l => l.price) : []) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus;
+  // levels already hit today stay on the chart (dimmed, with the outcome) until the session ends
+  const hits = [];
+  if (S.focus) for (const s of fz.segs.filter(s => s.end === 'hit'))
+    if (!segs.some(a => Math.abs(a.p - s.p) <= S.tol) && !hits.some(h => Math.abs(h.p - s.p) <= S.tol)) hits.push(s);
+  const hash = JSON.stringify(segs.map(s => [s.p, s.side, fzLabel(s)])) + JSON.stringify(hits.map(s => [s.p, s.res])) + JSON.stringify(st.res ? st.res.levels.filter(l => l.fast).map(l => l.price) : []) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus;
   if (hash === fz.hash) return; fz.hash = hash;
   try { series.setMarkers([]); } catch(e){}
   fz.series.forEach(x => { try { chart.removeSeries(x); } catch(e){} }); fz.series = [];
@@ -1325,6 +1329,12 @@ function drawFocus(out){
   if (S.focus && st.res) for (const l of st.res.levels.filter(l => l.fast && Math.abs(l.dist) < 400 && !segs.some(s => Math.abs(s.p - l.price) <= S.tol)))
     fz.axis.push(series.createPriceLine({ price: l.price, color: '#f0a020', lineWidth: 1, lineStyle: 2, lineVisible: true, axisLabelVisible: true,
       axisLabelColor: '#f0a020', axisLabelTextColor: '#07080a', title: '⚡ FLIP v LVN · rychlý pohyb' }));
+  for (const s of hits) {
+    const res = s.res === 'reacted' ? '✔ reakce' : s.res === 'broken' ? '✘ proraženo' : '● zasaženo';
+    const col = s.res === 'reacted' ? '#5ee0c8' : s.res === 'broken' ? '#f05a6e' : '#8a8f97';
+    fz.axis.push(series.createPriceLine({ price: s.p, color: col + '99', lineWidth: 1, lineStyle: 1, lineVisible: true,
+      axisLabelVisible: true, axisLabelColor: col, axisLabelTextColor: '#07080a', title: `${fzLabel(s)} · ${res} ${A.hhmm(s.t1)}` }));
+  }
   for (const s of segs) fz.axis.push(series.createPriceLine({ price: s.p, color: '#a4a9b0', lineWidth: 1, lineStyle: 0, lineVisible: true,
     axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: fzLabel(s) }));
 }
