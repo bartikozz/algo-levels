@@ -203,19 +203,14 @@
       }
     }
 
-    // σ Grid: 20-day stdev of daily log returns, Globex-open anchor
-    if (L.sigma && daily && daily.length) {
-      const d = daily.filter(b => et(b.t).date < calToday).map(b => b.c);
-      if (d.length > 21) {
-        const r = [];
-        for (let i = d.length - 20; i < d.length; i++) r.push(Math.log(d[i] / d[i - 1]));
-        const m = r.reduce((a, b) => a + b, 0) / r.length;
-        const sd = Math.sqrt(r.reduce((a, b) => a + (b - m) ** 2, 0) / (r.length - 1));
-        const anc = todayBars.length ? todayBars[0].o : last;
-        const sp = anc * sd;
-        info.sigma = { anchor: anc, pts: sp };
-        [[-1, 'σ −1'], [-0.5, 'σ −½'], [0.5, 'σ +½'], [1, 'σ +1']]
-          .forEach(([k, t]) => add(anc + k * sp, t, Math.abs(k) === 1 ? 1.5 : 1, 'sig'));
+    // σ Grid (YYY guide ch. 15): σ = ATR(10)·√(5/390), anchor = close of the 18:00 ET Globex bar, ±0.5…±3σ + PDH/PDL
+    const Y = typeof window !== 'undefined' ? window.YYY : (typeof globalThis !== 'undefined' ? globalThis.YYY : null);
+    if (L.sigma && daily && daily.length && Y) {
+      const g = Y.sigmaGrid(daily, bars);
+      if (g) {
+        info.sigma = { anchor: g.anchor, pts: g.sigma, atr: g.atr, pdh: g.pdh, pdl: g.pdl };
+        for (const x of g.levels) add(x.p, `σ ${x.m > 0 ? '+' : '−'}${Math.abs(x.m)}`, [1, 2, 3].includes(Math.abs(x.m)) ? 1.5 : 1, 'sig');
+        add(g.pdh, 'PDH', 1.5, 'sig'); add(g.pdl, 'PDL', 1.5, 'sig');
       }
     }
 

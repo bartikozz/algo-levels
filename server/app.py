@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from exposure import snapshot, heatmap, smile
+import volframe
 from futures import Tape, DatabentoFeed
 from optflow import OptionFlow
 
@@ -372,6 +373,63 @@ def opt_term(t: str | None = None):
         at = lambda x: min(sm, key=lambda p: abs(p['strike'] - x))['iv']
         out.append(dict(exp=e, atm=at(S), put3=at(S * 0.97), call3=at(S * 1.03)))
     return j(dict(ts=s['ts'], spot=S, term=out))
+
+
+_vol_cache = dict(at=0.0, ts=None, rep=None)
+
+
+def _vol_hist_update(rep):
+    """one record per day (latest wins) → percentile of skew / wing / ABS GEX vs recent history"""
+    fn = os.path.join(DATA_DIR, 'vol-hist.json')
+    try:
+        with open(fn) as f: H = json.load(f)
+    except Exception:
+        H = {}
+    day = datetime.now(ET).strftime('%Y-%m-%d')
+    H[day] = dict(near=rep['skew']['near'], medium=rep['skew']['medium'], wing90=rep['skew']['wing90'],
+                  abs_gex=rep['gex']['abs'], holes=rep['holes'], front=(rep['front'] or {}).get('atm'))
+    H = dict(sorted(H.items())[-120:])
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(fn + '.tmp', 'w') as f: json.dump(H, f)
+        os.replace(fn + '.tmp', fn)
+    except Exception:
+        pass
+    prev = [v for d, v in H.items() if d < day][-60:]
+    def pct(key):
+        xs = [v[key] for v in prev if v.get(key) is not None]
+        x = H[day].get(key)
+        if x is None or len(xs) < 5: return None
+        return round(sum(1 for v in xs if v <= x) / len(xs), 3)
+    last = prev[-1] if prev else None
+    return dict(n=len(prev), pct={k: pct(k) for k in ('near', 'medium', 'wing90', 'abs_gex')},
+                prev=last, holes_change=(rep['holes'] - last['holes']) if last and last.get('holes') is not None else None,
+                front_change=(rep['front']['atm'] - last['front']) if (last and last.get('front') and rep['front'] and rep['front'].get('atm')) else None)
+
+
+@app.get('/vol')
+def vol(t: str | None = None):
+    """Nightly-routine volatility report: term structure, skew, Sig(x) vol map, shadow gamma, GEX structure,
+    max pain, expected-move brackets (YYY guide ch. 6, 8, 9, 10). NQ prices via the QQQ→NQ ratio."""
+    auth(t)
+    s = state['snap']
+    if not s: raise HTTPException(503, state['opt_err'] or 'options not ready')
+    if _vol_cache['ts'] != s['ts'] or time.time() - _vol_cache['at'] > 120:
+        rep = volframe.report(state['chain'], s['spot'], s['ts'], s)
+        if not rep: raise HTTPException(503, 'no IV data yet')
+        rep['hist'] = _vol_hist_update(rep)
+        _vol_cache.update(at=time.time(), ts=s['ts'], rep=rep)
+    rep = _vol_cache['rep']
+    k = state['k']
+    g = rep['gex']
+    toNQ = lambda x: nq(x) if x is not None else None
+    rep = dict(rep, k=k, nq=dict(call_wall=toNQ(g['call_wall']), put_wall=toNQ(g['put_wall']),
+                                 call_wall_0d=toNQ(g['call_wall_0d']), put_wall_0d=toNQ(g['put_wall_0d']),
+                                 vol_trigger=toNQ(rep['vol_trigger']),
+                                 max_pain={kk: toNQ(v) for kk, v in rep['max_pain'].items() if not str(kk).startswith('exp')},
+                                 big_calls=[toNQ(x) for x in g['big_calls']], big_puts=[toNQ(x) for x in g['big_puts']],
+                                 brackets={kk: (v * k if (v is not None and k) else None) for kk, v in rep['brackets'].items()}))
+    return j(rep)
 
 
 @app.get('/options/landscape')

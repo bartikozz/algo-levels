@@ -15,7 +15,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="levels.js?v=22"></script>
+<script src="yyy.js?v=1"></script>
+<script src="levels.js?v=23"></script>
 <script src="bias.js?v=3"></script>
 <script src="analysis.js?v=1"></script>
 <script src="backtest.js?v=1"></script>
@@ -66,7 +67,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .rpbar[hidden]{display:none} .rpbar button{font-size:11px;padding:3px 7px;border:1px solid var(--line2);border-radius:5px;color:var(--text)} .rpbar button.on{border-color:var(--gold);color:var(--gold)}
 .focbtn{position:absolute;left:8px;top:8px;z-index:3;font-size:11px;padding:5px 9px;border:1px solid var(--line2);border-radius:6px;background:rgba(7,8,10,.8);color:var(--muted);letter-spacing:.06em}
 .focbtn.on{color:#5ee0c8;border-color:rgba(94,224,200,.55)}
-.rpbtn{left:206px} body.replay .rpbtn{display:none}
+.rpbtn{left:auto;right:72px} body.replay .rpbtn{display:none}
 .fzc{display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--line2);border-radius:6px;background:var(--panel);flex:1;min-width:260px}
 .fzc .sd{font-weight:800;letter-spacing:.08em;font-size:11px} .fzc.short{border-color:rgba(94,224,200,.45)} .fzc.short .sd{color:#5ee0c8}
 .fzc.long{border-color:rgba(255,95,162,.45)} .fzc.long .sd{color:#ff5fa2} .fzc b{font-size:14px} .fzc .m{font-size:11px;color:var(--muted)}
@@ -196,6 +197,28 @@ body.focus .meta{display:none!important}
 .empty{padding:28px 16px;color:var(--muted);font-size:13px;line-height:1.6}
 .empty button{margin-top:12px;padding:8px 12px;border:1px solid var(--line2);border-radius:6px;color:var(--text)}
 
+/* ───────── Plán dne (YYY framework) */
+#plan .box{max-width:1180px}
+.pl-hero{display:grid;grid-template-columns:auto 1fr auto;gap:18px;align-items:center;border:1px solid var(--line2);border-radius:12px;padding:16px 18px;background:var(--panel2)}
+.pl-lean{font:700 26px/1 var(--mono);letter-spacing:.04em}
+.pl-lean.bull{color:#5ee0c8}.pl-lean.bear{color:#ff5fa2}.pl-lean.neutral,.pl-lean.choppy{color:#c9a66b}.pl-lean.no{color:#f05a6e}
+.pl-size{font:700 20px var(--mono);padding:8px 12px;border-radius:8px;border:1px solid var(--line2);text-align:center}
+.pl-size small{display:block;font:500 10px var(--mono);color:var(--muted);letter-spacing:.08em}
+.pl-size.FULL{color:#5ee0c8;border-color:rgba(94,224,200,.5)}.pl-size.HALF,.pl-size.QUARTER{color:#c9a66b;border-color:rgba(201,166,107,.5)}.pl-size.ZERO{color:#f05a6e;border-color:rgba(240,90,110,.5)}
+.pl-kv{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--muted)} .pl-kv b{color:var(--text);font-family:var(--mono);font-weight:600}
+.pl-ctx{margin:10px 0 0;font-size:12.5px;line-height:1.55;color:var(--text)} .pl-ctx li{margin:2px 0}
+.pl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px;margin-top:14px}
+.pl-card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--panel)}
+.pl-card h5{margin:0 0 8px;font:600 11px var(--mono);letter-spacing:.1em;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+.pl-card h5 span{color:var(--text)}
+.pl-row{display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.04)}
+.pl-row b{font-family:var(--mono);font-weight:600;text-align:right}
+.pl-row .u{color:#5ee0c8}.pl-row .d{color:#ff5fa2}.pl-row .w{color:#c9a66b}.pl-row .x{color:#f05a6e}
+.pl-note{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:6px}
+.pl-in{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px;margin:6px 0}
+.pl-in input,.pl-in select{width:72px;padding:5px 6px;background:#07080a;border:1px solid var(--line2);border-radius:5px;color:var(--text);font:12px var(--mono)}
+.pl-spark{width:100%;height:46px;display:block;margin-top:6px}
+@media (max-width:640px){.pl-hero{grid-template-columns:1fr;gap:10px}.pl-lean{font-size:22px}}
 .sheet{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.6);display:none;align-items:flex-end;justify-content:center}
 .sheet.show{display:flex}
 .sheet .box{width:100%;max-width:560px;max-height:88dvh;overflow:auto;background:var(--panel);border:1px solid var(--line2);
@@ -268,6 +291,7 @@ body.focus .meta{display:none!important}
 <header>
   <div class="brand">ALGO<span>LEVELS</span></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
+  <button id="planBtn" class="hbtn" hidden aria-label="Plán dne">✦</button>
   <button id="biasBtn" class="hbtn" aria-label="Bias" style="font-size:12px;font-weight:700">B</button>
   <button id="proBtn" class="hbtn" aria-label="PRO data" style="color:#5ee0c8">◆</button>
   <button id="anaBtn" class="hbtn" aria-label="Analýza">⊞</button>
@@ -278,6 +302,7 @@ body.focus .meta{display:none!important}
     <button data-tab="chart" class="on"><i>◎</i>Graf</button>
     <button data-tab="levels"><i>≡</i>Levely</button>
     <button data-tab="pro"><i style="color:#5ee0c8">◆</i>Options &amp; Flow</button>
+    <button data-tab="plan"><i style="color:#c9a66b">✦</i>Plán dne</button>
     <button data-tab="bias"><i>B</i>Bias</button>
     <button data-tab="ana"><i>⊞</i>Analýza</button>
     <button data-tab="stats"><i>▦</i>Deník</button>
@@ -315,6 +340,11 @@ body.focus .meta{display:none!important}
   <div id="sDay"></div>
   <div class="btns"><button id="sClose">Zavřít</button></div>
   <p class="hint">Reakce = do 15 svíček pohyb ≥ 15 b. ve směru fade bez close za levelem. Průraz = close &gt; 6 b. za levelem. Zbytek = chop. Ø reakce / Ø proti = průměrný max. pohyb ve směru / proti fade (b.). Levely se ukládají každých 15 min během RTH, vyhodnocení po close.</p>
+</div></div>
+<div id="plan" class="sheet"><div class="box">
+  <h3>PLÁN DNE</h3>
+  <div id="planBody"><p class="hint">Načítám vrstvy…</p></div>
+  <div class="btns"><button id="planReload">Přepočítat</button><button id="planCopy">Kopírovat bias post</button><button id="planClose">Zavřít</button></div>
 </div></div>
 <div id="bias" class="sheet"><div class="box">
   <h3>BIAS</h3>
@@ -1287,6 +1317,11 @@ function drawFocus(out){
     axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: fzLabel(s) }));
 }
 function focusCards(r){
+  const gate = st.gate && st.gate.label !== 'NORMAL' && !st.replay
+    ? `<div class="fzc"><span class="sd" style="color:${st.gate.label === 'CRITICAL' ? '#f05a6e' : '#c9a66b'}">${st.gate.label === 'CRITICAL' ? '⛔ CRITICAL' : '⚠ ELEVATED'}</span><span class="m">${st.gate.label === 'CRITICAL' ? 'Entropie ≥ 1.2× – žádné nové vstupy (Plán dne).' : 'Entropie zvýšená – poloviční size, širší stopy, levely trhanější.'} Size: ${st.gate.size}</span></div>` : '';
+  return gate + focusCards0(r);
+}
+function focusCards0(r){
   const act = ['short', 'long'].map(side => fz.segs.find(s => !s.t1 && s.side === side)).filter(Boolean);
   if (!act.length) {
     const g = st.data.gex || {}, why = !(g.zero || g.full) ? ` · GEXbot data se nenačetla (${esc($('upd').textContent || '')})` : gexStale() ? ' · GEXbot data jsou starší než 15 min' : '';
@@ -2116,7 +2151,8 @@ const EXPLAIN = [
   [/straddle/, 'EM ze straddlu', 'Očekávaný pohyb dne z ceny 0DTE ATM straddlu – co trh opravdu platí za dnešní pohyb.'],
   [/^EM|EM [+−]|EM ±/, 'Expected move', 'Očekávaný denní pohyb z VXN/VIX od RTH open (Ref). ±1 EM trh dosáhne zhruba ve třetině dní – extrémy jsou místa pro fade.'],
   [/^Ref/, 'Ref', 'Kotva EM – cena při RTH open, střed očekávaného pohybu.'],
-  [/σ/, 'σ Grid', 'Násobky 20denní směrodatné odchylky denních výnosů od Globex open – statistické hranice pohybu.'],
+  [/σ/, 'σ Grid (kap. 15)', 'σ = ATR(10) × √(5/390), kotva = close 18:00 ET Globex baru, úrovně ±0.5/0.7/1/1.5/2/2.5/3σ. 1σ = normální denní pohyb, 2σ = natažené, 3σ = outlier. Nejlepší jako konfluence s LVN nebo GEX wallem; vstup jen s absorpcí na footprintu.'],
+  [/^PD[HL]$/, 'PDH / PDL', 'High / low předchozí session. Má vlastní váhu nezávisle na σ gridu a často reaguje s blízkými σ levely.'],
   [/ON POC/, 'Overnight POC', 'Cena s největším objemem v noční session (18:00–9:30 ET) – férová cena overnightu.'],
   [/ON VAH/, 'Overnight VAH', 'Horní hrana 70 % objemu overnightu. Nad ní je trh „drahý“ vůči noci – častá reakce po otevření.'],
   [/ON VAL/, 'Overnight VAL', 'Dolní hrana 70 % objemu overnightu.'],
@@ -2285,8 +2321,315 @@ async function pushAdopt(){ if (!S.worker || st.demo) return; try { const c = aw
 pushUI(); pushAdopt();
 setInterval(() => pushPublish(false), 30000);
 
+// ───────── PLÁN DNE — mentor's nightly routine (YYY guide ch. 12): monthly → weekly → six nightly layers → one bias post
+const FOMC = ['2026-01-28','2026-03-18','2026-04-29','2026-06-17','2026-07-29','2026-09-16','2026-10-28','2026-12-09','2027-01-27','2027-03-17','2027-04-28','2027-06-09','2027-07-28','2027-09-15','2027-10-27','2027-12-08'];
+const MACRO_DATES = [['2026-11-06','NFP'],['2026-11-10','CPI'],['2026-12-04','NFP'],['2026-12-10','CPI']];
+const pl = { raw:null, at:0, busy:false, vol:null, volErr:null, out:null };
+const plFmt = n => Number.isFinite(n) ? Math.round(n).toLocaleString('en-US') : '—';
+const plPct = (x, d = 1) => Number.isFinite(x) ? (x * 100).toFixed(d) + ' %' : '—';
+function plSessionDate(){
+  const e = YYY.et(Date.now() / 1000), d = new Date(e.date + 'T12:00:00Z');
+  if (e.h >= 16) d.setUTCDate(d.getUTCDate() + 1);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+async function planLoad(force){
+  if (pl.busy) return;
+  if (!S.worker) throw new Error('Nejdřív nastav Worker v ⚙.');
+  if (!force && pl.raw && Date.now() - pl.at < 10 * 60e3) return;
+  pl.busy = true;
+  try {
+    const yf = (sym, iv, rng) => api(`/yf/${encodeURIComponent(sym)}?interval=${iv}&range=${rng}`).then(A.parseYF).catch(() => []);
+    const auc = fetch('https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/upcoming_auctions?sort=auction_date&page[size]=100')
+      .then(r => r.ok ? r.json() : null).then(j => (j && j.data) || null).catch(() => null);
+    const [d2y, vix, vix3m, dxy, spx, auctions] = await Promise.all([yf('NQ=F', '1d', '2y'), yf('^VIX', '1d', '3mo'), yf('^VIX3M', '1d', '3mo'),
+      yf('DX-Y.NYB', '1d', '6mo'), yf('^GSPC', '1d', '1y'), auc]);
+    await loadBias().catch(() => {});
+    pl.raw = { d2y, vix, vix3m, dxy, spx, auctions };
+    pl.at = Date.now();
+  } finally { pl.busy = false; }
+  try { pl.vol = await srv('/vol'); pl.volErr = null; } catch (e) { pl.vol = null; pl.volErr = e.message; }
+}
+function planGex(){
+  // prefer ThetaData (server, QQQ→NQ); fall back to GEXbot NQ
+  const V = pl.vol, r = st.res, last = r ? r.last : null;
+  if (V && V.nq) {
+    const n = V.nq;
+    return { src:'ThetaData', trigger:n.vol_trigger, callWall:n.call_wall, putWall:n.put_wall, callWall0:n.call_wall_0d, putWall0:n.put_wall_0d,
+      maxPain:n.max_pain && (n.max_pain.week || n.max_pain.near), maxPainNear:n.max_pain && n.max_pain.near, maxPainMonth:n.max_pain && n.max_pain.month,
+      netSign:Math.sign(V.gex.net || 0), coiled:V.gex.coiled, pos:V.gex.pos, width:V.gex.width && V.k ? V.gex.width * V.k : null,
+      match:V.gex.wall_match_c || V.gex.wall_match_p, bigCalls:n.big_calls, bigPuts:n.big_puts, net:V.gex.net, abs:V.gex.abs };
+  }
+  const g = st.data.gex || {}, f = g.full || g.zero;
+  if (!f || !last) return { src:null };
+  const o = Number.isFinite(f.spot) && Math.abs(f.spot - last) > 40 ? last - f.spot : 0;
+  const cw = Number.isFinite(f.major_pos_oi) ? f.major_pos_oi + o : null, pw = Number.isFinite(f.major_neg_oi) ? f.major_neg_oi + o : null;
+  return { src:'GEXbot', trigger:Number.isFinite(f.zero_gamma) ? f.zero_gamma + o : null, callWall:cw, putWall:pw,
+    callWall0:g.zero && Number.isFinite(g.zero.major_pos_vol) ? g.zero.major_pos_vol + o : null, putWall0:g.zero && Number.isFinite(g.zero.major_neg_vol) ? g.zero.major_neg_vol + o : null,
+    pos:cw && pw && cw > pw ? (last - pw) / (cw - pw) : null, width:cw && pw ? cw - pw : null };
+}
+function planCompute(){
+  const r = st.res, b1 = st.data.bars || [];
+  if (!r || !b1.length) return null;
+  const sess = plSessionDate(), today = YYY.et(b1[b1.length - 1].t).date;
+  const R = YYY.regime(b1), Gm = pl.raw ? YYY.garch(pl.raw.d2y) : null;
+  const sig = YYY.sigmaGrid(st.data.daily, b1);
+  const fred = (bs.raw && bs.raw.fred) || {};
+  const M = YYY.macro({ walcl:fred.WALCL, reserves:fred.WRESBAL, hy:fred.HY, rrp:bs.raw && bs.raw.rrp, dxy:pl.raw && pl.raw.dxy, fomcTone:S.fomcTone || '' });
+  const G = planGex();
+  const vixT = pl.raw && pl.raw.vix.length && pl.raw.vix3m.length ? { vix:pl.raw.vix.at(-1).c, vix3m:pl.raw.vix3m.at(-1).c } : null;
+  if (vixT) vixT.back = vixT.vix > vixT.vix3m;
+  // auctions (10 / 20 / 30-year incl. reopenings)
+  const auc = (pl.raw && pl.raw.auctions || []).filter(a => /Note|Bond/i.test(a.security_type || '') && /(9|10|19|20|29|30)-Year/.test(a.security_term || ''))
+    .map(a => ({ d:a.auction_date, term:a.security_term })).filter(a => a.d >= today).slice(0, 6);
+  const auctionToday = auc.some(a => a.d === sess);
+  // prior-day IB for the non-trend test
+  const days = [...new Set(b1.filter(b => YYY.isRTH(b.t)).map(b => YYY.et(b.t).date))];
+  const ibs = days.slice(0, -1).map(d => { const x = b1.filter(b => YYY.et(b.t).date === d && YYY.isRTH(b.t)); const ib = x.filter(b => b.t < x[0].t + 3600); return ib.length ? Math.max(...ib.map(b => b.h)) - Math.min(...ib.map(b => b.l)) : null; }).filter(Boolean);
+  const dt = YYY.dayType(b1, today, ibs.length ? ibs.reduce((a, b) => a + b, 0) / ibs.length : null);
+  const t9 = YYY.tpo9(b1, today, 1);
+  const prevDay = days.length > 1 ? days[days.length - (YYY.isRTH(b1[b1.length - 1].t) ? 2 : 1)] : null;
+  const sp = [...(prevDay ? YYY.singlePrints(b1, prevDay, 1, 3) : []), ...YYY.singlePrints(b1, today, 1, 3)];
+  // CVD divergence: only with real delta from the data server
+  let cvd = null;
+  try { const sb = (st.srv && st.srv.b60) || []; if (sb.length && sb[0].cvd !== undefined) cvd = YYY.cvdDiv(sb.map(b => ({ h:b.h, l:b.l, cvd:b.cvd })), 30); } catch(e){}
+  const out = YYY.synth({ regime:R, garch:Gm, gex:G, vol:pl.vol, macro:M, spot:r.last, auctionToday });
+  // σ / GEX / LVN confluence (ch. 15.2): σ level within a few points of a wall or inside an LVN
+  const conf = [];
+  if (sig) {
+    const lv = (r.levels || []).filter(l => l.tags.some(t => /LVN/.test(t)));
+    for (const x of sig.levels.filter(x => [1, 2].includes(Math.abs(x.m)) || Math.abs(x.m) === 0.5)) {
+      const why = [];
+      for (const [k, n] of [['callWall','call wall'],['putWall','put wall'],['trigger','vol trigger']]) if (G[k] && Math.abs(G[k] - x.p) <= 8) why.push(n);
+      if (lv.some(l => Math.abs(l.price - x.p) <= 6)) why.push('LVN');
+      if (why.length) conf.push({ p:x.p, m:x.m, why });
+    }
+  }
+  // expected range (1D) — options bracket if available, else EM grid
+  const em = r.info && r.info.em, br = pl.vol && pl.vol.nq && pl.vol.nq.brackets;
+  const range = br && br.d1 ? { lo:r.last - (br.d1_down || br.d1), hi:r.last + (br.d1_up || br.d1), src:'IV 1D bracket' }
+    : em ? { lo:em.anchor - em.em, hi:em.anchor + em.em, src:'EM grid' } : null;
+  // JPM collar estimate (ch. 7.3): put ≈ −5 %, call +3…5 % of SPX at the last quarterly roll
+  let collar = null;
+  if (pl.raw && pl.raw.spx.length) {
+    const qEnd = d => { const [y, m] = d.split('-').map(Number); return [3, 6, 9, 12].includes(m) && (() => { const n = new Date(Date.UTC(y, m, 1)); n.setUTCDate(0); return d <= n.toISOString().slice(0, 10); })(); };
+    const sx = pl.raw.spx.map(b => ({ d:YYY.et(b.t).date, c:b.c }));
+    let roll = null; for (let i = sx.length - 2; i >= 0; i--) { const a = sx[i].d.slice(0, 7), b = sx[i + 1].d.slice(0, 7); if (a !== b && [3, 6, 9, 12].includes(+a.slice(5))) { roll = sx[i]; break; } }
+    if (roll) collar = { date:roll.d, spx:roll.c, put:S.collarPut || Math.round(roll.c * 0.95 / 5) * 5, callLo:Math.round(roll.c * 1.03 / 5) * 5, callHi:Math.round(roll.c * 1.05 / 5) * 5,
+      call:S.collarCall || null, now:sx.at(-1).c, manual:!!(S.collarPut || S.collarCall) };
+  }
+  const next = d => FOMC.find(x => x >= d);
+  const dates = [{ d:next(today), what:'FOMC' }, ...MACRO_DATES.filter(([d]) => d >= today).slice(0, 3).map(([d, w]) => ({ d, what:w })), ...(S.extraDates || []).filter(x => x.d >= today)].filter(x => x.d).sort((a, b) => a.d < b.d ? -1 : 1).slice(0, 5);
+  return { sess, today, R, Gm, sig, M, G, vixT, auc, auctionToday, dt, t9, sp, cvd, out, conf, range, collar, dates, spot:r.last };
+}
+function plRow(k, v, cls){ return `<div class="pl-row"><span>${k}</span><b class="${cls || ''}">${v}</b></div>`; }
+function plSpark(R){
+  if (!R || !R.spark) return '';
+  const pts = R.spark.filter(x => x.e != null && x.t != null); if (pts.length < 5) return '';
+  const all = pts.flatMap(x => [x.e, x.t, x.t * 1.2]), lo = Math.min(...all), hi = Math.max(...all), W = 300, H = 46;
+  const y = v => H - 3 - (v - lo) / (hi - lo || 1) * (H - 6), x = i => i / (pts.length - 1) * W;
+  const line = f => pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(f(p)).toFixed(1)}`).join('');
+  return `<svg class="pl-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${line(p => p.t * 1.2)}" fill="none" stroke="#f05a6e" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><path d="${line(p => p.t)}" fill="none" stroke="#6b727c" stroke-width="1" stroke-dasharray="3 3"/><path d="${line(p => p.e)}" fill="none" stroke="#c9a66b" stroke-width="1.6"/></svg>`;
+}
+function planPostText(c){
+  const o = c.out, L = o.levels, d = c.sess.slice(5).split('-').reverse().join('.');
+  const lv = [L.callWall && `Call wall ${plFmt(L.callWall)}`, L.putWall && `Put wall ${plFmt(L.putWall)}`, L.trigger && `Vol trigger ${plFmt(L.trigger)}`, L.maxPain && `Max pain ${plFmt(L.maxPain)}`].filter(Boolean).join(' · ');
+  return [`BIAS ${d} — ${o.lean}${o.gexRegime ? ' (' + o.gexRegime.toLowerCase() + ')' : ''}`,
+    `Levely: ${lv || '—'}`,
+    `Range 1D: ${c.range ? plFmt(c.range.lo) + ' – ' + plFmt(c.range.hi) : '—'}`,
+    `Size: ${o.size}`,
+    `Kontext: ${o.caveats.length ? o.caveats.slice(0, 3).join(' ') : 'Vrstvy souhlasí.'}`].join('\n');
+}
+function planRender(){
+  const B = $('planBody');
+  let c; try { c = planCompute(); } catch (e) { B.innerHTML = `<p class="hint">Chyba výpočtu: ${esc(e.message)}</p>`; return; }
+  if (!c) { B.innerHTML = '<p class="hint">Čekám na data grafu…</p>'; return; }
+  pl.out = c;
+  const o = c.out, R = c.R, V = pl.vol, G = c.G, M = c.M;
+  const lc = { BULL:'bull', BEAR:'bear', NEUTRAL:'neutral', CHOPPY:'choppy', 'NO TRADE':'no' }[o.lean] || 'neutral';
+  const L = o.levels, d = c.sess.slice(5).split('-').reverse().join('.');
+  let h = `<div class="pl-hero"><div><div class="pl-lean ${lc}">${o.lean}</div><div class="pl-kv" style="margin-top:6px"><span>session <b>${d}</b></span>${o.gexRegime ? `<span><b>${o.gexRegime}</b></span>` : ''}<span>skóre <b>${o.score.toFixed(1)}</b></span></div></div>
+    <div class="pl-kv">${L.callWall ? `<span>Call wall <b>${plFmt(L.callWall)}</b></span>` : ''}${L.putWall ? `<span>Put wall <b>${plFmt(L.putWall)}</b></span>` : ''}${L.trigger ? `<span>Vol trigger <b>${plFmt(L.trigger)}</b></span>` : ''}${L.maxPain ? `<span>Max pain <b>${plFmt(L.maxPain)}</b></span>` : ''}${c.range ? `<span>Range 1D <b>${plFmt(c.range.lo)} – ${plFmt(c.range.hi)}</b> <i style="font-style:normal;opacity:.6">(${c.range.src})</i></span>` : ''}</div>
+    <div class="pl-size ${o.size}"><small>SIZE RULE</small>${o.size}</div></div>`;
+  h += `<ul class="pl-ctx">${(o.caveats.length ? o.caveats : ['Vrstvy se neperou – čistý setup.']).map(x => `<li>${esc(x)}</li>`).join('')}${o.sizeWhy.length ? `<li style="color:var(--muted)">Size: ${esc(o.sizeWhy.join(' · '))}</li>` : ''}</ul>`;
+  h += '<div class="pl-grid">';
+  // Monthly
+  const w = M.monthly.walcl;
+  h += `<div class="pl-card"><h5>MĚSÍČNÍ MAKRO <span>${M.monthly.bias}</span></h5>
+    ${plRow('WALCL (rozvaha Fedu, 4 týdny)', w ? `${w.dir === 'UP' ? '▲ roste' : '▼ klesá'} ${plFmt(w.change)} mil. $` : 'chybí FRED', w ? (w.dir === 'UP' ? 'u' : 'd') : 'w')}
+    <div class="pl-in">FOMC tón: <select id="plTone"><option value="">nezadáno</option><option value="HAWKISH"${S.fomcTone === 'HAWKISH' ? ' selected' : ''}>HAWKISH (inflace)</option><option value="DOVISH"${S.fomcTone === 'DOVISH' ? ' selected' : ''}>DOVISH (ekonomika)</option></select></div>
+    ${c.dates.map(x => plRow(x.what, x.d.slice(5).split('-').reverse().join('.') + (x.d === c.sess ? ' · DNES' : ''), x.d === c.sess ? 'x' : '')).join('')}
+    <p class="pl-note">FOMC tón: přečti první 2 odstavce posledního statementu (federalreserve.gov). „Elevated, persistent, inflation risks“ = hawkish, „slowing, cooling, risks to employment“ = dovish.</p></div>`;
+  // Weekly
+  const wk = M.weekly;
+  h += `<div class="pl-card"><h5>TÝDENNÍ LIKVIDITA <span>${wk.bias || '—'}</span></h5>
+    ${plRow('Rezervy (H.4.1, týden)', wk.reserves != null ? `${wk.reserves > 0 ? '+' : ''}${plFmt(wk.reserves)} mil. $` : '—', wk.reserves > 0 ? 'u' : 'd')}
+    ${plRow('RRP (5 dní vs předchozích 5)', wk.rrp != null ? `${wk.rrp > 0 ? '+' : ''}${wk.rrp.toFixed(1)} mld $` : '—', wk.rrp < 0 ? 'u' : 'd')}
+    ${plRow('HY OAS', wk.oas ? `${wk.oas.v.toFixed(2)} % · ${wk.oas.state}${wk.oas.widening ? ' · rozšiřuje se' : wk.oas.tightening ? ' · zužuje se' : ''}` : '—', wk.oas ? (wk.oas.v < 3 ? 'u' : wk.oas.v < 4 ? 'w' : 'd') : '')}
+    ${plRow('DXY trend', M.dxy ? `${M.dxy.trend} · ${plPct(M.dxy.ch4w)} / 4 týdny` : '—', M.dxy ? (M.dxy.trend === 'UP' ? 'd' : M.dxy.trend === 'DOWN' ? 'u' : '') : '')}
+    ${plRow('Aukce 10/20/30Y', c.auc.length ? c.auc.slice(0, 3).map(a => a.d.slice(5).split('-').reverse().join('.') + ' ' + a.term.replace('-Year', 'Y').replace(/ \d+-Month/, '')).join(', ') : 'žádná / nenačteno', c.auctionToday ? 'x' : '')}
+    ${M.notes.map(n => `<p class="pl-note">${esc(n)}</p>`).join('')}</div>`;
+  // L01 Topology + L02 Entropy
+  h += `<div class="pl-card"><h5>01 TOPOLOGIE · PCA <span>${R && R.S != null ? (R.lean > 0 ? 'BUYERS' : R.lean < 0 ? 'SELLERS' : 'BEZ SMĚRU') : '—'}</span></h5>
+    ${R && R.S != null ? plRow('PCA1 · stav S(t)', R.S.toFixed(2), R.S > 0.5 ? 'u' : R.S < -0.5 ? 'd' : 'w')
+      + plRow('PCA2 · momentum M(t)', `${R.M.toFixed(2)} ${R.Mrising ? '↗' : '↘'}`, R.M > 0 ? 'u' : 'd')
+      + plRow('PCA3 · vola ve struktuře', R.V3.toFixed(2), R.V3 > 1 ? 'w' : '')
+      + plRow('Zarovnání PCA1 / PCA2', R.aligned ? 'ANO (c = 1.0)' : 'NE (c = 0.5)', R.aligned ? 'u' : 'w')
+      + plRow('Vzdálenost od shluku d(t)', R.d.toFixed(2) + (R.unusual ? ' · neobvyklé' : ''), R.unusual ? 'x' : '') : '<p class="pl-note">Málo 5min dat.</p>'}
+    </div>`;
+  h += `<div class="pl-card"><h5>02 ENTROPIE <span class="${R ? (R.label === 'NORMAL' ? '' : '') : ''}">${R ? R.label : '—'}</span></h5>
+    ${R ? plRow('ρ(t) = E / T (vs thresh)', R.rho.toFixed(3) + '×', R.rho < 1 ? 'u' : R.rho < 1.2 ? 'w' : 'x')
+      + plRow('E(t) · T(t)', `${R.E.toFixed(4)} · ${R.T.toFixed(4)}`)
+      + plRow('Do close', R.rising ? 'roste → gappy open' : 'klesá → čistší ráno', R.rising ? 'w' : 'u')
+      + plRow('Size faktor k(ρ) × c(S,M)', `${R.k} × ${R.c} = ${R.size}`, R.size >= 1 ? 'u' : R.size > 0 ? 'w' : 'x') + plSpark(R)
+      + `<p class="pl-note">Zlatá = entropie 5min výnosů ${R.rthOnly ? '(RTH)' : '(24h – málo RTH historie)'}, šedá = adaptivní práh (100 barů), červená = 1.2× (CRITICAL).</p>` : ''}
+    ${c.Gm ? plRow('GARCH α+β · poločas', `${c.Gm.pers.toFixed(3)} · ${c.Gm.halfLife.toFixed(0)} d`) + plRow('GARCH σ² zítra / dlouhodobě', `${c.Gm.ratio.toFixed(2)}× · ${c.Gm.label}`, c.Gm.label === 'NORMAL' ? 'u' : c.Gm.label === 'ELEVATED' ? 'w' : 'x')
+      + plRow('RV 21d vs 1 rok', `${plPct(c.Gm.rv21)} vs ${plPct(c.Gm.rvLong)}`, c.Gm.rv21 > c.Gm.rvLong * 1.2 ? 'w' : '') + (c.Gm.shock ? plRow('Šok včera (≥ 2 %)', plPct(c.Gm.shock), 'x') : '') : ''}
+    ${c.vixT ? plRow('VIX / VIX3M', `${c.vixT.vix.toFixed(1)} / ${c.vixT.vix3m.toFixed(1)} · ${c.vixT.back ? 'BACKWARDATION' : 'contango'}`, c.vixT.back ? 'x' : 'u') : ''}</div>`;
+  // L03 GEX
+  h += `<div class="pl-card"><h5>03 GEX <span>${G.src || 'bez dat'}</span></h5>
+    ${G.trigger ? plRow('Spot vs vol trigger', `${plFmt(c.spot)} ${c.spot > G.trigger ? '>' : '<'} ${plFmt(G.trigger)}`, c.spot > G.trigger ? 'u' : 'd') : ''}
+    ${G.callWall ? plRow('Call wall' + (G.callWall0 && Math.abs(G.callWall0 - G.callWall) < 5 ? ' (= 0DTE ★)' : ''), plFmt(G.callWall), 'u') : ''}
+    ${G.putWall ? plRow('Put wall' + (G.putWall0 && Math.abs(G.putWall0 - G.putWall) < 5 ? ' (= 0DTE ★)' : ''), plFmt(G.putWall), 'd') : ''}
+    ${G.width ? plRow('Šířka range · pozice spotu', `${plFmt(G.width)} b. · ${G.pos != null ? Math.round(G.pos * 100) + ' % od put wall' : '—'}`) : ''}
+    ${G.maxPain ? plRow('Max pain týden · měsíc', `${plFmt(G.maxPain)} · ${plFmt(G.maxPainMonth)}`) : ''}
+    ${G.net != null ? plRow('NET / ABS GEX (0–21 DTE)', `${Pro.fmtM(G.net)} / ${Pro.fmtM(G.abs)}${G.coiled ? ' · COILED' : ''}`, G.coiled ? 'w' : G.net > 0 ? 'u' : 'd') : ''}
+    ${G.bigCalls ? plRow('Největší call / put OI', `${G.bigCalls.slice(0, 3).map(plFmt).join(', ')} / ${G.bigPuts.slice(0, 3).map(plFmt).join(', ')}`) : ''}
+    <p class="pl-note">${o.gexRegime === 'SHORT GAMMA' ? 'Short gamma: vstup jen na levelu s footprintem, pak trail po 20 b. Nefadeovat momentum.' : 'Long gamma: fade extrémů, pevný malý stop (mentor 3 b. na ES), cíle předchozí struktura a 30min single prints.'}${G.match ? ' 0DTE wall = multi-expiry wall → level má víc váhy.' : ''}</p></div>`;
+  // L04 skew + L05 surface + L06 IV spread (server)
+  if (V) {
+    const sk = V.skew, hp = V.hist && V.hist.pct || {}, fr = V.front || {};
+    h += `<div class="pl-card"><h5>04 SKEW <span>${sk.squeeze ? 'SQUEEZE?' : (hp.near >= 0.8 ? 'STRMÝ' : 'OK')}</span></h5>
+      ${plRow('25Δ put − call · 0–7 DTE', `${(sk.near * 100).toFixed(1)} b.${hp.near != null ? ' · ' + Math.round(hp.near * 100) + '. percentil' : ''}`, hp.near >= 0.8 ? 'd' : '')}
+      ${plRow('25Δ put − call · 20–50 DTE', sk.medium != null ? `${(sk.medium * 100).toFixed(1)} b.${hp.medium != null ? ' · ' + Math.round(hp.medium * 100) + '. percentil' : ''}` : '—', hp.medium >= 0.8 ? 'd' : '')}
+      ${plRow('Levé křídlo IV(0.90) − ATM', sk.wing90 != null ? `${(sk.wing90 * 100).toFixed(1)} b.` : '—', hp.wing90 >= 0.8 ? 'd' : '')}
+      ${plRow('Call strana', sk.squeeze ? 'zvednutá ≈ put → poptávka po callech' : 'plochá (normál)', sk.squeeze ? 'u' : '')}
+      ${plRow('Konzistence σ přes DTE', V.sigma_consistency != null ? (V.sigma_consistency < 0.01 ? 'stabilní' : 'skáče → levely méně spolehlivé') : '—', V.sigma_consistency >= 0.01 ? 'w' : '')}</div>`;
+    h += `<div class="pl-card"><h5>05 IV POVRCH <span>${V.atm_bucket || '—'}</span></h5>
+      ${plRow('ATM IV 1D · 7D · 30D', [V.atm.d1, V.atm.d7, V.atm.d30].map(x => plPct(x)).join(' · '))}
+      ${plRow('Term structure', V.contango == null ? '—' : V.contango ? 'CONTANGO (normál)' : 'BACKWARDATION', V.contango === false ? 'x' : 'u')}
+      ${plRow('Forward vol 7→30 · 30→60 d', `${plPct(V.fwd.f7_30)} · ${plPct(V.fwd.f30_60)}`, V.fwd.f7_30 && V.atm.d7 && V.fwd.f7_30 > V.atm.d7 * 1.1 ? 'w' : '')}
+      ${plRow('Front edge spike (event)', V.front_spikes.length ? V.front_spikes.join(', ') : 'žádný')}
+      ${plRow('Díry v IV (0–7 DTE)', `${V.holes}${V.hist && V.hist.holes_change != null ? ' (' + (V.hist.holes_change >= 0 ? '+' : '') + V.hist.holes_change + ' vs včera)' : ''}`, V.hist && V.hist.holes_change > 3 ? 'w' : '')}
+      ${(V.shadow || []).slice(0, 2).map(s => plRow(`Shadow γ dolů ±${(s.move * 100).toFixed(0)} %`, s.ratio_down != null ? `${s.ratio_down.toFixed(2)}× konvenční` : '—', s.ratio_down > 1.3 ? 'x' : s.ratio_down > 1.1 ? 'w' : '')).join('')}
+      ${V.vmap['30d'] ? plRow('Sig(x) −5 % / +5 % (30D)', `${(V.vmap['30d'].find(x => x.move === -0.05).sig * 100).toFixed(1)} / ${(V.vmap['30d'].find(x => x.move === 0.05).sig * 100).toFixed(1)} b.`) : ''}</div>`;
+    const b = V.nq && V.nq.brackets || {};
+    h += `<div class="pl-card"><h5>06 IV SPREAD · BRACKETY <span>${b.d1_down && b.d1_up ? (b.d1_down > b.d1_up * 1.1 ? 'LEAN DOLŮ' : b.d1_up > b.d1_down * 1.1 ? 'LEAN NAHORU' : 'SYMETRICKÉ') : '—'}</span></h5>
+      ${plRow('1D (put / call strana)', b.d1 ? `±${plFmt(b.d1)} (−${plFmt(b.d1_down)} / +${plFmt(b.d1_up)})` : '—')}
+      ${plRow('1 týden · 1 měsíc', `±${plFmt(b.w1)} · ±${plFmt(b.m1)}`)}
+      ${G.callWall && b.d1 ? plRow('1D bracket vs walls', [Math.abs(c.spot + b.d1 - G.callWall) < b.d1 * 0.15 ? 'horní = call wall ✓' : null, Math.abs(c.spot - b.d1 - G.putWall) < b.d1 * 0.15 ? 'dolní = put wall ✓' : null].filter(Boolean).join(' · ') || 'nesouhlasí', '') : ''}
+      ${pl.raw && pl.raw.d2y.length > 250 ? (() => { const y = pl.raw.d2y.slice(-252), hi = Math.max(...y.map(x => x.h)), lo = Math.min(...y.map(x => x.l)); const near = (hi - c.spot) < (b.d1 || 200) * 2 || (c.spot - lo) < (b.d1 || 200) * 2; return plRow('1Y high / low', `${plFmt(hi)} / ${plFmt(lo)}${near ? ' · u extrému' : ''}`, near ? 'w' : ''); })() : ''}</div>`;
+  } else {
+    h += `<div class="pl-card"><h5>04–06 SKEW · POVRCH · BRACKETY <span>bez serveru</span></h5><p class="pl-note">Skew, IV povrch, shadow gamma a max pain se počítají z ThetaData na tvém PC. Server teď nedostupný (${esc(pl.volErr || '—')}). Range níže je z EM gridu.</p></div>`;
+  }
+  // Live session
+  const dt = c.dt, t9 = c.t9;
+  h += `<div class="pl-card"><h5>SESSION LIVE <span>${dt.type}</span></h5>
+    ${dt.ib ? plRow('Initial balance', `${plFmt(dt.ibL)} – ${plFmt(dt.ibH)} (${plFmt(dt.ib)} b.) · rozšíření ${Math.round(dt.ext * 100)} %`) : ''}
+    ${dt.why ? `<p class="pl-note">${esc(dt.why)}. ${esc(dt.play || '')}</p>` : ''}
+    ${t9 ? plRow('9:00 TPO (pre-open)', `${t9.label} · ${Math.round(t9.skew * 100)} %`, t9.label === 'UPSIDE' ? 'u' : t9.label === 'DOWNSIDE' ? 'd' : 'w') : ''}
+    ${c.cvd ? plRow('CVD vs cena', c.cvd.text, c.cvd.type === 'bull' ? 'u' : c.cvd.type === 'bear' ? 'd' : '') : plRow('CVD vs cena', 'chybí tick data (delta)')}
+    ${plRow('30min single prints (nevyplněné)', c.sp.length ? c.sp.slice(0, 4).map(z => `${plFmt(z.lo)}–${plFmt(z.hi)}`).join(', ') : 'žádné')}</div>`;
+  // σ grid
+  if (c.sig) {
+    h += `<div class="pl-card"><h5>σ GRID (KAP. 15) <span>σ = ${c.sig.sigma.toFixed(1)} b.</span></h5>
+      ${plRow('ATR(10) · kotva 18:00', `${plFmt(c.sig.atr)} · ${fmtP(c.sig.anchor)}`)}
+      ${plRow('+1σ / −1σ', `${fmtP(c.sig.anchor + c.sig.sigma)} / ${fmtP(c.sig.anchor - c.sig.sigma)}`)}
+      ${plRow('+2σ / −2σ', `${fmtP(c.sig.anchor + 2 * c.sig.sigma)} / ${fmtP(c.sig.anchor - 2 * c.sig.sigma)}`)}
+      ${plRow('PDH / PDL', `${fmtP(c.sig.pdh)} / ${fmtP(c.sig.pdl)}`)}
+      ${c.conf.length ? c.conf.map(x => plRow(`★ σ ${x.m > 0 ? '+' : '−'}${Math.abs(x.m)} = ${x.why.join(' + ')}`, fmtP(x.p), 'w')).join('') : '<p class="pl-note">Žádný σ level dnes nesedí na wall / LVN.</p>'}</div>`;
+  }
+  // JPM collar
+  if (c.collar) {
+    const k = c.collar;
+    h += `<div class="pl-card"><h5>JPM COLLAR (SPX) <span>${k.manual ? 'ručně' : 'odhad'}</span></h5>
+      ${plRow('Roll ' + k.date.slice(5).split('-').reverse().join('.'), `SPX ${plFmt(k.spx)} · teď ${plFmt(k.now)}`)}
+      ${plRow('Put (podlaha)', `${plFmt(k.put)} · ${plPct(k.now / k.put - 1)} nad`, 'd')}
+      ${plRow('Call (strop)', k.call ? `${plFmt(k.call)} · ${plPct(k.call / k.now - 1)} pod` : `${plFmt(k.callLo)} – ${plFmt(k.callHi)}`, 'u')}
+      <div class="pl-in">Přesné z 13F: put <input id="plCPut" type="number" value="${S.collarPut || ''}" placeholder="${k.put}"> call <input id="plCCall" type="number" value="${S.collarCall || ''}" placeholder="${k.callLo}"></div>
+      <p class="pl-note">Odhad podle kap. 7.3: put ≈ 5 % pod, call 3–5 % nad SPX v den rollu. Přesné striky z 13F (EDGAR) – vyplň a přepíše se. Na NQ jen jako kontext celého trhu.</p></div>`;
+  }
+  // Prop & sizing
+  const P = S.prop || {};
+  const fstar = o.sizeMult != null ? o.sizeMult : 1;
+  const base = +P.base || 1, ptv = +P.ptv || 2, stop = +P.stop || 20, dll = +P.dll || 1000, tgt = +P.target || 3000, cons = (+P.cons || 50) / 100;
+  const maxC = Math.floor(dll / (stop * ptv));
+  const kel = P.p && P.b ? ((+P.b) * (+P.p / 100) - (1 - P.p / 100)) / (+P.b) : null;
+  const today_q = base * fstar, qTxt = today_q >= 1 || today_q === 0 ? `${Math.floor(today_q)} ks` : `${today_q.toFixed(2)} ks → ${Math.round(today_q * 10)} MNQ`;
+  h += `<div class="pl-card"><h5>SIZE & PROP (KAP. 16–17) <span>${qTxt} dnes</span></h5>
+    <div class="pl-in">Base ks <input data-pp="base" type="number" value="${P.base || 1}"> $/bod <input data-pp="ptv" type="number" value="${P.ptv || 2}"> stop b. <input data-pp="stop" type="number" value="${P.stop || 20}"></div>
+    <div class="pl-in">Target $ <input data-pp="target" type="number" value="${P.target || 3000}"> Daily limit $ <input data-pp="dll" type="number" value="${P.dll || 1000}"> Max DD $ <input data-pp="dd" type="number" value="${P.dd || 2000}"> Konzistence % <input data-pp="cons" type="number" value="${P.cons || 50}"></div>
+    <div class="pl-in">Win rate % <input data-pp="p" type="number" value="${P.p || ''}" placeholder="55"> Payoff (avg win/loss) <input data-pp="b" type="number" step="0.1" value="${P.b || ''}" placeholder="2"> Obchodů/den <input data-pp="n" type="number" value="${P.n || 3}"></div>
+    ${plRow('f* = base × k(ρ) × c(S,M) (× GARCH/aukce)', `${base} × ${fstar.toFixed(2)} = ${qTxt}`, fstar >= 1 ? 'u' : fstar > 0 ? 'w' : 'x')}
+    ${plRow('Strop kontraktů (daily limit / stop)', `${maxC} ks`)}
+    ${plRow('Měkký denní cap (konzistence)', `$${plFmt(tgt * cons * 0.6)}`)}
+    ${kel != null ? plRow('Kelly f* · ½ Kelly', `${plPct(kel)} · ${plPct(kel / 2)}`, kel > 0 ? 'u' : 'x') : ''}
+    <div class="pl-in"><button id="plMC" style="padding:5px 10px;border:1px solid var(--line2);border-radius:6px">Monte Carlo (10 000 běhů)</button><span id="plMCo" class="pl-note" style="margin:0"></span></div></div>`;
+  h += '</div>';
+  // 9AM check
+  const snapKey = 'algoLevels.plan.' + c.sess, e = YYY.et(Date.now() / 1000);
+  let snap = null; try { snap = JSON.parse(localStorage.getItem(snapKey) || 'null'); } catch(_) {}
+  const nightly = e.h >= 16 || e.h < 9;
+  if (nightly) { try { localStorage.setItem(snapKey, JSON.stringify({ at:Date.now(), L:o.levels, regime:R && R.label, lean:o.lean, size:o.size })); } catch(_) {} }
+  else if (snap) {
+    const ch = [];
+    for (const [k2, n] of [['callWall','Call wall'],['putWall','Put wall'],['trigger','Vol trigger'],['maxPain','Max pain']]) if (snap.L[k2] && o.levels[k2] && Math.abs(snap.L[k2] - o.levels[k2]) > 5) ch.push(`${n} ${plFmt(snap.L[k2])} → ${plFmt(o.levels[k2])}`);
+    if (snap.regime && R && snap.regime !== R.label) ch.push(`Entropie ${snap.regime} → ${R.label} (size ${snap.size} → ${o.size})`);
+    if (o.levels.trigger) ch.push(`Open ${c.spot > o.levels.trigger ? 'NAD' : 'POD'} vol triggerem → ${c.spot > o.levels.trigger ? 'kompresní teze platí' : 'nefadeovat opening move'}`);
+    h += `<div class="pl-card" style="margin-top:12px"><h5>9AM CHECK <span>vs noční plán ${new Date(snap.at).toLocaleTimeString('cs-CZ', { hour:'2-digit', minute:'2-digit' })}</span></h5>${ch.map(x => `<p class="pl-note" style="color:var(--text)">• ${esc(x)}</p>`).join('') || '<p class="pl-note">Beze změn od noci.</p>'}</div>`;
+  }
+  h += `<p class="hint" style="margin-top:12px">Postup podle mentorovy příručky: entropie je brána (CRITICAL = žádné nové vstupy), PCA dává směr, GEX levely, skew/IV potvrzují nebo přidávají výhradu, IV spread ohraničí range. Makro rozhoduje při konfliktu. Vstup vždy až s footprintem na levelu. PCA a 9am TPO jsou moje implementace popisu z příručky (přesné vstupy mentorova dashboardu nejsou zveřejněné).</p>`;
+  B.innerHTML = h;
+  // inputs
+  const tone = $('plTone'); if (tone) tone.onchange = () => { S.fomcTone = tone.value; save(); planRender(); };
+  B.querySelectorAll('[data-pp]').forEach(i => i.onchange = () => { S.prop = { ...(S.prop || {}), [i.dataset.pp]: i.value }; save(); planRender(); });
+  const cp = $('plCPut'), cc = $('plCCall');
+  if (cp) cp.onchange = () => { S.collarPut = +cp.value || null; save(); planRender(); };
+  if (cc) cc.onchange = () => { S.collarCall = +cc.value || null; save(); planRender(); };
+  const mc = $('plMC'); if (mc) mc.onclick = () => { $('plMCo').textContent = planMC(); };
+  try { focusGate(); } catch(_) {}
+}
+// ch. 17.2 — Monte Carlo of the eval with the trader's own stats (win rate, payoff, stop) at today's size
+function planMC(){
+  const P = S.prop || {}, p = (+P.p || 0) / 100, b = +P.b || 0;
+  if (!p || !b) return 'Vyplň win rate a payoff.';
+  const ptv = +P.ptv || 2, stop = +P.stop || 20, qty = Math.max(1, +P.base || 1), n = +P.n || 3;
+  const loss = stop * ptv * qty, win = loss * b, dll = +P.dll || 1000, dd = +P.dd || 2000, tgt = +P.target || 3000, cons = (+P.cons || 50) / 100;
+  let pass = 0; const days = [], mdd = [];
+  for (let run = 0; run < 10000; run++) {
+    let eq = 0, hw = 0, best = 0, worst = 0, ok = false, d = 0;
+    for (; d < 60; d++) {
+      let day = 0;
+      for (let t = 0; t < n; t++) { day += Math.random() < p ? win : -loss; if (day <= -dll) { day = -dll; break; } }
+      eq += day; best = Math.max(best, day); hw = Math.max(hw, eq); worst = Math.max(worst, hw - eq);
+      if (hw - eq >= dd) break;                                      // trailing (EOD) drawdown breached
+      if (eq >= tgt && best <= cons * eq) { ok = true; d++; break; }
+    }
+    mdd.push(worst); if (ok) { pass++; days.push(d); }
+  }
+  mdd.sort((a, b2) => a - b2); days.sort((a, b2) => a - b2);
+  return `Pass rate ${Math.round(pass / 100)} % · medián ${days.length ? days[Math.floor(days.length / 2)] : '—'} dní · 95. percentil DD $${plFmt(mdd[Math.floor(mdd.length * 0.95)])}${pass < 6000 ? ' → pod 60 %: jdi menší' : ''}`;
+}
+async function openPlan(force){
+  $('plan').classList.add('show');
+  if (!S.worker) { $('planBody').innerHTML = '<p class="hint">Nejdřív nastav Worker v ⚙.</p>'; return; }
+  if (!pl.raw || force) $('planBody').innerHTML = '<p class="hint">Načítám vrstvy (NQ 2 roky, VIX/VIX3M, DXY, SPX, FRED, aukce, server vol)…</p>';
+  try { await planLoad(force); planRender(); }
+  catch (e) { $('planBody').innerHTML = `<p class="hint">Chyba: ${esc(e.message)}</p>`; }
+}
+$('planBtn').onclick = () => openPlan(false);
+$('planReload').onclick = () => openPlan(true);
+$('planClose').onclick = () => $('plan').classList.remove('show');
+$('planCopy').onclick = async () => { if (!pl.out) return; const t = planPostText(pl.out); try { await navigator.clipboard.writeText(t); toast('Bias post zkopírován'); } catch(e) { toast(t); } };
+// entropy gate for Focus (ch. 11.3): CRITICAL = no new entries → banner over the Focus cards
+function focusGate(){
+  const R = pl.out && pl.out.R; st.gate = R ? { label:R.label, size:pl.out.out.size, lean:pl.out.out.lean } : null;
+}
+setInterval(() => { if ($('plan').classList.contains('show') && document.visibilityState === 'visible' && !st.replay) planRender(); }, 60000);
+setTimeout(() => { if (S.worker && !st.demo) planLoad().then(() => { try { pl.out = planCompute(); focusGate(); render(); } catch(e){} }).catch(() => {}); }, 9000);
+
 // ───────── browser-style tabs: Graf (clean chart) · Levely · Options & Flow · Bias · Analýza · Deník
-const TAB_SHEETS = { pro:['pro','proBtn','pClose'], bias:['bias','biasBtn','bClose2'], ana:['ana','anaBtn','aClose'], stats:['stats','statsBtn','sClose'] };
+const TAB_SHEETS = { pro:['pro','proBtn','pClose'], plan:['plan','planBtn','planClose'], bias:['bias','biasBtn','bClose2'], ana:['ana','anaBtn','aClose'], stats:['stats','statsBtn','sClose'] };
 Object.values(TAB_SHEETS).forEach(([id]) => $(id).classList.add('inline'));
 function fitChart(){
   if (document.body.dataset.tab !== 'chart') return;
