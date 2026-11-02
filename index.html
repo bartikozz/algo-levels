@@ -1239,20 +1239,37 @@ function focusUpdate(r){
   }
   fzSave();
 }
-// pendqnt-style label: confluence families + side + grade, e.g. "(V+) (G+) | SUPPORT - L"
-function fzFam(s){
-  const l = st.res && st.res.levels.find(x => Math.abs(x.price - s.p) <= S.tol);
-  const tags = (l ? l.tags : s.tags) || [], srcs = l ? l.srcs : [], has = re => tags.some(t => re.test(t)), fam = [];
-  if (srcs.includes('vp') || has(/POC|VAH|VAL|LVN|HVN/)) fam.push('V+');
-  if (srcs.some(x => /^opt|^qqq|^chg/.test(x)) || has(/CW|PW|ZG|GEX|γ/)) fam.push('G+');
-  if (srcs.includes('em') || has(/^EM/)) fam.push('E+');
-  if (srcs.includes('sig') || has(/σ/)) fam.push('σ+');
-  if (has(/FLOW/)) fam.push('F+');
-  return fam;
+// pendqnt-style label from the options at that price: "(V+) (G+) | SUPPORT - L"
+//  G± = sign of dealer gamma exposure at the strike, V± = sign of dealer vanna exposure (only when significant),
+//  SURFACE = the strike is an IV-surface peak (skew bulge), else SUPPORT (below) / RESISTANCE (above),
+//  L = from all expiries, S = from 0DTE / 1DTE walls.
+function fzOpt(s){
+  const tags = s.tags || [], hor = tags.some(t => /^(0DTE|1DTE|0D|1D) /.test(t)) ? 'S' : 'L';
+  const L = srvLevelsFresh() ? st.srv.levels : null;
+  let g = 0, v = 0, surf = false;
+  const pick = (rows, iP, iG, iV) => {
+    rows = (rows || []).filter(r => Number.isFinite(r[iP]));
+    if (!rows.length) return;
+    const r = rows.reduce((a, x) => Math.abs(x[iP] - s.p) < Math.abs(a[iP] - s.p) ? x : a);
+    if (Math.abs(r[iP] - s.p) > 30) return;
+    const mg = Math.max(...rows.map(x => Math.abs(x[iG] || 0))), mv = iV != null ? Math.max(...rows.map(x => Math.abs(x[iV] || 0))) : 0;
+    if (mg > 0 && Math.abs(r[iG]) >= 0.12 * mg) g = Math.sign(r[iG]);
+    if (iV != null && mv > 0 && Math.abs(r[iV]) >= 0.12 * mv) v = Math.sign(r[iV]);
+  };
+  if (L && L.grid) {
+    pick(hor === 'S' && L.grid['0D'] && L.grid['0D'].length ? L.grid['0D'] : L.grid.ALL, 1, 2, 3);
+    surf = (L.levels || []).some(x => /IVPK/.test(x.kind) && x.nq && Math.abs(x.nq - s.p) <= 30);
+  } else {   // no data server: gamma sign from the GEXbot strike profile (no vanna there)
+    const G = st.data.gex || {}, z = hor === 'S' ? (G.zero || G.full) : (G.full || G.zero), last = st.res ? st.res.last : 0;
+    if (z && Array.isArray(z.strikes)) { const o = Number.isFinite(z.spot) && Math.abs(z.spot - last) > 40 ? last - z.spot : 0; pick(z.strikes.map(x => [x[0] + o, x[1]]), 0, 1, null); }
+  }
+  return { g, v, hor, type: surf ? 'SURFACE' : s.side === 'short' ? 'RESISTANCE' : 'SUPPORT' };
 }
 function fzLabel(s){
-  const fam = fzFam(s), grade = fam.length >= 3 || s.score >= 8 ? 'L' : 'M';
-  return `${fam.map(f => '(' + f + ')').join(' ')} | ${s.side === 'short' ? 'SURFACE' : 'SUPPORT'} - ${grade}`;
+  const o = fzOpt(s), t = [];
+  if (o.v) t.push(o.v > 0 ? 'V+' : 'V−');
+  if (o.g) t.push(o.g > 0 ? 'G+' : 'G−');
+  return `${t.map(x => '(' + x + ')').join(' ')}${t.length ? ' | ' : ''}${o.type} - ${o.hor}`;
 }
 function drawFocus(out){
   const segs = S.focus ? fz.segs.filter(s => !s.t1) : [];
@@ -2094,7 +2111,7 @@ const EXPLAIN = [
   [/★/, '★ hlavní QQQ strike', 'QQQ strike na 0/5 s největší gammou, převedený na NQ – v praxi nejsilnější options levely.'],
   [/QQQ/, 'QQQ strike', 'QQQ options level převedený na NQ (× poměr NQ/QQQ).'],
   [/Dead zone/, 'Dead zone', 'Pásmo, kde je dealer gamma kolem nuly – dealeři nic netlumí ani nezesilují, cena tu nemá oporu a projíždí volně.'],
-  [/SURFACE|SUPPORT|SHORT|LONG|◎/, 'Focus level', 'Nejsilnější konfluence nad cenou (SURFACE) / pod cenou (SUPPORT). V+ = volume profil, G+ = gamma / call-put wall, E+ = EM level, σ+ = σ grid, F+ = options flow. L = silná (≥ 3 zdroje nebo skóre ≥ 8), M = střední. Vstup potvrzuj footprintem.'],
+  [/SURFACE|SUPPORT|RESISTANCE|SHORT|LONG|◎/, 'Focus level', 'Nejsilnější options level nad / pod cenou (velký call / put wall + konfluence). G+ / G− = dealer gamma na strike kladná / záporná, V+ / V− = dealer vanna kladná / záporná. SUPPORT pod cenou, RESISTANCE nad cenou, SURFACE = strike je vrchol IV povrchu (skew). L = ze všech expirací, S = z 0DTE / 1DTE. Vstup potvrzuj footprintem.'],
 ];
 const PREFIX = [[/^0D /, '0DTE (dnešní expirace)'], [/^1D /, '1DTE (zítřejší expirace)'], [/^ALL /, 'celý řetězec do 45 dní'], [/7D/, 'složený profil 7 dní'], [/30D/, 'složený profil 30 dní'], [/^RTH /, 'dnešní RTH']];
 function explain(tag){

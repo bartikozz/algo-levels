@@ -319,7 +319,12 @@ def levels(t: str | None = None):
     for x in oflow.flow_levels(2):     # strikes with the most one-sided premium today
         add(x['strike'], 'FLOW ' + ('+' if x['net'] > 0 else '−'), 1.5 + min(1.0, x['share'] * 2))
     em = s['em0']
-    return j(dict(ts=s['ts'], spot=s['spot'], k=state['k'], nq_last=tape.last, exp0=s['exp0'], atm_iv=s['atm_iv'],
+    # per-strike greek exposure near spot (dealer GEX / VEX by OI) → level tags (G±) (V±)
+    grid = {}
+    for b in ('0D', 'ALL'):
+        grid[b] = [[r['strike'], nq(r['strike']), round(r['gex_oi']), round(r['vex_oi'])]
+                   for r in s['buckets'].get(b, []) if abs(r['strike'] / s['spot'] - 1) <= 0.03]
+    return j(dict(ts=s['ts'], spot=s['spot'], k=state['k'], nq_last=tape.last, exp0=s['exp0'], atm_iv=s['atm_iv'], grid=grid,
                   em0=dict(qqq=em['em'], nq=em['em'] * state['k'] if state['k'] else None) if em else None,
                   regime=s['landscape']['regime'], dead_zone=s['landscape']['dead_zone'], dead_zone_0d=(s['landscape_0d'] or {}).get('dead_zone'),
                   levels=out))
