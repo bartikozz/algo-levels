@@ -323,6 +323,58 @@
   }
 
   // ───────── Full pipeline
+  // ───────── Composite structure for "stack gamma with structure": HVNs, ledges (shelves) and LVN zones
+  function ledges(P, src) {
+    if (!P || !P.bins || P.bins.length < 20) return [];
+    const s = P.step, raw = P.bins, K = Math.max(2, Math.round(8 / s));
+    const sm = raw.map((_, i) => { let a = 0, w = 0; for (let d = -2; d <= 2; d++) { const x = raw[i + d]; if (x != null) { const ww = 3 - Math.abs(d); a += x * ww; w += ww; } } return a / w; });
+    const peak = Math.max(...sm), out = [], ratio = [];
+    for (let b = K; b <= sm.length - K; b++) {
+      let up = 0, dn = 0; for (let d = 0; d < K; d++) { up += sm[b + d]; dn += sm[b - 1 - d]; }
+      up /= K; dn /= K;
+      const hiS = Math.max(up, dn), loS = Math.max(Math.min(up, dn), peak * 0.02);
+      ratio[b] = hiS >= 0.35 * peak ? { q: hiS / loS, side: up > dn ? 1 : -1 } : { q: 0 };
+    }
+    for (let b = K; b <= sm.length - K; b++) {
+      const r = ratio[b]; if (!r || r.q < 2.5) continue;
+      let best = true; for (let d = -K; d <= K; d++) { const o = ratio[b + d]; if (d && o && (o.q > r.q || (d > 0 && o.q === r.q))) best = false; }
+      if (best) out.push({ p: (P.k0 + b) * s, side: r.side, q: r.q, src });   // side +1: volume above (floor-like), −1: volume below (ceiling-like)
+    }
+    return out;
+  }
+  function structureMap(profiles) {
+    const M = { hvn: [], ledges: [], lvn: [] };
+    for (const [P, src] of profiles) {
+      if (!P) continue;
+      for (const p of P.hvn || []) M.hvn.push({ p, src });
+      for (const z of (P.keyLvn || P.lvn || [])) if (z.depth == null || z.depth > 0.3) M.lvn.push({ lo: z.lo, hi: z.hi, p: z.p, src });
+      M.ledges.push(...ledges(P, src));
+    }
+    return M;
+  }
+  function stackStructure(levels, M, S) {
+    const tol = Math.max(S.tol || 4, 6);
+    for (const l of levels) {
+      const wall = l.tags.find(t => /(^|\s)(CW|PW)(\s|\d|$)|CWv|PWv|OI (CW|PW)/.test(t) && !/^[⛰⚡]/.test(t));
+      if (wall) {
+        const isCall = /CW/.test(wall);
+        const h = M.hvn.filter(x => Math.abs(x.p - l.price) <= tol).sort((a, b) => Math.abs(a.p - l.price) - Math.abs(b.p - l.price))[0];
+        const g = M.ledges.filter(x => Math.abs(x.p - l.price) <= tol).sort((a, b) => b.q - a.q)[0];
+        if (h || g) {
+          l.stack = { wall: isCall ? 'call' : 'put', on: h ? 'HVN' : 'ledge', src: (h || g).src, p: (h || g).p };
+          l.tags.unshift(`⛰ ${isCall ? 'CW' : 'PW'} + ${h ? 'HVN' : 'ledge'} ${(h || g).src}`);
+          l.score = Math.round((l.score + 2) * 10) / 10;
+          if (!l.srcs.includes('vp')) l.srcs.push('vp');
+        }
+      }
+      if (l.tags.some(t => /(^|\s)ZG$|γ FLIP|FLIP/.test(t) && !/^⚡/.test(t))) {
+        const z = M.lvn.find(z => l.price >= z.lo - 2 && l.price <= z.hi + 2);
+        if (z) { l.fast = { src: z.src, lo: z.lo, hi: z.hi }; l.tags.unshift(`⚡ FLIP v LVN ${z.src}`); }
+      }
+    }
+    return levels;
+  }
+
   function compute(data, S) {
     const bars = data.bars || [];
     if (!bars.length) return null;
@@ -349,6 +401,10 @@
         };
       })
       .sort((a, b) => b.price - a.price);
+    // stack gamma with structure: walls on composite HVN / ledge = stronger; flip inside composite LVN = fast move
+    const vc = data.vpComp || {};
+    info.structure = structureMap([[vc.d7, '7D'], [vc.d30, '30D'], [info.vp, 'pRTH']]);
+    stackStructure(levels, info.structure, S);
 
     const z = data.gex && (data.gex.zero || data.gex.full);
     const pick = (...v) => v.find(Number.isFinite);

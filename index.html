@@ -16,7 +16,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script src="yyy.js?v=1"></script>
-<script src="levels.js?v=23"></script>
+<script src="levels.js?v=24"></script>
 <script src="bias.js?v=3"></script>
 <script src="analysis.js?v=1"></script>
 <script src="backtest.js?v=1"></script>
@@ -1212,11 +1212,13 @@ function focusRank(l, r){
   const ng = new Set(l.srcs.map(x => /^qqq|^chg|^opt/.test(x) ? 'opt' : x)).size;  // NQ + QQQ options = one family
   const walls = l.tags.filter(bigWall).length;
   if (!walls) return -1;                              // must sit on a big call / put wall
+  if (l.fast && !l.stack) return -1;                  // flip inside a composite LVN = acceleration zone, not a reversal level
   if (ng < 2 && walls < 2) return -1;                 // + another confluence (volume, EM, σ, FLOW …) or a second wall           // …and only real confluence (≥ 2 independent sources: options + volume, EM, σ …)
   if (fz.segs.some(s => s.t1 && s.end === 'hit' && Math.abs(s.p - l.price) <= S.tol)) return -1; // used today
   const em = r.info.em ? r.info.em.em : 120;
   let q = l.score;
   if (l.tags.some(t => t.includes('★'))) q += 1;
+  if (l.stack) q *= 1.3;                              // wall on a composite HVN / prior ledge: much stronger ceiling / floor
   // YYY ch. 6.4: 0DTE wall at the same strike as the multi-expiry wall carries more weight
   if (l.tags.some(t => /^0DTE (CW|PW)/.test(t)) && l.tags.some(t => /^(CW|PW) [12]$|^OI (CW|PW)$/.test(t))) q *= 1.15;
   // ch. 15.2: σ level on a wall or inside an LVN = statistically extended move into structure
@@ -1302,13 +1304,15 @@ function fzOpt(s){
 }
 function fzLabel(s){
   const o = fzOpt(s), t = [];
+  const lv = st.res && st.res.levels.find(x => Math.abs(x.price - s.p) <= S.tol);
+  if (lv && lv.stack) t.push(lv.stack.on === 'HVN' ? 'H+' : 'L+');
   if (o.v) t.push(o.v > 0 ? 'V+' : 'V−');
   if (o.g) t.push(o.g > 0 ? 'G+' : 'G−');
   return `${t.map(x => '(' + x + ')').join(' ')}${t.length ? ' | ' : ''}${o.type} - ${o.hor}`;
 }
 function drawFocus(out){
   const segs = S.focus ? fz.segs.filter(s => !s.t1) : [];
-  const hash = JSON.stringify(segs.map(s => [s.p, s.side, fzLabel(s)])) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus;
+  const hash = JSON.stringify(segs.map(s => [s.p, s.side, fzLabel(s)])) + JSON.stringify(st.res ? st.res.levels.filter(l => l.fast).map(l => l.price) : []) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus;
   if (hash === fz.hash) return; fz.hash = hash;
   try { series.setMarkers([]); } catch(e){}
   fz.series.forEach(x => { try { chart.removeSeries(x); } catch(e){} }); fz.series = [];
@@ -1317,6 +1321,10 @@ function drawFocus(out){
   if (S.focus && out.length) { const a = chart.addLineSeries({ color:'rgba(0,0,0,0)', lineWidth:1, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false, autoscaleInfoProvider:() => segs.length ? { priceRange:{ minValue:Math.min(...segs.map(x => x.p)), maxValue:Math.max(...segs.map(x => x.p)) } } : null });
     a.setData([{ time:out[0].time, value:out[0].close }, { time:out[out.length - 1].time, value:out[out.length - 1].close }]); fz.series.push(a); }
   // one clean line per side across the whole chart, label on the line, exact price on the axis
+  // ⚡ flip level inside a composite LVN: price can move fast through it once it commits
+  if (S.focus && st.res) for (const l of st.res.levels.filter(l => l.fast && Math.abs(l.dist) < 400 && !segs.some(s => Math.abs(s.p - l.price) <= S.tol)))
+    fz.axis.push(series.createPriceLine({ price: l.price, color: '#f0a020', lineWidth: 1, lineStyle: 2, lineVisible: true, axisLabelVisible: true,
+      axisLabelColor: '#f0a020', axisLabelTextColor: '#07080a', title: '⚡ FLIP v LVN · rychlý pohyb' }));
   for (const s of segs) fz.axis.push(series.createPriceLine({ price: s.p, color: '#a4a9b0', lineWidth: 1, lineStyle: 0, lineVisible: true,
     axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: fzLabel(s) }));
 }
@@ -2156,6 +2164,8 @@ const EXPLAIN = [
   [/^EM|EM [+−]|EM ±/, 'Expected move', 'Očekávaný denní pohyb z VXN/VIX od RTH open (Ref). ±1 EM trh dosáhne zhruba ve třetině dní – extrémy jsou místa pro fade.'],
   [/^Ref/, 'Ref', 'Kotva EM – cena při RTH open, střed očekávaného pohybu.'],
   [/σ/, 'σ Grid (kap. 15)', 'σ = ATR(10) × √(5/390), kotva = close 18:00 ET Globex baru, úrovně ±0.5/0.7/1/1.5/2/2.5/3σ. 1σ = normální denní pohyb, 2σ = natažené, 3σ = outlier. Nejlepší jako konfluence s LVN nebo GEX wallem; vstup jen s absorpcí na footprintu.'],
+  [/^⛰/, 'Wall + struktura', 'Call / put wall leží na composite HVN nebo na ledge (shelf) – gamma a objemová struktura se sčítají: mnohem silnější strop / podlaha než každé zvlášť. V popisku Focusu jako (H+) = HVN, (L+) = ledge.'],
+  [/^⚡/, 'Flip v LVN', 'Gamma flip (vol trigger) leží uvnitř composite LVN. Jakmile se cena rozhodne, může tudy projet rychle – dealeři se přepnou na short gamma a v profilu není nic, co by pohyb brzdilo. Není to level na fade.'],
   [/^PD[HL]$/, 'PDH / PDL', 'High / low předchozí session. Má vlastní váhu nezávisle na σ gridu a často reaguje s blízkými σ levely.'],
   [/ON POC/, 'Overnight POC', 'Cena s největším objemem v noční session (18:00–9:30 ET) – férová cena overnightu.'],
   [/ON VAH/, 'Overnight VAH', 'Horní hrana 70 % objemu overnightu. Nad ní je trh „drahý“ vůči noci – častá reakce po otevření.'],
@@ -2498,6 +2508,8 @@ function planRender(){
     ${G.width ? plRow('Šířka range · pozice spotu', `${plFmt(G.width)} b. · ${G.pos != null ? Math.round(G.pos * 100) + ' % od put wall' : '—'}`) : ''}
     ${G.maxPain ? plRow('Max pain týden · měsíc' + ([4, 5].includes(new Date(c.sess + 'T12:00:00Z').getUTCDay()) ? ' (čt/pá: drift k MP)' : ''), `${plFmt(G.maxPain)} · ${plFmt(G.maxPainMonth)}`, [4, 5].includes(new Date(c.sess + 'T12:00:00Z').getUTCDay()) ? 'w' : '') : ''}
     ${G.net != null ? plRow('NET / ABS GEX (0–21 DTE)', `${Pro.fmtM(G.net)} / ${Pro.fmtM(G.abs)}${G.coiled ? ' · COILED' : ''}`, G.coiled ? 'w' : G.net > 0 ? 'u' : 'd') : ''}
+    ${(st.res.levels || []).filter(l => l.stack).slice(0, 3).map(l => plRow(`⛰ ${l.stack.wall === 'call' ? 'Call' : 'Put'} wall + ${l.stack.on} ${l.stack.src}`, plFmt(l.price), l.stack.wall === 'call' ? 'u' : 'd')).join('')}
+    ${(st.res.levels || []).filter(l => l.fast).slice(0, 2).map(l => plRow(`⚡ Flip v LVN ${l.fast.src} (${plFmt(l.fast.lo)}–${plFmt(l.fast.hi)})`, plFmt(l.price), 'w')).join('')}
     ${G.bigCalls ? plRow('Největší call / put OI', `${G.bigCalls.slice(0, 3).map(plFmt).join(', ')} / ${G.bigPuts.slice(0, 3).map(plFmt).join(', ')}`) : ''}
     <p class="pl-note">${o.gexRegime === 'SHORT GAMMA' ? 'Short gamma: vstup jen na levelu s footprintem, pak trail po 20 b. Nefadeovat momentum.' : 'Long gamma: fade extrémů, pevný malý stop (mentor 3 b. na ES), cíle předchozí struktura a 30min single prints.'}${G.match ? ' 0DTE wall = multi-expiry wall → level má víc váhy.' : ''}</p></div>`;
   // L04 skew + L05 surface + L06 IV spread (server)
