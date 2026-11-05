@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="yyy.js?v=1"></script>
+<script src="yyy.js?v=2"></script>
 <script src="levels.js?v=24"></script>
 <script src="bias.js?v=3"></script>
 <script src="analysis.js?v=1"></script>
@@ -552,8 +552,8 @@ function drawZones(){
 // blue dots = 1/5/10/15/30 min ago, dashed major +/− and zero gamma lines.
 // ───────── TradingView-style legend: show/hide drawings only — the levels stay in the confluence either way.
 // Separate visibility for the normal view and Focus mode (Focus = clean chart, only the zone by default).
-const VIS = [['sessVP','Volume profil ETH/RTH'],['compVP','VP 7D / 30D'],['lvn','LVN pásy'],['gex','GEX profil'],['qqqZ','QQQ zóny'],['em','EM Levels'],['lines','Konfluenční čáry'],['prevL','Včerejší levely'],['vol','Objem'],['cvd','CVD']];
-const VIS_DEF = { n: Object.fromEntries(VIS.map(v => [v[0], true])), f: Object.fromEntries(VIS.map(v => [v[0], false])) };
+const VIS = [['sessVP','Volume profil ETH/RTH'],['compVP','VP 7D / 30D'],['lvn','LVN pásy'],['gex','GEX profil'],['qqqZ','QQQ zóny'],['em','EM Levels'],['lines','Konfluenční čáry'],['prevL','Včerejší levely'],['vol','Objem'],['cvd','CVD'],['sent','Sentiment levely']];
+const VIS_DEF = { n: Object.fromEntries(VIS.map(v => [v[0], true])), f: Object.fromEntries(VIS.map(v => [v[0], v[0] === 'sent'])) };
 const vis = k => { const m = (S.vis && S.vis[S.focus ? 'f' : 'n']) || VIS_DEF[S.focus ? 'f' : 'n']; return m[k] !== undefined ? !!m[k] : VIS_DEF[S.focus ? 'f' : 'n'][k]; };
 function legendHTML(){
   return `<div class="lgh"><span>${S.focus ? 'Focus' : 'Graf'}</span><button data-lg="all" title="Skrýt / ukázat vše">◐</button><button data-lg="fold" title="Sbalit">${lgFolded() ? '▾' : '▴'}</button></div>` +
@@ -1359,7 +1359,7 @@ function drawFocus(out){
   const hits = [];
   if (S.focus) for (const s of fz.segs.filter(s => s.end === 'hit'))
     if (!segs.some(a => Math.abs(a.p - s.p) <= S.tol) && !hits.some(h => Math.abs(h.p - s.p) <= S.tol)) hits.push(s);
-  const hash = JSON.stringify(segs.map(s => [s.p, s.side, fzLabel(s)])) + JSON.stringify(hits.map(s => [s.p, s.res])) + JSON.stringify(st.res ? st.res.levels.filter(l => l.fast).map(l => l.price) : []) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus;
+  const hash = JSON.stringify(segs.map(s => [s.p, s.side, fzLabel(s)])) + JSON.stringify(hits.map(s => [s.p, s.res])) + JSON.stringify(sn && sn.out ? sn.out.lines.map(l => [l.nq, l.role]) : []) + vis('sent') + JSON.stringify(st.res ? st.res.levels.filter(l => l.fast).map(l => l.price) : []) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus;
   if (hash === fz.hash) return; fz.hash = hash;
   try { series.setMarkers([]); } catch(e){}
   fz.series.forEach(x => { try { chart.removeSeries(x); } catch(e){} }); fz.series = [];
@@ -1372,6 +1372,10 @@ function drawFocus(out){
   if (S.focus && st.res) for (const l of st.res.levels.filter(l => l.fast && Math.abs(l.dist) < 400 && !segs.some(s => Math.abs(s.p - l.price) <= S.tol)))
     fz.axis.push(series.createPriceLine({ price: l.price, color: '#f0a020', lineWidth: 1, lineStyle: 2, lineVisible: true, axisLabelVisible: true,
       axisLabelColor: '#f0a020', axisLabelTextColor: '#07080a', title: '⚡ FLIP v LVN · rychlý pohyb' }));
+  // sentiment levels (QQQ all-expiry pivot + POIs → NQ), mentor-style labels
+  if (S.focus && vis('sent') && sn && sn.out && !st.replay) for (const l of sn.out.lines) if (l.nq && !segs.some(s => Math.abs(s.p - l.nq) <= S.tol))
+    fz.axis.push(series.createPriceLine({ price:l.nq, color:l.color, lineWidth:2, lineStyle:0, lineVisible:true, axisLabelVisible:true,
+      axisLabelColor:l.color, axisLabelTextColor:'#07080a', title:`${l.role} · QQQ ${l.q}` }));
   for (const s of hits) {
     const res = s.res === 'reacted' ? '✔ reakce' : s.res === 'broken' ? '✘ proraženo' : '● zasaženo';
     const col = s.res === 'reacted' ? '#5ee0c8' : s.res === 'broken' ? '#f05a6e' : '#8a8f97';
@@ -1384,7 +1388,8 @@ function drawFocus(out){
 function focusCards(r){
   const gate = st.gate && st.gate.label !== 'NORMAL' && !st.replay
     ? `<div class="fzc"><span class="sd" style="color:${st.gate.label === 'CRITICAL' ? '#f05a6e' : '#c9a66b'}">${st.gate.label === 'CRITICAL' ? '⛔ CRITICAL' : '⚠ ELEVATED'}</span><span class="m">${st.gate.label === 'CRITICAL' ? 'Entropie ≥ 1.2× – žádné nové vstupy (Plán dne).' : 'Entropie zvýšená – poloviční size, širší stopy, levely trhanější.'} Size: ${st.gate.size}</span></div>` : '';
-  return gate + focusCards0(r);
+  try { sentCompute(); } catch(e){}
+  return gate + sentCard() + focusCards0(r);
 }
 function focusCards0(r){
   const act = ['short', 'long'].map(side => fz.segs.find(s => !s.t1 && s.side === side)).filter(Boolean);
@@ -2456,7 +2461,7 @@ function planCompute(){
   const dt = YYY.dayType(b1, today, ibs.length ? ibs.reduce((a, b) => a + b, 0) / ibs.length : null);
   const t9 = YYY.tpo9(b1, today, 1);
   const prevDay = days.length > 1 ? days[days.length - (YYY.isRTH(b1[b1.length - 1].t) ? 2 : 1)] : null;
-  const sp = [...(prevDay ? YYY.singlePrints(b1, prevDay, 1, 3) : []), ...YYY.singlePrints(b1, today, 1, 3)];
+  const sp = [...(prevDay && prevDay !== today ? YYY.singlePrints(b1, prevDay, 1, 3) : []), ...YYY.singlePrints(b1, today, 1, 3)];
   // CVD divergence: only with real delta from the data server
   let cvd = null;
   try { const sb = (st.srv && st.srv.b60) || []; if (sb.length && sb[0].cvd !== undefined) cvd = YYY.cvdDiv(sb.map(b => ({ h:b.h, l:b.l, cvd:b.cvd })), 30); } catch(e){}
@@ -2501,7 +2506,9 @@ function plSpark(R){
 function planPostText(c){
   const o = c.out, L = o.levels, d = c.sess.slice(5).split('-').reverse().join('.');
   const lv = [L.callWall && `Call wall ${plFmt(L.callWall)}`, L.putWall && `Put wall ${plFmt(L.putWall)}`, L.trigger && `Vol trigger ${plFmt(L.trigger)}`, L.maxPain && `Max pain ${plFmt(L.maxPain)}`].filter(Boolean).join(' · ');
-  return [`BIAS ${d} — ${o.lean}${o.gexRegime ? ' (' + o.gexRegime.toLowerCase() + ')' : ''}`,
+  const so = sn.out;
+  return [`BIAS ${d} — ${o.lean}${o.gexRegime ? ' (' + o.gexRegime.toLowerCase() + ')' : ''}${so ? ' · sentiment ' + so.lean : ''}`,
+    ...(so ? so.text : []),
     `Levely: ${lv || '—'}`,
     `Range 1D: ${c.range ? plFmt(c.range.lo) + ' – ' + plFmt(c.range.hi) : '—'}`,
     `Size: ${o.size}`,
@@ -2590,6 +2597,19 @@ function planRender(){
       ${pl.raw && pl.raw.d2y.length > 250 ? (() => { const y = pl.raw.d2y.slice(-252), hi = Math.max(...y.map(x => x.h)), lo = Math.min(...y.map(x => x.l)); const near = (hi - c.spot) < (b.d1 || 200) * 2 || (c.spot - lo) < (b.d1 || 200) * 2; return plRow('1Y high / low', `${plFmt(hi)} / ${plFmt(lo)}${near ? ' · u extrému' : ''}`, near ? 'w' : ''); })() : ''}</div>`;
   } else {
     h += `<div class="pl-card"><h5>04–06 SKEW · POVRCH · BRACKETY <span>bez serveru</span></h5><p class="pl-note">Skew, IV povrch, shadow gamma a max pain se počítají z ThetaData na tvém PC. Server teď nedostupný (${esc(pl.volErr || '—')}). Range níže je z EM gridu.</p></div>`;
+  }
+  // Sentiment (QQQ / SPX / VIX pivots + sectors)
+  try { sentCompute(); } catch(e){}
+  if (sn.out && sn.out.drivers.length) {
+    const so = sn.out, A2 = so.assets;
+    h += `<div class="pl-card"><h5>SENTIMENT · QQQ / SPX / VIX <span>${so.lean} (${so.score > 0 ? '+' : ''}${so.score.toFixed(1)})</span></h5>
+      ${A2.QQQ ? plRow(`QQQ all-expiry pivot ${A2.QQQ.pivot}`, `${A2.QQQ.state}${A2.QQQ.prevFail === 'reclaim' ? ' · včera nereclaimlo' : ''}`, A2.QQQ.side > 0 ? 'u' : 'd') : ''}
+      ${A2.SPX ? plRow(`SPX pivot ${A2.SPX.pivot}`, `${A2.SPX.state} · dál ${A2.SPX.up.join(', ') || '—'}`, A2.SPX.side > 0 ? 'u' : 'd') : ''}
+      ${A2.VIX ? plRow(`VIX gamma pivot ${A2.VIX.pivot}`, A2.VIX.state, A2.VIX.side > 0 ? 'd' : 'u') : ''}
+      ${so.lines.map(l => plRow(l.role, `QQQ ${l.q}${l.nq ? ' · NQ ' + fmtP(l.nq) : ''}`, /SHORT|DOWNSIDE|RESIST/.test(l.role) ? 'd' : 'u')).join('')}
+      ${so.breadth ? plRow('Sektory nahoru', `${so.breadth.up}/${so.breadth.n} · SMH ${plPct(sn.sec.SMH && sn.sec.SMH.d1)} · XLE ${plPct(sn.sec.XLE && sn.sec.XLE.d1)}`) : ''}
+      ${so.text.map(t => `<p class="pl-note" style="color:var(--text)">${esc(t)}</p>`).join('')}
+      ${sn.err.length ? `<p class="pl-note">Chybí: ${esc(sn.err.slice(0, 3).join(' · '))} – nasaď nový Worker.</p>` : ''}</div>`;
   }
   // Live session
   const dt = c.dt, t9 = c.t9;
@@ -2696,6 +2716,54 @@ function focusGate(){
 }
 setInterval(() => { if ($('plan').classList.contains('show') && document.visibilityState === 'visible' && !st.replay) planRender(); }, 60000);
 setTimeout(() => { if (S.worker && !st.demo) planLoad().then(() => { try { pl.out = planCompute(); focusGate(); render(); } catch(e){} }).catch(() => {}); }, 9000);
+
+// ───────── SENTIMENT (mentor's daily read): QQQ all-expiry pivot + SPX pivot + VIX gamma pivot + sectors → BEARISH / BULLISH + levels
+var sn = { g:{}, yf:{}, sec:{}, at:0, secAt:0, busy:false, out:null, err:[] };
+async function loadSent(force){
+  if (sn.busy || !S.worker || st.demo) return;
+  if (!force && Date.now() - sn.at < 120e3) return;
+  sn.busy = true; sn.err = [];
+  try {
+    const gj = p => api('/gex/' + p).catch(e => { sn.err.push(p + ': ' + e.message); return null; });
+    const yj = (sym, iv, rng) => api(`/yf/${encodeURIComponent(sym)}?interval=${iv}&range=${rng}`).then(A.parseYF).catch(e => { sn.err.push(sym + ': ' + e.message); return null; });
+    const [qf, sz, sf, vf, vz, spx, vix] = await Promise.all([gj('QQQ/classic/gex_full'), gj('SPX/classic/gex_zero'), gj('SPX/classic/gex_full'),
+      gj('VIX/classic/gex_full'), gj('VIX/classic/gex_zero'), yj('^GSPC', '1m', '2d'), yj('^VIX', '1m', '2d')]);
+    const keep = (k, v) => { if (v) sn.g[k] = v; };
+    keep('qqqFull', qf); keep('spxZero', sz); keep('spxFull', sf); keep('vixFull', vf); keep('vixZero', vz);
+    if (spx) sn.yf.spx = spx.filter(b => b.t % 60 === 0); if (vix) sn.yf.vix = vix.filter(b => b.t % 60 === 0);
+    if (force || Date.now() - sn.secAt > 600e3) {
+      const syms = ['SMH','XLK','XLE','XLY','XLC','XLP','XLRE','XLV','XLB','XLF','XLU','XLI'];
+      const res = await Promise.all(syms.map(x => yj(x, '1d', '1mo')));
+      syms.forEach((x, i) => { const b = res[i]; if (b && b.length > 6) { const c = b.map(y => y.c); sn.sec[x] = { d1:c.at(-1) / c.at(-2) - 1, d5:c.at(-1) / c.at(-6) - 1 }; } });
+      sn.secAt = Date.now();
+    }
+    sn.at = Date.now();
+  } finally { sn.busy = false; }
+}
+function sentCompute(){
+  if (!sn || !sn.at) return null;
+  const qb = st.data.qqqBars || [], qs = st.data.qqqPx || (qb.length ? qb.at(-1).c : null);
+  const spxB = sn.yf.spx || [], vixB = sn.yf.vix || [];
+  const G = st.data.gex || {};
+  const o = YYY.sentiment({
+    qqq: { spot:qs, bars:qb, full:sn.g.qqqFull, zero:G.qqq },
+    spx: { spot:spxB.length ? spxB.at(-1).c : (sn.g.spxZero && sn.g.spxZero.spot), bars:spxB, zero:sn.g.spxZero, full:sn.g.spxFull },
+    vix: { spot:vixB.length ? vixB.at(-1).c : (sn.g.vixFull && sn.g.vixFull.spot), bars:vixB, full:sn.g.vixFull, zero:sn.g.vixZero },
+    sectors: sn.sec,
+  });
+  const k = st.res && st.res.info && st.res.info.ratio;
+  o.k = k; o.lines.forEach(l => { l.nq = k ? Math.round(l.q * k * 4) / 4 : null; });
+  sn.out = o; return o;
+}
+function sentCard(){
+  const o = sn && sn.out; if (!o || !o.drivers.length) return '';
+  const col = /BEAR/.test(o.lean) ? '#ef5350' : /BULL/.test(o.lean) ? '#66bb6a' : '#c9a66b';
+  const piv = o.lines[0];
+  const lv = o.lines.map(l => `${l.role.split(' · ')[0]} ${l.q}${l.nq ? ' (' + fmtP(l.nq) + ')' : ''}`).join(' · ');
+  return `<div class="fzc" title="${esc(o.drivers.map(d => `${d[0]} ${d[1] > 0 ? '+' : ''}${d[1]}`).join('\n') + '\n\n' + o.text.join('\n'))}"><span class="sd" style="color:${col}">${o.lean}</span>${piv ? `<b>${esc(piv.role)}</b>` : ''}<span class="m">${esc(lv)}</span></div>`;
+}
+setInterval(() => { if (S.worker && !st.demo && document.visibilityState === 'visible') loadSent().then(() => { sentCompute(); fz.hash = ''; render(); }).catch(() => {}); }, 30000);
+setTimeout(() => { if (S.worker && !st.demo) loadSent(true).then(() => { sentCompute(); fz.hash = ''; render(); }).catch(() => {}); }, 4000);
 
 // ───────── browser-style tabs: Graf (clean chart) · Levely · Options & Flow · Bias · Analýza · Deník
 const TAB_SHEETS = { pro:['pro','proBtn','pClose'], plan:['plan','planBtn','planClose'], bias:['bias','biasBtn','bClose2'], ana:['ana','anaBtn','aClose'], stats:['stats','statsBtn','sClose'] };

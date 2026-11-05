@@ -336,5 +336,106 @@
     return out;
   }
 
-  root.YYY = { et, isRTH, bars5, eig, pca, regime, garch, sigmaGrid, dayType, tpo9, singlePrints, cvdDiv, macro, synth };
+
+  // ───────── Sentiment engine (mentor's daily read): QQQ all-expiry pivot, SPX pivot, VIX gamma pivot, sectors
+  //  pivot      = strike with the largest |net dealer gamma| near spot (the level price has to reclaim / hold)
+  //  POIs       = next heavy strikes beyond spot on each side (where price is likely to interact next)
+  //  status     = above / below the pivot, held ≥ 10 min = reclaimed / lost, else testing; prior session failed reclaim
+  //  sentiment  = QQQ + SPX vs their pivots, VIX vs its pivot (inverse), gamma regime, semis / tech breadth
+  function keyLevels(g, spot, band, idx, round) {
+    if (!g || !Array.isArray(g.strikes) || !spot) return null;
+    const rows = g.strikes.map(r => ({ k: +r[0], v: +r[idx] || 0 })).filter(r => Number.isFinite(r.k) && Math.abs(r.k / spot - 1) <= band * 3);
+    if (!rows.length) return null;
+    const near = rows.filter(r => Math.abs(r.k / spot - 1) <= band);
+    if (!near.length) return null;
+    // pivot = the heavy strike closest to spot (≥ 40 % of the biggest nearby), round strikes preferred (mentor: 685 / 7700 / 16)
+    const mxN = Math.max(...near.map(r => Math.abs(r.v))) || 1, rnd = round || 1;
+    const cand = near.filter(r => Math.abs(r.v) >= 0.4 * mxN);
+    const pivot = cand.reduce((a, b) => {
+      const d = r => Math.abs(r.k - spot) * (Math.abs(r.k / rnd - Math.round(r.k / rnd)) < 1e-9 ? 0.6 : 1);
+      return d(b) < d(a) ? b : a;
+    });
+    const mx = Math.max(...rows.map(r => Math.abs(r.v))) || 1;
+    const heavy = rows.filter(r => Math.abs(r.v) >= 0.3 * mx && r.k !== pivot.k);
+    const up = heavy.filter(r => r.k > Math.max(spot, pivot.k)).sort((a, b) => a.k - b.k).slice(0, 2).map(r => r.k);
+    const dn = heavy.filter(r => r.k < Math.min(spot, pivot.k)).sort((a, b) => b.k - a.k).slice(0, 2).map(r => r.k);
+    return { pivot: pivot.k, pivotNet: pivot.v, up, dn, zero: Number.isFinite(g.zero_gamma) ? g.zero_gamma : null };
+  }
+  function sideOf(bars, level, spot) {
+    const last = bars && bars.length ? bars[bars.length - 1].c : spot;
+    if (!Number.isFinite(last) || !Number.isFinite(level)) return { side: 0, state: '—' };
+    const side = last >= level ? 1 : -1;
+    let n = 0; if (bars) for (let i = bars.length - 1; i >= 0 && (bars[i].c >= level ? 1 : -1) === side; i--) n++;
+    const held = !bars || n >= 10;
+    // previous session: traded above the level but closed below (failed reclaim) or the opposite
+    let prevFail = null;
+    if (bars && bars.length) {
+      const days = [...new Set(bars.map(b => et(b.t).date))];
+      if (days.length > 1) {
+        const pd = bars.filter(b => et(b.t).date === days[days.length - 2] && isRTH(b.t));
+        if (pd.length) { const hi = Math.max(...pd.map(b => b.h)), lo = Math.min(...pd.map(b => b.l)), cl = pd[pd.length - 1].c;
+          if (hi > level && cl < level) prevFail = 'reclaim'; else if (lo < level && cl > level) prevFail = 'breakdown'; }
+      }
+    }
+    return { side, held, mins: n, last, state: side > 0 ? (held ? 'NAD (drží)' : 'nad – testuje') : (held ? 'POD (ztraceno)' : 'pod – testuje'), prevFail };
+  }
+  function sentiment(x) {
+    const out = { assets: {}, drivers: [], score: 0, lines: [] };
+    const add = (v, why) => { out.score += v; out.drivers.push([why, v]); };
+    // QQQ — all-expiry pivot (OI gamma), regime vs zero gamma
+    const qL = keyLevels(x.qqq && x.qqq.full, x.qqq && x.qqq.spot, 0.012, 2, 5) || keyLevels(x.qqq && x.qqq.zero, x.qqq && x.qqq.spot, 0.012, 1, 5);
+    if (qL) {
+      const s = sideOf(x.qqq.bars, qL.pivot, x.qqq.spot);
+      out.assets.QQQ = { ...qL, ...s };
+      add(s.side * (s.held ? 1.5 : 0.5), `QQQ ${s.side > 0 ? 'nad' : 'pod'} all-expiry pivotem ${qL.pivot}`);
+      if (s.prevFail === 'reclaim' && s.side < 0) add(-0.5, `QQQ včera nedokázalo reclaimnout ${qL.pivot}`);
+      if (qL.zero) add(x.qqq.spot > qL.zero ? 0.5 : -0.5, `QQQ ${x.qqq.spot > qL.zero ? 'nad' : 'pod'} zero gamma ${qL.zero.toFixed(1)}`);
+    }
+    // SPX — pivot from the 0DTE + all-expiry profile
+    const sL = keyLevels(x.spx && x.spx.zero, x.spx && x.spx.spot, 0.008, 1, 50) || keyLevels(x.spx && x.spx.full, x.spx && x.spx.spot, 0.008, 2, 50);
+    if (sL) {
+      const s = sideOf(x.spx.bars, sL.pivot, x.spx.spot);
+      out.assets.SPX = { ...sL, ...s };
+      add(s.side * (s.held ? 1.5 : 0.5), `SPX ${s.side > 0 ? 'nad' : 'pod'} pivotem ${sL.pivot}`);
+    }
+    // VIX — gamma pivot; VIX above it = pressure on equities
+    const vL = keyLevels(x.vix && x.vix.full, x.vix && x.vix.spot, 0.12, 2, 1) || keyLevels(x.vix && x.vix.zero, x.vix && x.vix.spot, 0.12, 1, 1);
+    if (vL) {
+      const s = sideOf(x.vix.bars, vL.pivot, x.vix.spot);
+      out.assets.VIX = { ...vL, ...s };
+      add(-s.side * (s.held ? 1 : 0.4), `VIX ${s.side > 0 ? 'nad' : 'pod'} gamma pivotem ${vL.pivot}`);
+    }
+    // sectors: semis + tech breadth (AI / data-center risk shows up here first)
+    const sec = x.sectors || {};
+    if (sec.SMH && Number.isFinite(sec.SMH.d1)) add(sec.SMH.d1 > 0.005 ? 0.5 : sec.SMH.d1 < -0.005 ? -0.5 : 0, `polovodiče (SMH) ${(sec.SMH.d1 * 100).toFixed(1)} % dnes`);
+    if (sec.XLK && Number.isFinite(sec.XLK.d5) && sec.XLK.d5 < -0.03) add(-0.5, `tech (XLK) ${(sec.XLK.d5 * 100).toFixed(1)} % za 5 dní`);
+    const names = Object.keys(sec).filter(k => /^XL/.test(k) && Number.isFinite(sec[k].d1));
+    if (names.length >= 8) { const up = names.filter(k => sec[k].d1 > 0).length; out.breadth = { up, n: names.length };
+      if (up >= names.length - 2 && sec.XLK && sec.XLK.d1 <= 0) out.drivers.push([`rotace: ${up}/${names.length} sektorů nahoru, ale tech ne – SPX/DOW drží, tech zaostává`, 0]); }
+    const sc = out.score;
+    out.lean = sc >= 2.5 ? 'BULLISH' : sc <= -2.5 ? 'BEARISH' : sc >= 1 ? 'LEAN BULL' : sc <= -1 ? 'LEAN BEAR' : 'NEUTRÁL';
+    // actionable levels on QQQ (→ NQ via k)
+    const Q = out.assets.QQQ;
+    if (Q) {
+      const bear = sc < 0, bull = sc > 0;
+      if (Q.side < 0) {
+        out.lines.push({ q: Q.pivot, role: bear ? 'RESISTANCE · SHORT' : 'PIVOT', color: '#ef5350' });
+        Q.dn.forEach((k, i) => out.lines.push({ q: k, role: i === Q.dn.length - 1 ? 'DOWNSIDE · break = sellers' : 'SUPPORT · POI', color: i === Q.dn.length - 1 ? '#ef5350' : '#66bb6a' }));
+      } else {
+        out.lines.push({ q: Q.pivot, role: bull ? 'SUPPORT · LONG' : 'PIVOT', color: '#66bb6a' });
+        Q.up.forEach((k, i) => out.lines.push({ q: k, role: i === Q.up.length - 1 ? 'UPSIDE · break = buyers' : 'RESISTANCE · POI', color: i === Q.up.length - 1 ? '#66bb6a' : '#ef5350' }));
+      }
+    }
+    // mentor-style read
+    const t = [];
+    if (Q) t.push(`QQQ ${Q.side < 0 ? (Q.prevFail === 'reclaim' ? 'včera nereclaimlo' : 'je pod') : 'drží nad'} all-expiry pivot ${Q.pivot}. ${Q.side < 0 ? `${Q.pivot} je dnes pivot / resistance, downside POI ${Q.dn.join(' / ') || '—'}${Q.dn.length ? `, prolomení ${Q.dn[Q.dn.length - 1]} = prostor pro sellers` : ''}.` : `Support ${Q.pivot}, upside POI ${Q.up.join(' / ') || '—'}.`}`);
+    const SPX = out.assets.SPX;
+    if (SPX) t.push(`SPX ${SPX.pivot} je hlavní pivot – ${SPX.side > 0 ? 'drží nad ním' : 'reclaim nad ním je klíčový pro další upside'}. Další překážky ${SPX.up.join(', ') || '—'}${SPX.dn.length ? `, pod ním ${SPX.dn.join(', ')}` : ''}.`);
+    const V = out.assets.VIX;
+    if (V) t.push(`VIX ${V.side > 0 ? 'nad' : 'pod'} gamma pivotem ${V.pivot}${V.side > 0 ? ' – tlak na indexy' : ' – pro indexy podpora'}${SPX && SPX.side < 0 && V.side > 0 ? '; se ztrátou SPX pivotu může táhnout trh dolů' : ''}.`);
+    out.text = t;
+    return out;
+  }
+
+  root.YYY = { et, isRTH, bars5, eig, pca, regime, garch, sigmaGrid, dayType, tpo9, singlePrints, cvdDiv, macro, synth, keyLevels, sentiment };
 })(typeof window !== 'undefined' ? window : globalThis);
