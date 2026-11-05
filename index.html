@@ -2601,8 +2601,8 @@ function planRender(){
   // Sentiment (QQQ / SPX / VIX pivots + sectors)
   try { sentCompute(); } catch(e){}
   if (sn.out && sn.out.drivers.length) {
-    const so = sn.out, A2 = so.assets;
-    h += `<div class="pl-card"><h5>SENTIMENT · QQQ / SPX / VIX <span>${so.lean} (${so.score > 0 ? '+' : ''}${so.score.toFixed(1)})</span></h5>
+    const so = sn.out, A2 = so.assets, src = sn.src ? ` · ${Object.entries(sn.src).map(([k, v]) => k + ' ' + (v === 'ThetaData' ? 'Theta' : 'GEXbot')).join(', ')}` : '';
+    h += `<div class="pl-card"><h5>SENTIMENT · QQQ / SPX / VIX${src} <span>${so.lean} (${so.score > 0 ? '+' : ''}${so.score.toFixed(1)})</span></h5>
       ${A2.QQQ ? plRow(`QQQ all-expiry pivot ${A2.QQQ.pivot}`, `${A2.QQQ.state}${A2.QQQ.prevFail === 'reclaim' ? ' · včera nereclaimlo' : ''}`, A2.QQQ.side > 0 ? 'u' : 'd') : ''}
       ${A2.SPX ? plRow(`SPX pivot ${A2.SPX.pivot}`, `${A2.SPX.state} · dál ${A2.SPX.up.join(', ') || '—'}`, A2.SPX.side > 0 ? 'u' : 'd') : ''}
       ${A2.VIX ? plRow(`VIX gamma pivot ${A2.VIX.pivot}`, A2.VIX.state, A2.VIX.side > 0 ? 'd' : 'u') : ''}
@@ -2726,10 +2726,19 @@ async function loadSent(force){
   try {
     const gj = p => api('/gex/' + p).catch(e => { sn.err.push(p + ': ' + e.message); return null; });
     const yj = (sym, iv, rng) => api(`/yf/${encodeURIComponent(sym)}?interval=${iv}&range=${rng}`).then(A.parseYF).catch(e => { sn.err.push(sym + ': ' + e.message); return null; });
-    const [qf, sz, sf, vf, vz, spx, vix] = await Promise.all([gj('QQQ/classic/gex_full'), gj('SPX/classic/gex_zero'), gj('SPX/classic/gex_full'),
-      gj('VIX/classic/gex_full'), gj('VIX/classic/gex_zero'), yj('^GSPC', '1m', '2d'), yj('^VIX', '1m', '2d')]);
+    // ThetaData (own data server) first; GEXbot only for whatever the server does not have
+    let T = null;
+    if (S.server) { try { T = await srv('/sentiment'); } catch(e) { sn.err.push('server: ' + e.message); } }
+    const okT = x => x && !x.err && x.full && x.full.strikes && x.full.strikes.length;
+    sn.src = { QQQ: okT(T && T.QQQ) ? 'ThetaData' : 'GEXbot', SPX: okT(T && T.SPX) ? 'ThetaData' : 'GEXbot', VIX: okT(T && T.VIX) ? 'ThetaData' : 'GEXbot' };
+    if (T) for (const k of ['SPX', 'VIX']) if (T[k] && T[k].err) sn.err.push(`ThetaData ${k}: ${T[k].err}`);
+    const need = k => sn.src[k] === 'GEXbot';
+    const [qf, sz, sf, vf, vz, spx, vix] = await Promise.all([need('QQQ') ? gj('QQQ/classic/gex_full') : null, need('SPX') ? gj('SPX/classic/gex_zero') : null, need('SPX') ? gj('SPX/classic/gex_full') : null,
+      need('VIX') ? gj('VIX/classic/gex_full') : null, need('VIX') ? gj('VIX/classic/gex_zero') : null, yj('^GSPC', '1m', '2d'), yj('^VIX', '1m', '2d')]);
     const keep = (k, v) => { if (v) sn.g[k] = v; };
-    keep('qqqFull', qf); keep('spxZero', sz); keep('spxFull', sf); keep('vixFull', vf); keep('vixZero', vz);
+    if (!need('QQQ')) { keep('qqqFull', T.QQQ.full); keep('qqqZero', T.QQQ.zero); } else keep('qqqFull', qf);
+    if (!need('SPX')) { keep('spxFull', T.SPX.full); keep('spxZero', T.SPX.zero); } else { keep('spxZero', sz); keep('spxFull', sf); }
+    if (!need('VIX')) { keep('vixFull', T.VIX.full); keep('vixZero', T.VIX.zero); } else { keep('vixFull', vf); keep('vixZero', vz); }
     if (spx) sn.yf.spx = spx.filter(b => b.t % 60 === 0); if (vix) sn.yf.vix = vix.filter(b => b.t % 60 === 0);
     if (force || Date.now() - sn.secAt > 600e3) {
       const syms = ['SMH','XLK','XLE','XLY','XLC','XLP','XLRE','XLV','XLB','XLF','XLU','XLI'];
@@ -2746,7 +2755,7 @@ function sentCompute(){
   const spxB = sn.yf.spx || [], vixB = sn.yf.vix || [];
   const G = st.data.gex || {};
   const o = YYY.sentiment({
-    qqq: { spot:qs, bars:qb, full:sn.g.qqqFull, zero:G.qqq },
+    qqq: { spot:qs, bars:qb, full:sn.g.qqqFull, zero:sn.g.qqqZero || G.qqq },
     spx: { spot:spxB.length ? spxB.at(-1).c : (sn.g.spxZero && sn.g.spxZero.spot), bars:spxB, zero:sn.g.spxZero, full:sn.g.spxFull },
     vix: { spot:vixB.length ? vixB.at(-1).c : (sn.g.vixFull && sn.g.vixFull.spot), bars:vixB, full:sn.g.vixFull, zero:sn.g.vixZero },
     sectors: sn.sec,

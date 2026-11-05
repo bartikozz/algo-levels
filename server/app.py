@@ -58,7 +58,7 @@ async def private_network(request, call_next):
 
 tape = Tape(state_file=os.path.join(DATA_DIR, 'tape.json'))
 oflow = OptionFlow(min_prem=float(os.environ.get('FLOW_MIN_PREM', '25000')), state_file=os.path.join(DATA_DIR, 'optflow.json'))
-state = dict(chain=None, snap=None, k=None, opt_err=None, opt_ts=0, feed=None, hist=[], ostream=None)
+state = dict(chain=None, snap=None, k=None, opt_err=None, opt_ts=0, feed=None, hist=[], ostream=None, sent={})
 
 
 def auth(t: str | None):
@@ -143,6 +143,60 @@ def options_loop():
         except Exception as e:
             state['opt_err'] = f'{type(e).__name__}: {e}'
         time.sleep(max(1.0, POLL - (time.time() - t0)))
+
+
+# ── sentiment roots (SPX, VIX) from ThetaData: gamma by strike in the same shape as GEXbot classic
+SENT_ROOTS = {'SPX': ['SPX', 'SPXW'], 'VIX': ['VIX', 'VIXW']}
+SENT_POLL = float(os.environ.get('SENT_POLL_SEC', '120'))
+
+
+def _gex_view(chain, S, now, rows_full, rows_zero, land):
+    as_strikes = lambda rows: [[r['strike'], round(r['gex_vol'], 2), round(r['gex_oi'], 2), []] for r in rows]
+    return dict(timestamp=int(now), spot=S, zero_gamma=(land or {}).get('flip'),
+                full=dict(timestamp=int(now), spot=S, zero_gamma=(land or {}).get('flip'), strikes=as_strikes(rows_full)),
+                zero=dict(timestamp=int(now), spot=S, strikes=as_strikes(rows_zero)) if rows_zero else None)
+
+
+def sentiment_loop():
+    from providers.thetadata import ThetaData, parity_spot
+    from exposure import enrich, aggregate, landscape, expiry_ts as _ets
+    clients = {name: [ThetaData(r) for r in roots] for name, roots in SENT_ROOTS.items()}
+    while True:
+        for name, cls in clients.items():
+            try:
+                now = time.time()
+                chain, errs = [], []
+                for c in cls:
+                    try: chain += c.chain()
+                    except Exception as e: errs.append(f'{c.root}: {type(e).__name__}')
+                if not chain:
+                    raise RuntimeError('no chain (' + ', '.join(errs) + ')')
+                chain = [c for c in chain if 0 < _ets(c.exp) - now <= 60 * 86400]
+                S = parity_spot(chain)
+                if not S: raise RuntimeError('no spot from parity')
+                chain = [c for c in chain if abs(c.strike / S - 1) <= (0.35 if name == 'VIX' else 0.08)]
+                enrich(chain, S, now)
+                buckets, _ = aggregate(chain, S, now)
+                zero = buckets.get('0D') or buckets.get('1D') or buckets.get('W') or []
+                land = landscape(chain, S, now) if name != 'VIX' else None
+                state['sent'][name] = dict(_gex_view(chain, S, now, buckets.get('ALL', []), zero, land), err=None, n=len(chain))
+            except Exception as e:
+                state['sent'][name] = dict(state['sent'].get(name) or {}, err=f'{type(e).__name__}: {e}')
+        time.sleep(SENT_POLL)
+
+
+@app.get('/sentiment')
+def sentiment(t: str | None = None):
+    """QQQ (main chain) + SPX + VIX gamma by strike from ThetaData, GEXbot-compatible (full = all expiries, zero = 0DTE/nearest)."""
+    auth(t)
+    out = {}
+    s = state['snap']
+    if s:
+        land = s.get('landscape') or {}
+        out['QQQ'] = _gex_view(state['chain'], s['spot'], s['ts'], s['buckets'].get('ALL', []), s['buckets'].get('0D') or s['buckets'].get('1D') or [], land)
+    for k, v in state['sent'].items():
+        out[k] = v
+    return j(out)
 
 
 _yr = dict(k=None, at=0)
@@ -272,6 +326,8 @@ def start():
         state['ostream'] = ThetaStream(oflow, ROOT, get_chain=lambda: (state['chain'], state.get('spot')))
         state['ostream'].start()
     threading.Thread(target=saver, daemon=True).start()
+    if not DEMO and os.environ.get('SENT_ROOTS', '1') == '1':
+        threading.Thread(target=sentiment_loop, daemon=True).start()
     if not DEMO:
         threading.Thread(target=register_loop, daemon=True).start()
 
