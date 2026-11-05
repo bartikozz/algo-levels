@@ -187,6 +187,20 @@ def gex_structure(chain, S, now, max_days=21):
                 big_calls=top(oi_c, 3), big_puts=top(oi_p, 3))
 
 
+def surface_stats(chain, S, now):
+    """Cboe Macro Volatility Digest style stats from one chain (IV/greeks already solved):
+    1M ATM IV (30 calendar days, total-variance interpolation), 1M skew = 25Δ put IV / 25Δ call IV,
+    downside convexity = 10Δ put IV / 25Δ put IV (tail-hedge demand), from the expiry closest to 30 days."""
+    sm = _smiles(chain, S, now, max_days=70)
+    if not sm:
+        return None
+    e = min(sm.values(), key=lambda x: abs(x['dte'] - 30))
+    p25, c25, p10 = _delta_iv(e, -0.25, 'P'), _delta_iv(e, 0.25, 'C'), _delta_iv(e, -0.10, 'P')
+    return dict(atm30=_atm_at_tenor(sm, S, 30), dte=round(e['dte'], 1),
+                skew=(p25 / c25) if (p25 and c25) else None, convexity=(p10 / p25) if (p10 and p25) else None,
+                put25=p25, call25=c25, put10=p10)
+
+
 def report(chain: list[Contract], S: float, now: float, snap: dict | None = None):
     sm = _smiles(chain, S, now)
     if not sm:

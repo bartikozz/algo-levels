@@ -2797,6 +2797,69 @@ const pre = { chart:null, series:null, lines:[], daily:{}, dailyAt:0 };
 const preDate = () => plSessionDate();
 const f2 = (x, d = 2) => Number.isFinite(x) ? x.toFixed(d) : '—';
 const fK = x => Number.isFinite(x) ? (Math.abs(x - Math.round(x)) < 1e-9 ? String(Math.round(x)) : String(x)) : '—';
+// Cboe Macro Volatility Digest style layer: tech risk premium (QQQ−SPX 1M IV), SPX/QQQ skew + downside convexity (server),
+// IV vs RV, VIX/VIX3M, VVIX, spot-vol beta, cross-asset implied vol z-scores (10Y: VIX, MOVE, OVX, GVZ)
+const cb = { srv:null, y:{}, at:0, err:[] };
+async function cboeLoad(force){
+  if (!force && Date.now() - cb.at < 600e3) return;
+  cb.err = [];
+  if (S.server) { try { cb.srv = await srv('/cboe'); } catch(e) { cb.err.push('server: ' + e.message); } }
+  const yj = (s2, r) => api(`/yf/${encodeURIComponent(s2)}?interval=1d&range=${r}`).then(A.parseYF).catch(e => { cb.err.push(s2 + ': ' + e.message); return null; });
+  const syms = [['^VIX','10y'],['^MOVE','10y'],['^OVX','10y'],['^GVZ','10y'],['^VVIX','1y'],['^VIX3M','1mo'],['QQQ','1y'],['^GSPC','1y'],['^SKEW','1y']];
+  const res = await Promise.all(syms.map(([a, b]) => yj(a, b)));
+  syms.forEach(([a], i) => { if (res[i] && res[i].length) cb.y[a] = res[i]; });
+  cb.at = Date.now();
+}
+function cboeStats(){
+  const y = cb.y, out = { z:{} };
+  const z = b => { if (!b || b.length < 250) return null; const c = b.map(x => x.c), m = c.reduce((a, x) => a + x, 0) / c.length, sd = Math.sqrt(c.reduce((a, x) => a + (x - m) ** 2, 0) / (c.length - 1)); return { last:c.at(-1), z:(c.at(-1) - m) / sd, wk:c.length > 5 ? c.at(-1) - c.at(-6) : null }; };
+  for (const [k, n] of [['^VIX','Akcie (VIX)'],['^MOVE','Sazby (MOVE)'],['^OVX','Ropa (OVX)'],['^GVZ','Zlato (GVZ)']]) { const r = z(y[k]); if (r) out.z[n] = r; }
+  const rv = b => { if (!b || b.length < 23) return null; const c = b.map(x => x.c), r = []; for (let i = c.length - 21; i < c.length; i++) r.push(Math.log(c[i] / c[i - 1])); const m = r.reduce((a, x) => a + x, 0) / r.length; return Math.sqrt(r.reduce((a, x) => a + (x - m) ** 2, 0) / (r.length - 1) * 252); };
+  out.rvQ = rv(y.QQQ); out.rvS = rv(y['^GSPC']);
+  const pct1y = b => { if (!b || b.length < 50) return null; const c = b.map(x => x.c), l = c.at(-1); return c.filter(x => x <= l).length / c.length; };
+  if (y['^VVIX']) out.vvix = { last:y['^VVIX'].at(-1).c, pct:pct1y(y['^VVIX']) };
+  if (y['^SKEW']) out.skewIdx = { last:y['^SKEW'].at(-1).c, pct:pct1y(y['^SKEW']) };
+  if (y['^VIX'] && y['^VIX3M']) out.term = y['^VIX'].at(-1).c / y['^VIX3M'].at(-1).c;
+  // spot-vol beta: VIX points per 1 % SPX move, last 21 sessions
+  if (y['^VIX'] && y['^GSPC']) {
+    const vm = new Map(y['^VIX'].map(b => [A.et(b.t).date, b.c])), sx = y['^GSPC'].map(b => [A.et(b.t).date, b.c]).filter(([d]) => vm.has(d)).slice(-22);
+    const X = [], Y = []; for (let i = 1; i < sx.length; i++) { X.push((sx[i][1] / sx[i - 1][1] - 1) * 100); Y.push(vm.get(sx[i][0]) - vm.get(sx[i - 1][0])); }
+    if (X.length > 10) { const mx = X.reduce((a, b) => a + b, 0) / X.length, my = Y.reduce((a, b) => a + b, 0) / Y.length; let c = 0, v = 0; X.forEach((x, i) => { c += (x - mx) * (Y[i] - my); v += (x - mx) ** 2; }); out.beta = v ? c / v : null; }
+  }
+  const sv = cb.srv;
+  if (sv && sv.now) { out.srv = sv.now; out.hist = sv.hist; }
+  return out;
+}
+function cboeCard(){
+  const c = cboeStats(), n = c.srv || {}, H = (c.hist || {}), p = k => H.pct && H.pct[k] != null ? ` · ${Math.round(H.pct[k] * 100)}. pct` : '', zz = k => H.z && H.z[k] != null ? ` · z ${H.z[k] > 0 ? '+' : ''}${H.z[k]}` : '';
+  const pc = x => Number.isFinite(x) ? (x * 100).toFixed(1) + ' %' : '—';
+  let h = `<div class="pl-card"><h5>VOLATILITA (CBOE DIGEST STYL) <span>${c.term ? (c.term < 1 ? 'contango' : 'BACKWARDATION') : ''}</span></h5>`;
+  h += plRow('QQQ − SPX 1M IV (tech risk premium)', n.spread != null ? `${(n.spread * 100).toFixed(1)} b.${zz('spread')}${p('spread')}` : '—', n.spread > 0.08 ? 'd' : '');
+  h += plRow('QQQ / SPX 1M ATM IV', `${pc(n.qqq_atm)} / ${pc(n.spx_atm)}`);
+  h += plRow('QQQ / SPX 1M realized', `${pc(c.rvQ)} / ${pc(c.rvS)}`);
+  if (n.qqq_atm && c.rvQ) h += plRow('QQQ IV − RV', `${((n.qqq_atm - c.rvQ) * 100).toFixed(1)} b.`, n.qqq_atm - c.rvQ > 0.05 ? 'w' : '');
+  h += plRow('SPX 1M skew (25Δ put/call)', n.spx_skew ? n.spx_skew.toFixed(2) + p('spx_skew') : '—', H.pct && H.pct.spx_skew >= 0.8 ? 'd' : '');
+  h += plRow('SPX downside convexity (10Δ/25Δ)', n.spx_conv ? n.spx_conv.toFixed(2) + p('spx_conv') : '—', H.pct && H.pct.spx_conv >= 0.9 ? 'd' : '');
+  h += plRow('QQQ skew · convexity', `${n.qqq_skew ? n.qqq_skew.toFixed(2) + p('qqq_skew') : '—'} · ${n.qqq_conv ? n.qqq_conv.toFixed(2) : '—'}`);
+  if (c.term) h += plRow('VIX / VIX3M', c.term.toFixed(2), c.term >= 1 ? 'x' : 'u');
+  if (c.vvix) h += plRow('VVIX', `${c.vvix.last.toFixed(1)} · ${Math.round(c.vvix.pct * 100)}. pct (1Y)`, c.vvix.pct > 0.8 ? 'w' : '');
+  if (c.skewIdx) h += plRow('Cboe SKEW index', `${c.skewIdx.last.toFixed(1)} · ${Math.round(c.skewIdx.pct * 100)}. pct (1Y)`, c.skewIdx.pct > 0.8 ? 'w' : '');
+  if (c.beta != null) h += plRow('Spot-vol beta (VIX b. / 1 % SPX)', c.beta.toFixed(2), c.beta < -2 ? 'w' : '');
+  for (const [k, r] of Object.entries(c.z)) h += plRow(`${k} · z (10Y)`, `${r.last.toFixed(1)} · ${r.z > 0 ? '+' : ''}${r.z.toFixed(1)}${r.wk != null ? ` · ${r.wk > 0 ? '+' : ''}${r.wk.toFixed(1)} týden` : ''}`, r.z > 1.5 ? 'd' : r.z < -1 ? 'u' : '');
+  if (H.n != null && H.n < 5) h += `<p class="pl-note">Percentily skew / spreadu se počítají z historie, kterou si server ukládá od dneška (zatím ${H.n} dní).</p>`;
+  if (cb.err.length) h += `<p class="pl-note">Chybí: ${esc(cb.err.slice(0, 3).join(' · '))}</p>`;
+  return h + '</div>';
+}
+function cboeText(){
+  const c = cboeStats(), n = c.srv || {}, H = c.hist || {}, t = [];
+  if (n.spread != null) t.push(`Tech risk premium: QQQ−SPX 1M IV spread ${(n.spread * 100).toFixed(1)} b.${H.z && H.z.spread != null ? ` (z ${H.z.spread > 0 ? '+' : ''}${H.z.spread})` : ''}${n.spread > 0.08 ? ' – trh platí za riziko v techu výrazně víc než za širší trh' : ''}.`);
+  if (H.pct && H.pct.spx_conv != null && H.pct.spx_conv >= 0.9) t.push(`Poptávka po tail hedgích je vysoko (SPX downside convexity ${Math.round(H.pct.spx_conv * 100)}. percentil).`);
+  if (H.pct && H.pct.spx_skew != null) t.push(`SPX 1M skew ${n.spx_skew.toFixed(2)} (${Math.round(H.pct.spx_skew * 100)}. percentil).`);
+  const hot = Object.entries(c.z).filter(([, r]) => r.z > 1.5).map(([k, r]) => `${k} z ${r.z.toFixed(1)}`);
+  if (hot.length) t.push(`Napjatá volatilita napříč trhy: ${hot.join(', ')}.`);
+  if (c.term && c.term >= 1) t.push('VIX křivka v backwardation – nefadeovat silné pohyby.');
+  return t.length ? 'Volatilita: ' + t.join(' ') : '';
+}
 async function preLoadDaily(){
   if (Date.now() - pre.dailyAt < 600e3) return;
   const yj = s => api(`/yf/${encodeURIComponent(s)}?interval=1d&range=1mo`).then(A.parseYF).catch(() => null);
@@ -2852,6 +2915,7 @@ function preReport(){
     }
     P.push(t);
   }
+  try { const v = cboeText(); if (v) P.push(v); } catch(e){}
   return { date:preDate(), lean:so.lean, score:so.score, P, at:Date.now(), src:sn.src };
 }
 function preBars(rows, spot, band, title, unit){
@@ -2885,6 +2949,7 @@ function preRender(){
   if (!view) {
     h += '<div class="pl-grid">';
     h += `<div class="pl-card" style="grid-column:1/-1"><h5>QQQ · PIVOT / POI <span>${sn.out.assets.QQQ ? 'pivot ' + fK(sn.out.assets.QQQ.pivot) : ''}</span></h5><div id="preChart" style="height:300px"></div></div>`;
+    try { h += cboeCard(); } catch(e){}
     const sz = sn.g.spxZero, vf = sn.g.vixFull, spxSpot = (sn.yf.spx && sn.yf.spx.length ? sn.yf.spx.at(-1).c : sz && sz.spot), vixSpot = (sn.yf.vix && sn.yf.vix.length ? sn.yf.vix.at(-1).c : vf && vf.spot);
     h += preBars(sz && sz.strikes, spxSpot, 0.012, 'SPX · GAMMA PO STRIKECH (0DTE)', v => Pro.fmtM(v));
     h += preBars(vf && vf.strikes && vf.strikes.map(x => [x[0], x[2]]), vixSpot, 0.25, 'VIX · GAMMA PO STRIKECH', v => Pro.fmtM(v));
@@ -2918,7 +2983,7 @@ async function openPre(force){
   $('pre').classList.add('show');
   if (!S.worker) { $('preBody').innerHTML = '<p class="hint">Nejdřív nastav Worker v ⚙.</p>'; return; }
   if (!sn.out) $('preBody').innerHTML = '<p class="hint">Načítám QQQ / SPX / VIX gammu a sektory…</p>';
-  try { await Promise.all([loadSent(force), preLoadDaily()]); preRender(); } catch(e) { $('preBody').innerHTML = `<p class="hint">Chyba: ${esc(e.message)}</p>`; }
+  try { await Promise.all([loadSent(force), preLoadDaily(), cboeLoad(force)]); preRender(); } catch(e) { $('preBody').innerHTML = `<p class="hint">Chyba: ${esc(e.message)}</p>`; }
 }
 $('preBtn').onclick = () => openPre(false);
 $('preReload').onclick = () => openPre(true);

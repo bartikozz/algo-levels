@@ -31,7 +31,7 @@ const GEX_CATS = new Set([
 ]);
 const GEX_SUBS = new Set(['majors', 'maxchange']);
 
-const YF_SYMBOLS = new Set(['NQ=F', 'ES=F', '^VIX', '^VXN', 'QQQ', 'SPY', '^VIX3M', '^VIX9D', 'DX-Y.NYB', '^GSPC', '^NDX', 'XLE', 'XLK', 'SMH', 'XLY', 'XLC', 'XLF', 'XLV', 'XLP', 'XLI', 'XLB', 'XLU', 'XLRE']);
+const YF_SYMBOLS = new Set(['NQ=F', 'ES=F', '^VIX', '^VXN', 'QQQ', 'SPY', '^VIX3M', '^VIX9D', 'DX-Y.NYB', '^GSPC', '^NDX', 'XLE', 'XLK', 'SMH', 'XLY', 'XLC', 'XLF', 'XLV', 'XLP', 'XLI', 'XLB', 'XLU', 'XLRE', '^VVIX', '^OVX', '^MOVE', '^GVZ', '^SKEW']);
 const YF_INTERVALS = new Set(['1m', '2m', '5m', '15m', '30m', '60m', '1h', '1d']);
 const YF_RANGES = new Set(['1d', '2d', '5d', '1mo', '3mo', '6mo', '60d', '1y', '2y', '730d', '5y', '10y']);
 

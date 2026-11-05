@@ -179,10 +179,55 @@ def sentiment_loop():
                 buckets, _ = aggregate(chain, S, now)
                 zero = buckets.get('0D') or buckets.get('1D') or buckets.get('W') or []
                 land = landscape(chain, S, now) if name != 'VIX' else None
-                state['sent'][name] = dict(_gex_view(chain, S, now, buckets.get('ALL', []), zero, land), err=None, n=len(chain))
+                st_ = volframe.surface_stats(chain, S, now)
+                state['sent'][name] = dict(_gex_view(chain, S, now, buckets.get('ALL', []), zero, land), err=None, n=len(chain), stats=st_)
             except Exception as e:
                 state['sent'][name] = dict(state['sent'].get(name) or {}, err=f'{type(e).__name__}: {e}')
         time.sleep(SENT_POLL)
+
+
+def _cboe_hist(rec):
+    fn = os.path.join(DATA_DIR, 'cboe-hist.json')
+    try:
+        with open(fn) as f: H = json.load(f)
+    except Exception:
+        H = {}
+    day = datetime.now(ET).strftime('%Y-%m-%d')
+    H[day] = rec
+    H = dict(sorted(H.items())[-400:])
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(fn + '.tmp', 'w') as f: json.dump(H, f)
+        os.replace(fn + '.tmp', fn)
+    except Exception:
+        pass
+    prev = [v for d, v in H.items() if d < day]
+    def pct(key):
+        xs = [v.get(key) for v in prev if v.get(key) is not None]
+        x = rec.get(key)
+        if x is None or len(xs) < 5: return None
+        return round(sum(1 for v in xs if v <= x) / len(xs), 3)
+    def z(key):
+        xs = [v.get(key) for v in prev if v.get(key) is not None]
+        x = rec.get(key)
+        if x is None or len(xs) < 10: return None
+        m = sum(xs) / len(xs); sd = (sum((v - m) ** 2 for v in xs) / (len(xs) - 1)) ** 0.5
+        return round((x - m) / sd, 2) if sd > 0 else None
+    keys = [k for k in rec if rec[k] is not None]
+    return dict(n=len(prev), pct={k: pct(k) for k in keys}, z={k: z(k) for k in keys})
+
+
+@app.get('/cboe')
+def cboe(t: str | None = None):
+    """QQQ and SPX 1M ATM IV, QQQ−SPX spread, 1M 25Δ skew ratio, downside convexity (10Δ/25Δ) + history percentiles / z-scores."""
+    auth(t)
+    s = state['snap']
+    q = volframe.surface_stats(state['chain'], s['spot'], s['ts']) if s else None
+    x = (state['sent'].get('SPX') or {}).get('stats')
+    rec = dict(qqq_atm=q and q['atm30'], spx_atm=x and x['atm30'],
+               spread=(q['atm30'] - x['atm30']) if (q and x and q['atm30'] and x['atm30']) else None,
+               qqq_skew=q and q['skew'], spx_skew=x and x['skew'], qqq_conv=q and q['convexity'], spx_conv=x and x['convexity'])
+    return j(dict(qqq=q, spx=x, now=rec, hist=_cboe_hist(rec)))
 
 
 @app.get('/sentiment')
