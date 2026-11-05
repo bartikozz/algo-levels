@@ -198,7 +198,18 @@ body.focus .meta{display:none!important}
 .empty button{margin-top:12px;padding:8px 12px;border:1px solid var(--line2);border-radius:6px;color:var(--text)}
 
 /* ───────── Plán dne (YYY framework) */
-#plan .box{max-width:1180px}
+#plan .box,#pre .box{max-width:1180px}
+.pre-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}
+.pre-t{font:600 18px var(--mono);letter-spacing:.02em;margin-bottom:4px}
+.pre-lean{font:700 18px var(--mono);border:1px solid;border-radius:8px;padding:8px 14px}
+.pre-text{border-left:3px solid var(--gold);padding:4px 0 4px 16px;margin:8px 0 12px}
+.pre-text p{font-size:14.5px;line-height:1.65;margin:0 0 10px;color:var(--text)}
+.pre-bars{display:flex;flex-direction:column;gap:2px;font:11px var(--mono)}
+.pre-bar{display:grid;grid-template-columns:52px 1fr 128px;gap:6px;align-items:center}
+.pre-bar span{color:var(--muted);text-align:right} .pre-bar em{font-style:normal;color:var(--muted);text-align:right}
+.pre-bar i{position:relative;height:9px;background:linear-gradient(90deg,transparent calc(50% - .5px),#2a2f37 calc(50% - .5px),#2a2f37 calc(50% + .5px),transparent calc(50% + .5px))}
+.pre-bar b{position:absolute;top:1px;bottom:1px;border-radius:2px} .pre-bar b.p{background:#4f8fdc} .pre-bar b.n{background:#c0392b}
+.pre-bar.here span{color:#ef5350;font-weight:700}
 .pl-hero{display:grid;grid-template-columns:auto 1fr auto;gap:18px;align-items:center;border:1px solid var(--line2);border-radius:12px;padding:16px 18px;background:var(--panel2)}
 .pl-lean{font:700 26px/1 var(--mono);letter-spacing:.04em}
 .pl-lean.bull{color:#5ee0c8}.pl-lean.bear{color:#ff5fa2}.pl-lean.neutral,.pl-lean.choppy{color:#c9a66b}.pl-lean.no{color:#f05a6e}
@@ -291,6 +302,7 @@ body.focus .meta{display:none!important}
 <header>
   <div class="brand">ALGO<span>LEVELS</span></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
+  <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="planBtn" class="hbtn" hidden aria-label="Plán dne">✦</button>
   <button id="biasBtn" class="hbtn" aria-label="Bias" style="font-size:12px;font-weight:700">B</button>
   <button id="proBtn" class="hbtn" aria-label="PRO data" style="color:#5ee0c8">◆</button>
@@ -302,6 +314,7 @@ body.focus .meta{display:none!important}
     <button data-tab="chart" class="on"><i>◎</i>Graf</button>
     <button data-tab="levels"><i>≡</i>Levely</button>
     <button data-tab="pro"><i style="color:#5ee0c8">◆</i>Options &amp; Flow</button>
+    <button data-tab="pre"><i style="color:#ef5350">◆</i>Premarket</button>
     <button data-tab="plan"><i style="color:#c9a66b">✦</i>Plán dne</button>
     <button data-tab="bias"><i>B</i>Bias</button>
     <button data-tab="ana"><i>⊞</i>Analýza</button>
@@ -340,6 +353,11 @@ body.focus .meta{display:none!important}
   <div id="sDay"></div>
   <div class="btns"><button id="sClose">Zavřít</button></div>
   <p class="hint">Reakce = do 15 svíček pohyb ≥ 15 b. ve směru fade bez close za levelem. Průraz = close &gt; 6 b. za levelem. Zbytek = chop. Ø reakce / Ø proti = průměrný max. pohyb ve směru / proti fade (b.). Levely se ukládají každých 15 min během RTH, vyhodnocení po close.</p>
+</div></div>
+<div id="pre" class="sheet"><div class="box">
+  <h3>PREMARKET</h3>
+  <div id="preBody"><p class="hint">Načítám…</p></div>
+  <div class="btns"><button id="preReload">Obnovit</button><button id="preCopy">Kopírovat report</button><button id="preClose">Zavřít</button></div>
 </div></div>
 <div id="plan" class="sheet"><div class="box">
   <h3>PLÁN DNE</h3>
@@ -2774,8 +2792,142 @@ function sentCard(){
 setInterval(() => { if (S.worker && !st.demo && document.visibilityState === 'visible') loadSent().then(() => { sentCompute(); fz.hash = ''; render(); }).catch(() => {}); }, 30000);
 setTimeout(() => { if (S.worker && !st.demo) loadSent(true).then(() => { sentCompute(); fz.hash = ''; render(); }).catch(() => {}); }, 4000);
 
+// ───────── PREMARKET ANALÝZA — mentor-style report (QQQ all-expiry pivot, SPX pivot, VIX gamma, sectors) + charts, archived per day
+const pre = { chart:null, series:null, lines:[], daily:{}, dailyAt:0 };
+const preDate = () => plSessionDate();
+const f2 = (x, d = 2) => Number.isFinite(x) ? x.toFixed(d) : '—';
+const fK = x => Number.isFinite(x) ? (Math.abs(x - Math.round(x)) < 1e-9 ? String(Math.round(x)) : String(x)) : '—';
+async function preLoadDaily(){
+  if (Date.now() - pre.dailyAt < 600e3) return;
+  const yj = s => api(`/yf/${encodeURIComponent(s)}?interval=1d&range=1mo`).then(A.parseYF).catch(() => null);
+  const [q, s] = await Promise.all([yj('QQQ'), yj('^GSPC')]);
+  const ch = b => b && b.length > 2 ? { d1:b.at(-1).c / b.at(-2).c - 1, d5:b.length > 6 ? b.at(-1).c / b.at(-6).c - 1 : null, last:b.at(-1).c } : null;
+  pre.daily = { QQQ:ch(q), SPX:ch(s) }; pre.dailyAt = Date.now();
+}
+function preReport(){
+  const so = sn.out; if (!so) return null;
+  const Q = so.assets.QQQ, X = so.assets.SPX, V = so.assets.VIX, k = so.k;
+  const nq = q => k ? ` (NQ ${fmtP(Math.round(q * k * 4) / 4)})` : '';
+  const P = [];
+  // QQQ
+  if (Q) {
+    const qb = st.data.qqqBars || [], lo2 = qb.length ? Math.min(...qb.map(b => b.l)) : null;
+    const nearLows = lo2 && Q.last <= lo2 * 1.003;
+    let t = Q.prevFail === 'reclaim' ? `Včera QQQ nedokázalo reclaimnout můj all-expiry pivot ${fK(Q.pivot)}.${nearLows ? ' Jsme zpátky u lows.' : ''} `
+      : Q.prevFail === 'breakdown' ? `Včera QQQ podjelo all-expiry pivot ${fK(Q.pivot)}, ale zavřelo zpátky nad ním. `
+      : Q.side < 0 ? `QQQ je pod all-expiry pivotem ${fK(Q.pivot)}. ` : `QQQ drží nad all-expiry pivotem ${fK(Q.pivot)}. `;
+    if (Q.side < 0) t += `${fK(Q.pivot)}${nq(Q.pivot)} bude dnes fungovat jako pivot${Q.dn.length ? `, ${Q.dn.map(fK).join(' / ')} jsou downside POI` : ''}.${Q.dn.length ? ` Prolomení ${fK(Q.dn.at(-1))}${nq(Q.dn.at(-1))} by bylo dobré pro sellers.` : ''}`;
+    else t += `${fK(Q.pivot)}${nq(Q.pivot)} je dnes support${Q.up.length ? `, ${Q.up.map(fK).join(' / ')} jsou upside POI` : ''}.${Q.up.length ? ` Prolomení ${fK(Q.up.at(-1))}${nq(Q.up.at(-1))} by otevřelo cestu buyers.` : ''}`;
+    P.push(t);
+  }
+  // SPX + VIX
+  if (X) {
+    let t = X.side < 0 ? `${fK(X.pivot)} na SPX je hlavní pivot, agresivní reclaim je klíčový pro další upside.`
+      : `SPX drží nad hlavním pivotem ${fK(X.pivot)}${X.dn.length ? `, jeho ztráta by otevřela ${X.dn.map(fK).join(' / ')}` : ''}.`;
+    if (X.up.length) t += ` Další problém ${fK(X.up[0])}${X.up[1] ? `, potom ${fK(X.up[1])}` : ''}.`;
+    if (V) {
+      const peak = V.pivotNet < 0 ? 'negativní gamma peak' : 'pozitivní gamma peak';
+      t += V.side > 0 || Math.abs(V.last - V.pivot) / V.pivot < 0.04
+        ? ` VIX na ${f2(V.last)} (${fK(V.pivot)} = ${peak}) může stáhnout SPX dolů, pokud ztratíme ${fK(X.pivot)}.`
+        : ` VIX ${f2(V.last)} pod ${fK(V.pivot)} (${peak}) – pro indexy zatím podpora.`;
+    }
+    const dq = pre.daily.QQQ, ds = pre.daily.SPX;
+    if (dq && ds && ds.d1 - dq.d1 > 0.003) t += ' Silné SPX (širší trh) je teď to jediné, co drží tech nad vodou.';
+    else if (dq && ds && dq.d1 - ds.d1 > 0.003) t += ' Tech táhne trh – QQQ silnější než SPX.';
+    P.push(t);
+  }
+  // sectors + scenario
+  const sec = sn.sec || {}, names = Object.keys(sec).filter(x => Number.isFinite(sec[x].d1));
+  if (names.length >= 5) {
+    const srt = [...names].sort((a, b) => sec[b].d1 - sec[a].d1), lead = srt.slice(0, 2), lag = srt.slice(-2).reverse();
+    const pc = x => `${x} ${sec[x].d1 > 0 ? '+' : ''}${(sec[x].d1 * 100).toFixed(1)} %`;
+    let t = `Sektory: vedou ${lead.map(pc).join(', ')}, zaostávají ${lag.map(pc).join(', ')}.`;
+    const techWeak = sec.XLK && sec.XLK.d5 < -0.02, semisWeak = sec.SMH && sec.SMH.d1 < 0, energyWeak = sec.XLE && sec.XLE.d1 < -0.01;
+    if (techWeak || (semisWeak && energyWeak)) t += ` Tech má teď problém${energyWeak ? ' kvůli energii (XLE)' : ''}${semisWeak ? `${energyWeak ? ' a' : ' kvůli'} polovodičům (SMH ${(sec.SMH.d1 * 100).toFixed(1)} %)` : ''}${sec.XLK ? `, XLK ${(sec.XLK.d5 * 100).toFixed(1)} % za 5 dní` : ''}.`;
+    if (S.preNote) t += ' ' + S.preNote.trim();
+    if (Q && X && V) {
+      const bear = so.score < 0;
+      t += bear ? ` Pokud se tyhle kusy spojí, můžeme jít na další low – ale jen když ztratíme QQQ ${fK(Q.side < 0 ? (Q.dn[0] || Q.pivot) : Q.pivot)} / SPX ${fK(X.pivot)} / VIX ${fK(V.pivot)}.`
+        : ` Pro pokračování nahoru potřebujeme držet QQQ ${fK(Q.pivot)} / SPX ${fK(X.pivot)} a VIX pod ${fK(V.pivot)}.`;
+    }
+    P.push(t);
+  }
+  return { date:preDate(), lean:so.lean, score:so.score, P, at:Date.now(), src:sn.src };
+}
+function preBars(rows, spot, band, title, unit){
+  if (!rows || !rows.length || !spot) return '';
+  let r = rows.map(x => ({ k:+x[0], v:+x[1] || 0 })).filter(x => Math.abs(x.k / spot - 1) <= band).sort((a, b) => b.k - a.k);
+  if (!r.length) return '';
+  const mx = Math.max(...r.map(x => Math.abs(x.v))) || 1;
+  if (r.length > 24) { const near = r.reduce((a, b) => Math.abs(b.k - spot) < Math.abs(a.k - spot) ? b : a); r = r.filter(x => Math.abs(x.v) >= 0.12 * mx || x === near); }
+  return `<div class="pl-card"><h5>${title} <span>spot ${f2(spot)}</span></h5><div class="pre-bars">${r.map(x => {
+    const w = Math.round(Math.abs(x.v) / mx * 50), here = Math.abs(x.k - spot) === Math.min(...r.map(y => Math.abs(y.k - spot)));
+    return `<div class="pre-bar${here ? ' here' : ''}"><span>${fK(x.k)}</span><i><b class="${x.v >= 0 ? 'p' : 'n'}" style="${x.v >= 0 ? 'left:50%' : 'right:50%'};width:${w}%"></b></i><em>${unit(x.v)}</em></div>`; }).join('')}</div></div>`;
+}
+function preRender(){
+  const B = $('preBody'); try { sentCompute(); } catch(e){}
+  const R = preReport();
+  if (!R) { B.innerHTML = `<p class="hint">Čekám na data (ThetaData / GEXbot)…${sn.err.length ? ' ' + esc(sn.err.slice(0, 2).join(' · ')) : ''}</p>`; return; }
+  // archive: first report of the day after 08:30 ET (and keep updating until the open)
+  const e = YYY.et(Date.now() / 1000), m = e.h * 60 + e.mi, key = 'algoLevels.pre.' + R.date;
+  try { if (m >= 510 && m < 570 || !localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(R)); } catch(_) {}
+  const view = pre.view && pre.view !== R.date ? (() => { try { return JSON.parse(localStorage.getItem('algoLevels.pre.' + pre.view)); } catch(_) { return null; } })() : null;
+  const show = view || R;
+  const col = /BEAR/.test(show.lean) ? '#ef5350' : /BULL/.test(show.lean) ? '#66bb6a' : '#c9a66b';
+  const days = []; for (let i = 0; i < localStorage.length; i++) { const k2 = localStorage.key(i); if (k2 && k2.startsWith('algoLevels.pre.')) days.push(k2.slice(15)); }
+  days.sort().reverse();
+  let h = `<div class="pre-head"><div><div class="pre-t">Premarket analýza · ${show.date.slice(5).split('-').reverse().join('.')}</div>
+      <div class="pl-kv"><span>${view ? 'archiv' : 'živě'} · ${new Date(show.at).toLocaleTimeString('cs-CZ', { hour:'2-digit', minute:'2-digit' })}</span>${show.src ? `<span>${Object.entries(show.src).map(([a, b]) => a + ' ' + (b === 'ThetaData' ? 'Theta' : 'GEXbot')).join(' · ')}</span>` : ''}</div></div>
+    <div class="pre-lean" style="color:${col};border-color:${col}">${show.lean}</div></div>
+    <div class="sfil" id="preDays">${days.slice(0, 8).map(d => `<button data-d="${d}" class="${d === show.date ? 'on' : ''}">${d === R.date ? 'Dnes' : d.slice(5).split('-').reverse().join('.')}</button>`).join('')}</div>
+    <div class="pre-text">${show.P.map(p => `<p>${esc(p)}</p>`).join('')}</div>
+    <div class="pl-in">Vlastní poznámka do reportu (např. valuace NDX): <input id="preNote" style="width:min(520px,100%)" value="${esc(S.preNote || '')}" placeholder="Tech je levný – NDX forward P/E 19× (5Y min)"></div>`;
+  if (!view) {
+    h += '<div class="pl-grid">';
+    h += `<div class="pl-card" style="grid-column:1/-1"><h5>QQQ · PIVOT / POI <span>${sn.out.assets.QQQ ? 'pivot ' + fK(sn.out.assets.QQQ.pivot) : ''}</span></h5><div id="preChart" style="height:300px"></div></div>`;
+    const sz = sn.g.spxZero, vf = sn.g.vixFull, spxSpot = (sn.yf.spx && sn.yf.spx.length ? sn.yf.spx.at(-1).c : sz && sz.spot), vixSpot = (sn.yf.vix && sn.yf.vix.length ? sn.yf.vix.at(-1).c : vf && vf.spot);
+    h += preBars(sz && sz.strikes, spxSpot, 0.012, 'SPX · GAMMA PO STRIKECH (0DTE)', v => Pro.fmtM(v));
+    h += preBars(vf && vf.strikes && vf.strikes.map(x => [x[0], x[2]]), vixSpot, 0.25, 'VIX · GAMMA PO STRIKECH', v => Pro.fmtM(v));
+    const sec = sn.sec || {}, names = Object.keys(sec).filter(x => Number.isFinite(sec[x].d1)).sort((a, b) => sec[b].d1 - sec[a].d1);
+    if (names.length) { const mx = Math.max(...names.map(x => Math.abs(sec[x].d1))) || 1;
+      h += `<div class="pl-card"><h5>SEKTORY · 1D <span>5D vpravo</span></h5><div class="pre-bars">${names.map(x => `<div class="pre-bar"><span>${x}</span><i><b class="${sec[x].d1 >= 0 ? 'p' : 'n'}" style="${sec[x].d1 >= 0 ? 'left:50%' : 'right:50%'};width:${Math.round(Math.abs(sec[x].d1) / mx * 50)}%"></b></i><em>${(sec[x].d1 * 100).toFixed(2)} % · ${sec[x].d5 != null ? (sec[x].d5 * 100).toFixed(1) + ' %' : '—'}</em></div>`).join('')}</div></div>`; }
+    h += '</div>';
+  }
+  B.innerHTML = h;
+  $('preDays').onclick = ev => { const b = ev.target.closest('button[data-d]'); if (!b) return; pre.view = b.dataset.d === R.date ? null : b.dataset.d; preRender(); };
+  $('preNote').onchange = ev => { S.preNote = ev.target.value; save(); preRender(); };
+  if (!view) preChart();
+}
+function preChart(){
+  const el = $('preChart'); if (!el) return;
+  if (pre.chart) { try { pre.chart.remove(); } catch(e){} pre.chart = null; }
+  pre.chart = LightweightCharts.createChart(el, { autoSize:true, localization:{ locale:'en-US' },
+    layout:{ background:{ type:'solid', color:'#07080a' }, textColor:'#7b828c', fontFamily:'JetBrains Mono', fontSize:11 },
+    grid:{ vertLines:{ visible:false }, horzLines:{ color:'#0d1014' } }, rightPriceScale:{ borderColor:'#14181e' },
+    timeScale:{ borderColor:'#14181e', timeVisible:true, secondsVisible:false }, crosshair:{ mode:0 } });
+  const s = pre.chart.addCandlestickSeries({ upColor:'#e6e8eb', downColor:'#4a505a', wickUpColor:'#9ca3af', wickDownColor:'#4a505a', borderVisible:false,
+    priceFormat:{ type:'price', precision:2, minMove:0.01 } });
+  const qb = (st.data.qqqBars || []).slice(-600);
+  const seen = new Set(); s.setData(qb.filter(b => { const t = A.et(b.t).disp; if (seen.has(t)) return false; seen.add(t); return true; }).map(b => ({ time:A.et(b.t).disp, open:b.o, high:b.h, low:b.l, close:b.c })));
+  const lp = (sn.out ? sn.out.lines : []).map(l => l.q);
+  if (lp.length) s.applyOptions({ autoscaleInfoProvider: orig => { const r = orig(); if (!r) return r; r.priceRange.minValue = Math.min(r.priceRange.minValue, ...lp) - 0.3; r.priceRange.maxValue = Math.max(r.priceRange.maxValue, ...lp) + 0.3; return r; } });
+  for (const l of (sn.out ? sn.out.lines : [])) s.createPriceLine({ price:l.q, color:l.color, lineWidth:2, lineStyle:0, axisLabelVisible:true, title:l.role.split(' · ')[0] });
+  pre.chart.timeScale().fitContent();
+}
+async function openPre(force){
+  $('pre').classList.add('show');
+  if (!S.worker) { $('preBody').innerHTML = '<p class="hint">Nejdřív nastav Worker v ⚙.</p>'; return; }
+  if (!sn.out) $('preBody').innerHTML = '<p class="hint">Načítám QQQ / SPX / VIX gammu a sektory…</p>';
+  try { await Promise.all([loadSent(force), preLoadDaily()]); preRender(); } catch(e) { $('preBody').innerHTML = `<p class="hint">Chyba: ${esc(e.message)}</p>`; }
+}
+$('preBtn').onclick = () => openPre(false);
+$('preReload').onclick = () => openPre(true);
+$('preClose').onclick = () => $('pre').classList.remove('show');
+$('preCopy').onclick = async () => { const R = preReport(); if (!R) return; const t = R.P.join('\n\n'); try { await navigator.clipboard.writeText(t); toast('Report zkopírován'); } catch(e) { toast(t); } };
+setInterval(() => { if ($('pre').classList.contains('show') && document.visibilityState === 'visible' && !pre.view) openPre(false); }, 120000);
+
 // ───────── browser-style tabs: Graf (clean chart) · Levely · Options & Flow · Bias · Analýza · Deník
-const TAB_SHEETS = { pro:['pro','proBtn','pClose'], plan:['plan','planBtn','planClose'], bias:['bias','biasBtn','bClose2'], ana:['ana','anaBtn','aClose'], stats:['stats','statsBtn','sClose'] };
+const TAB_SHEETS = { pro:['pro','proBtn','pClose'], pre:['pre','preBtn','preClose'], plan:['plan','planBtn','planClose'], bias:['bias','biasBtn','bClose2'], ana:['ana','anaBtn','aClose'], stats:['stats','statsBtn','sClose'] };
 Object.values(TAB_SHEETS).forEach(([id]) => $(id).classList.add('inline'));
 function fitChart(){
   if (document.body.dataset.tab !== 'chart') return;
