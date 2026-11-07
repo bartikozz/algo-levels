@@ -291,3 +291,52 @@ def report(chain: list[Contract], S: float, now: float, snap: dict | None = None
         vol_trigger=land.get('flip'), regime=land.get('regime'),
         max_pain=mp, brackets=brackets, atm_bucket=bucket, sigma_consistency=consistency,
         front_spikes=spikes, holes=sum(r['holes'] for r in near))
+
+
+def _last_rth_close(now):
+    """Timestamp of the most recent 16:00 ET close at or before now (weekends skipped)."""
+    d = datetime.fromtimestamp(now, ET)
+    c = d.replace(hour=16, minute=0, second=0, microsecond=0)
+    if d < c:
+        c -= timedelta(days=1)
+    while c.weekday() >= 5:
+        c -= timedelta(days=1)
+    return c.timestamp()
+
+
+def _in_rth(now):
+    d = datetime.fromtimestamp(now, ET)
+    m = d.hour * 60 + d.minute
+    return d.weekday() < 5 and 570 <= m < 960
+
+
+def regime_stats(chain, S, now):
+    """Mentor's 'regime first' read from one enriched chain:
+    gex      net dealer gamma $ per 1 % (calls +, puts −), all expiries in the chain
+    iv0/iv1  ATM IV of the two nearest expiries (0DTE / 1DTE); outside RTH the quotes are the last close,
+             so time to expiry is measured from that close (otherwise a stale 0DTE quote looks like 2× IV)
+    pvol/cvol, poi/coi  total put / call volume and open interest."""
+    from greeks import implied_vol
+    from exposure import mid
+    gex = sum((1 if c.right == 'C' else -1) * c.g['gamma'] * c.oi * 100 * S * S * 0.01 for c in chain if c.g and 'gamma' in c.g)
+    pvol = sum(c.volume for c in chain if c.right == 'P'); cvol = sum(c.volume for c in chain if c.right == 'C')
+    poi = sum(c.oi for c in chain if c.right == 'P'); coi = sum(c.oi for c in chain if c.right == 'C')
+    t_eff = now if _in_rth(now) else _last_rth_close(now)
+    exps = sorted({c.exp for c in chain if expiry_ts(c.exp) > t_eff + 600})
+    ivs = []
+    for e in exps[:2]:
+        T = max(600.0, expiry_ts(e) - t_eff) / YEAR
+        side = [c for c in chain if c.exp == e]
+        if not side:
+            ivs.append(None); continue
+        K = min({c.strike for c in side}, key=lambda k: abs(k - S))
+        v = []
+        for c in side:
+            if c.strike == K:
+                m = mid(c)
+                iv = implied_vol(m, S, K, T, R, Q, c.right == 'C') if m else None
+                if iv and 0.02 < iv < 4: v.append(iv)
+        ivs.append(sum(v) / len(v) if v else None)
+    while len(ivs) < 2: ivs.append(None)
+    return dict(gex=gex, iv0=ivs[0], iv1=ivs[1], exp0=exps[0] if exps else None, exp1=exps[1] if len(exps) > 1 else None,
+                stale=not _in_rth(now), pvol=pvol, cvol=cvol, poi=poi, coi=coi)

@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="yyy.js?v=2"></script>
+<script src="yyy.js?v=3"></script>
 <script src="levels.js?v=24"></script>
 <script src="bias.js?v=3"></script>
 <script src="analysis.js?v=1"></script>
@@ -2621,9 +2621,9 @@ function planRender(){
   if (sn.out && sn.out.drivers.length) {
     const so = sn.out, A2 = so.assets, src = sn.src ? ` · ${Object.entries(sn.src).map(([k, v]) => k + ' ' + (v === 'ThetaData' ? 'Theta' : 'GEXbot')).join(', ')}` : '';
     h += `<div class="pl-card"><h5>SENTIMENT · QQQ / SPX / VIX${src} <span>${so.lean} (${so.score > 0 ? '+' : ''}${so.score.toFixed(1)})</span></h5>
-      ${A2.QQQ ? plRow(`QQQ all-expiry pivot ${A2.QQQ.pivot}`, `${A2.QQQ.state}${A2.QQQ.prevFail === 'reclaim' ? ' · včera nereclaimlo' : ''}`, A2.QQQ.side > 0 ? 'u' : 'd') : ''}
-      ${A2.SPX ? plRow(`SPX pivot ${A2.SPX.pivot}`, `${A2.SPX.state} · dál ${A2.SPX.up.join(', ') || '—'}`, A2.SPX.side > 0 ? 'u' : 'd') : ''}
-      ${A2.VIX ? plRow(`VIX gamma pivot ${A2.VIX.pivot}`, A2.VIX.state, A2.VIX.side > 0 ? 'd' : 'u') : ''}
+      ${A2.QQQ ? plRow(`QQQ pivot ${A2.QQQ.pivot}`, `${A2.QQQ.state}${A2.QQQ.otherFail === 'reclaim' && A2.QQQ.other > A2.QQQ.pivot ? ` · včera nereclaimlo ${A2.QQQ.other}` : ''}${A2.QQQ.pivotFlow ? ` · +${Math.round(A2.QQQ.pivotFlow).toLocaleString('en-US')} nové OI` : ''}`, A2.QQQ.side > 0 ? 'u' : 'd') : ''}
+      ${A2.SPX ? plRow(`SPX focus ${A2.SPX.pivot}`, `${A2.SPX.state} · ${A2.SPX.side > 0 ? 'ztráta → ' + (A2.SPX.dn[0] || '—') : 'reclaim → ' + (A2.SPX.up[0] || '—')}`, A2.SPX.side > 0 ? 'u' : 'd') : ''}
+      ${A2.VIX ? plRow(`VIX ${f2(A2.VIX.last)}${A2.VIX.est === 'opce' ? ' (odhad z opcí)' : A2.VIX.est === 'close' ? ' (zavření)' : ''}`, A2.VIX.regime > 0 ? `+γ${A2.VIX.edge ? ' do ' + A2.VIX.edge : ''} · trigger ${A2.VIX.trigger}` : `−γ${A2.VIX.edge ? ' nad ' + A2.VIX.edge : ''}`, A2.VIX.regime > 0 ? 'u' : 'd') : ''}
       ${so.lines.map(l => plRow(l.role, `QQQ ${l.q}${l.nq ? ' · NQ ' + fmtP(l.nq) : ''}`, /SHORT|DOWNSIDE|RESIST/.test(l.role) ? 'd' : 'u')).join('')}
       ${so.breadth ? plRow('Sektory nahoru', `${so.breadth.up}/${so.breadth.n} · SMH ${plPct(sn.sec.SMH && sn.sec.SMH.d1)} · XLE ${plPct(sn.sec.XLE && sn.sec.XLE.d1)}`) : ''}
       ${so.text.map(t => `<p class="pl-note" style="color:var(--text)">${esc(t)}</p>`).join('')}
@@ -2758,6 +2758,8 @@ async function loadSent(force){
     if (!need('SPX')) { keep('spxFull', T.SPX.full); keep('spxZero', T.SPX.zero); } else { keep('spxZero', sz); keep('spxFull', sf); }
     if (!need('VIX')) { keep('vixFull', T.VIX.full); keep('vixZero', T.VIX.zero); } else { keep('vixFull', vf); keep('vixZero', vz); }
     if (spx) sn.yf.spx = spx.filter(b => b.t % 60 === 0); if (vix) sn.yf.vix = vix.filter(b => b.t % 60 === 0);
+    sn.flow = {}; if (T) for (const k of ['QQQ', 'SPX', 'VIX']) if (T[k] && !T[k].err && T[k].flow) sn.flow[k] = T[k].flow;
+    sn.vfwd = T && T.VIX && !T.VIX.err && T.VIX.fwd_close ? { fwd:T.VIX.fwd, close:T.VIX.fwd_close, date:T.VIX.fwd_close_date } : null;
     if (force || Date.now() - sn.secAt > 600e3) {
       const syms = ['SMH','XLK','XLE','XLY','XLC','XLP','XLRE','XLV','XLB','XLF','XLU','XLI'];
       const res = await Promise.all(syms.map(x => yj(x, '1d', '1mo')));
@@ -2767,15 +2769,25 @@ async function loadSent(force){
     sn.at = Date.now();
   } finally { sn.busy = false; }
 }
+// VIX spot: Yahoo ^VIX only prints in cash hours. Before the open the last bar is yesterday's close, and VIX options parity
+// gives the forward (in backwardation forward < spot). So: last close × (forward now / forward at that close).
+function vixSpot(){
+  const b = sn.yf && sn.yf.vix || [], last = b.length ? b.at(-1) : null, f = sn.vfwd;
+  if (!last) return { v:sn.g.vixFull && sn.g.vixFull.spot, est:'fwd', at:null };
+  const stale = Date.now() / 1000 - last.t > 1800;
+  if (stale && f && f.fwd && f.close && f.date === A.et(last.t).date) return { v:last.c * f.fwd / f.close, est:'opce', at:last.t, close:last.c };
+  return { v:last.c, est:stale ? 'close' : null, at:last.t };
+}
 function sentCompute(){
   if (!sn || !sn.at) return null;
   const qb = st.data.qqqBars || [], qs = st.data.qqqPx || (qb.length ? qb.at(-1).c : null);
   const spxB = sn.yf.spx || [], vixB = sn.yf.vix || [];
-  const G = st.data.gex || {};
+  const G = st.data.gex || {}, fl = sn.flow || {};
+  const vx = vixSpot();
   const o = YYY.sentiment({
-    qqq: { spot:qs, bars:qb, full:sn.g.qqqFull, zero:sn.g.qqqZero || G.qqq },
-    spx: { spot:spxB.length ? spxB.at(-1).c : (sn.g.spxZero && sn.g.spxZero.spot), bars:spxB, zero:sn.g.spxZero, full:sn.g.spxFull },
-    vix: { spot:vixB.length ? vixB.at(-1).c : (sn.g.vixFull && sn.g.vixFull.spot), bars:vixB, full:sn.g.vixFull, zero:sn.g.vixZero },
+    qqq: { spot:qs, bars:qb, full:sn.g.qqqFull, zero:sn.g.qqqZero || G.qqq, flow:fl.QQQ },
+    spx: { spot:spxB.length ? spxB.at(-1).c : (sn.g.spxZero && sn.g.spxZero.spot), bars:spxB, zero:sn.g.spxZero, full:sn.g.spxFull, flow:fl.SPX },
+    vix: { spot:vx.v, est:vx.est, at:vx.at, bars:vixB, full:sn.g.vixFull, zero:sn.g.vixZero },
     sectors: sn.sec,
   });
   const k = st.res && st.res.info && st.res.info.ratio;
@@ -2833,7 +2845,12 @@ function cboeStats(){
 function cboeCard(){
   const c = cboeStats(), n = c.srv || {}, H = (c.hist || {}), p = k => H.pct && H.pct[k] != null ? ` · ${Math.round(H.pct[k] * 100)}. pct` : '', zz = k => H.z && H.z[k] != null ? ` · z ${H.z[k] > 0 ? '+' : ''}${H.z[k]}` : '';
   const pc = x => Number.isFinite(x) ? (x * 100).toFixed(1) + ' %' : '—';
-  let h = `<div class="pl-card"><h5>VOLATILITA (CBOE DIGEST STYL) <span>${c.term ? (c.term < 1 ? 'contango' : 'BACKWARDATION') : ''}</span></h5>`;
+  let h = `<div class="pl-card"><h5>REŽIM + VOLATILITA (CBOE DIGEST STYL) <span>${c.term ? (c.term < 1 ? 'contango' : 'BACKWARDATION') : ''}</span></h5>`;
+  const pv = H.prev || {}, pa = H.prev_avg20 || {};
+  if (n.spx_gex != null) h += plRow('SPX dealer gamma / 1 %', `${n.spx_gex < 0 ? '−' : '+'}$${Math.abs(n.spx_gex / 1e9).toFixed(2)}B${p('spx_gex')}`, n.spx_gex < 0 ? 'd' : 'u');
+  if (n.qqq_gex != null) h += plRow('QQQ dealer gamma / 1 %', `${n.qqq_gex < 0 ? '−' : '+'}$${Math.abs(n.qqq_gex / 1e9).toFixed(2)}B${p('qqq_gex')}`, n.qqq_gex < 0 ? 'd' : 'u');
+  if (n.spx_iv0) h += plRow('SPX 0DTE / 1DTE ATM IV', `${pc(n.spx_iv0)} / ${pc(n.spx_iv1)}${n.spx_iv1 ? ` · ${(n.spx_iv0 / n.spx_iv1).toFixed(2)}×` : ''}`, n.spx_iv1 && n.spx_iv0 / n.spx_iv1 >= 1.5 ? 'd' : '');
+  if (pv.spx_pvol) h += plRow(`SPX put / call volume (${(pv.date || '').slice(5)})`, `${(pv.spx_pvol / 1e6).toFixed(2)}M / ${((pv.spx_cvol || 0) / 1e6).toFixed(2)}M${pa.spx_pvol ? ` · puts ${(pv.spx_pvol / pa.spx_pvol).toFixed(1)}× 20d` : ''}`, pa.spx_pvol && pv.spx_pvol / pa.spx_pvol >= 1.5 ? 'd' : '');
   h += plRow('QQQ − SPX 1M IV (tech risk premium)', n.spread != null ? `${(n.spread * 100).toFixed(1)} b.${zz('spread')}${p('spread')}` : '—', n.spread > 0.08 ? 'd' : '');
   h += plRow('QQQ / SPX 1M ATM IV', `${pc(n.qqq_atm)} / ${pc(n.spx_atm)}`);
   h += plRow('QQQ / SPX 1M realized', `${pc(c.rvQ)} / ${pc(c.rvS)}`);
@@ -2852,7 +2869,7 @@ function cboeCard(){
 }
 function cboeText(){
   const c = cboeStats(), n = c.srv || {}, H = c.hist || {}, t = [];
-  if (n.spread != null) t.push(`Tech risk premium: QQQ−SPX 1M IV spread ${(n.spread * 100).toFixed(1)} b.${H.z && H.z.spread != null ? ` (z ${H.z.spread > 0 ? '+' : ''}${H.z.spread})` : ''}${n.spread > 0.08 ? ' – trh platí za riziko v techu výrazně víc než za širší trh' : ''}.`);
+  if (n.spread != null) t.push(`Tech risk premium: QQQ−SPX 1M IV spread ${(n.spread * 100).toFixed(1)} bodu${H.z && H.z.spread != null ? ` (z ${H.z.spread > 0 ? '+' : ''}${H.z.spread})` : ''}${n.spread > 0.08 ? ' – trh platí za riziko v techu výrazně víc než za širší trh' : ''}.`);
   if (H.pct && H.pct.spx_conv != null && H.pct.spx_conv >= 0.9) t.push(`Poptávka po tail hedgích je vysoko (SPX downside convexity ${Math.round(H.pct.spx_conv * 100)}. percentil).`);
   if (H.pct && H.pct.spx_skew != null) t.push(`SPX 1M skew ${n.spx_skew.toFixed(2)} (${Math.round(H.pct.spx_skew * 100)}. percentil).`);
   const hot = Object.entries(c.z).filter(([, r]) => r.z > 1.5).map(([k, r]) => `${k} z ${r.z.toFixed(1)}`);
@@ -2867,32 +2884,64 @@ async function preLoadDaily(){
   const ch = b => b && b.length > 2 ? { d1:b.at(-1).c / b.at(-2).c - 1, d5:b.length > 6 ? b.at(-1).c / b.at(-6).c - 1 : null, last:b.at(-1).c } : null;
   pre.daily = { QQQ:ch(q), SPX:ch(s) }; pre.dailyAt = Date.now();
 }
+// Regime first (mentor: "IV is ridiculously high … $7B gamma per 1 % … very dangerous environment, I will decrease my risk")
+function preRegime(){
+  const c = cboeStats(), n = c.srv || {}, H = c.hist || {}, rg = cb.srv && cb.srv.regime && cb.srv.regime.SPX, fl = [], parts = [];
+  const pc = x => Math.round(x * 100);
+  const iv0 = n.spx_iv0, iv1 = n.spx_iv1, r01 = iv0 && iv1 ? iv0 / iv1 : null;
+  if (iv0) { parts.push(`SPX 0DTE IV ${pc(iv0)} %${r01 ? `, ${r01 >= 1.5 ? `${r01.toFixed(1)}× ` : ''}${r01 >= 1.5 ? '1DTE' : `1DTE ${pc(iv1)} %`}` : ''}${rg && rg.stale ? ' (ceny ze zavření)' : ''}`); if (r01 >= 1.5 || iv0 >= 0.35) fl.push('0DTE IV'); }
+  const vx = cb.y['^VIX'];
+  if (vx && vx.length > 200) { const y = vx.slice(-252).map(b => b.c), l = y.at(-1), lo = Math.min(...y), hi = Math.max(...y), rank = hi > lo ? (l - lo) / (hi - lo) : 0;
+    parts.push(`IV rank ${pc(rank)} % (VIX, 1R)${l >= Math.max(...y.slice(-200, -1)) ? ' – nejvýš za letošek' : ''}`); if (rank >= 0.6) fl.push('IV rank'); }
+  if (c.term) { parts.push(`VIX křivka ${c.term >= 1 ? 'v backwardation' : 'v contangu'} (${c.term.toFixed(2)})`); if (c.term >= 1) fl.push('backwardation'); }
+  if (n.spx_gex != null) {
+    const p = H.pct && H.pct.spx_gex, b = n.spx_gex / 1e9;
+    parts.push(`dealer gamma SPX ${b >= 0 ? '+' : '−'}$${Math.abs(b).toFixed(1)}B na 1 %${p != null ? ` (${pc(p)}. pct historie${p <= 0.05 ? ' – extrém' : ''})` : ''}${b < 0 ? ' → dealeři pohyby zesilují' : ' → dealeři pohyby tlumí'}`);
+    if (b < 0) fl.push('negativní gamma'); if (b < 0 && p != null && p <= 0.05) fl.push('gamma extrém');
+  }
+  const pv = H.prev, pp = H.prev_pct || {}, avg = H.prev_avg20 || {};
+  if (pv && pv.spx_pvol) { const rel = avg.spx_pvol ? pv.spx_pvol / avg.spx_pvol : null;
+    parts.push(`včera SPX put volume ${(pv.spx_pvol / 1e6).toFixed(2)} mil.${rel ? ` (${rel.toFixed(1)}× 20d průměr)` : ''}${pp.spx_pvol != null ? `, ${pc(pp.spx_pvol)}. pct` : ''}`);
+    if ((rel && rel >= 1.5) || pp.spx_pvol >= 0.95) fl.push('put volume'); }
+  if (!parts.length) return null;
+  const nF = fl.length, lvl = nF >= 3 ? 'NEBEZPEČNÉ' : nF === 2 ? 'ZVÝŠENÉ' : 'NORMÁLNÍ', k = nF >= 3 ? 0.5 : nF === 2 ? 0.75 : 1;
+  const kp = (() => { try { const R0 = pl.out && pl.out.R; return R0 && Number.isFinite(+R0.size) ? +R0.size : null; } catch(e) { return null; } })();
+  let t = `Režim ${lvl}: ${parts.join(', ')}.`;
+  t += nF >= 3 ? ` Velmi nebezpečné prostředí – risk ×${k}, přísnější filtry, širší stopy.` : nF === 2 ? ` Zvýšené riziko – risk ×${k}.` : '';
+  if (kp != null && kp < k) t += ` Entropie (Plán dne) říká ještě míň: ×${kp.toFixed(2)}.`;
+  return { t, lvl, k, flags:fl };
+}
 function preReport(){
   const so = sn.out; if (!so) return null;
-  const Q = so.assets.QQQ, X = so.assets.SPX, V = so.assets.VIX, k = so.k;
+  const Q = so.assets.QQQ, X = so.assets.SPX, V = so.assets.VIX, k = so.k, bear = so.score < 0;
   const nq = q => k ? ` (NQ ${fmtP(Math.round(q * k * 4) / 4)})` : '';
   const P = [];
-  // QQQ
+  let RG = null; try { RG = preRegime(); } catch(e){}
+  // QQQ: where we are (pivot), what's above / below, path in the direction of the lean
   if (Q) {
-    const qb = st.data.qqqBars || [], lo2 = qb.length ? Math.min(...qb.map(b => b.l)) : null;
-    const nearLows = lo2 && Q.last <= lo2 * 1.003;
-    let t = Q.prevFail === 'reclaim' ? `Včera QQQ nedokázalo reclaimnout můj all-expiry pivot ${fK(Q.pivot)}.${nearLows ? ' Jsme zpátky u lows.' : ''} `
-      : Q.prevFail === 'breakdown' ? `Včera QQQ podjelo all-expiry pivot ${fK(Q.pivot)}, ale zavřelo zpátky nad ním. `
-      : Q.side < 0 ? `QQQ je pod all-expiry pivotem ${fK(Q.pivot)}. ` : `QQQ drží nad all-expiry pivotem ${fK(Q.pivot)}. `;
-    if (Q.side < 0) t += `${fK(Q.pivot)}${nq(Q.pivot)} bude dnes fungovat jako pivot${Q.dn.length ? `, ${Q.dn.map(fK).join(' / ')} jsou downside POI` : ''}.${Q.dn.length ? ` Prolomení ${fK(Q.dn.at(-1))}${nq(Q.dn.at(-1))} by bylo dobré pro sellers.` : ''}`;
-    else t += `${fK(Q.pivot)}${nq(Q.pivot)} je dnes support${Q.up.length ? `, ${Q.up.map(fK).join(' / ')} jsou upside POI` : ''}.${Q.up.length ? ` Prolomení ${fK(Q.up.at(-1))}${nq(Q.up.at(-1))} by otevřelo cestu buyers.` : ''}`;
+    const res = Q.up[0], sup = Q.dn;
+    let t = Q.otherFail === 'reclaim' && Q.other > Q.pivot ? `Včera QQQ nedokázalo reclaimnout ${fK(Q.other)}, ${fK(Q.other)} je dnes resistance. `
+      : Q.prevFail === 'reclaim' ? `Včera QQQ nedokázalo reclaimnout ${fK(Q.pivot)}. ` : '';
+    if (Q.side > 0) {
+      t += `QQQ je u ${fK(Q.pivot)}${nq(Q.pivot)} – pivot pro dnešek${res != null && !(Q.otherFail === 'reclaim') ? `, nad námi resistance ${fK(res)}` : ''}.`;
+      t += bear ? (sup.length ? ` Pokud chceme pokračovat níž, máme ${sup.map(fK).join(' a ')} po cestě; prolomení ${fK(sup.at(-1))}${nq(sup.at(-1))} by bylo dobré pro sellers.` : '')
+        : (res != null ? ` Pro upside potřebujeme reclaim ${fK(res)}${nq(res)}${Q.up[1] ? `, další ${fK(Q.up[1])}` : ''}.` : '');
+    } else {
+      t += `QQQ je pod pivotem ${fK(Q.pivot)}${nq(Q.pivot)} – reclaim je klíčový pro upside${res != null ? ` (další ${fK(res)})` : ''}.`;
+      if (sup.length) t += ` Downside POI ${sup.map(fK).join(' / ')}, prolomení ${fK(sup.at(-1))}${nq(sup.at(-1))} by bylo dobré pro sellers.`;
+    }
+    if (Q.pivotFlow > 0) t += ` Na ${fK(Q.pivot)} přibylo ${Math.round(Q.pivotFlow).toLocaleString('en-US')} kontraktů nového OI.`;
     P.push(t);
   }
   // SPX + VIX
   if (X) {
-    let t = X.side < 0 ? `${fK(X.pivot)} na SPX je hlavní pivot, agresivní reclaim je klíčový pro další upside.`
-      : `SPX drží nad hlavním pivotem ${fK(X.pivot)}${X.dn.length ? `, jeho ztráta by otevřela ${X.dn.map(fK).join(' / ')}` : ''}.`;
-    if (X.up.length) t += ` Další problém ${fK(X.up[0])}${X.up[1] ? `, potom ${fK(X.up[1])}` : ''}.`;
+    let t = X.side > 0 ? `Na SPX se soustředíme na ${fK(X.pivot)}${X.dn[0] != null ? `, pokud ${fK(X.pivot)} ztratíme, cesta na ${fK(X.dn[0])} je otevřená` : ''}.`
+      : `SPX je pod ${fK(X.pivot)} – agresivní reclaim je klíčový pro další upside${X.up[0] != null ? ` (další problém ${fK(X.up[0])})` : ''}${X.dn[0] != null ? `, jinak ${fK(X.dn[0])}` : ''}.`;
+    if (X.pivotFlow > 0) t += ` Na ${fK(X.pivot)} je velká nová pozice (+${Math.round(X.pivotFlow).toLocaleString('en-US')} OI).`;
     if (V) {
-      const peak = V.pivotNet < 0 ? 'negativní gamma peak' : 'pozitivní gamma peak';
-      t += V.side > 0 || Math.abs(V.last - V.pivot) / V.pivot < 0.04
-        ? ` VIX na ${f2(V.last)} (${fK(V.pivot)} = ${peak}) může stáhnout SPX dolů, pokud ztratíme ${fK(X.pivot)}.`
-        : ` VIX ${f2(V.last)} pod ${fK(V.pivot)} (${peak}) – pro indexy zatím podpora.`;
+      const vtxt = `VIX ${f2(V.last)}${V.est === 'opce' ? ' (odhad z VIX opcí, zavření ' + f2(vixSpot().close) + ')' : V.est === 'close' ? ' (včerejší zavření)' : ''}`;
+      t += V.regime > 0 ? ` ${vtxt}, pozitivní gamma${V.edge ? ` až do ${fK(V.edge)}` : ''} – růst VIX je tlumený; průraz ${fK(V.trigger)} dolů by byl dobrý pro potenciální pullback${bear ? ' po výprodeji' : ''}.`
+        : ` ${vtxt} v negativní gammě${V.edge ? ` nad ${fK(V.edge)}` : ''} – VIX může vystřelit a táhnout SPX dolů, hlavně pokud ztratíme ${fK(X.pivot)}.`;
     }
     const dq = pre.daily.QQQ, ds = pre.daily.SPX;
     if (dq && ds && ds.d1 - dq.d1 > 0.003) t += ' Silné SPX (širší trh) je teď to jediné, co drží tech nad vodou.';
@@ -2904,19 +2953,20 @@ function preReport(){
   if (names.length >= 5) {
     const srt = [...names].sort((a, b) => sec[b].d1 - sec[a].d1), lead = srt.slice(0, 2), lag = srt.slice(-2).reverse();
     const pc = x => `${x} ${sec[x].d1 > 0 ? '+' : ''}${(sec[x].d1 * 100).toFixed(1)} %`;
-    let t = `Sektory: vedou ${lead.map(pc).join(', ')}, zaostávají ${lag.map(pc).join(', ')}.`;
+    let t = `Sektory: nejlíp ${lead.map(pc).join(', ')}, nejhůř ${lag.map(pc).join(', ')}.`;
     const techWeak = sec.XLK && sec.XLK.d5 < -0.02, semisWeak = sec.SMH && sec.SMH.d1 < 0, energyWeak = sec.XLE && sec.XLE.d1 < -0.01;
-    if (techWeak || (semisWeak && energyWeak)) t += ` Tech má teď problém${energyWeak ? ' kvůli energii (XLE)' : ''}${semisWeak ? `${energyWeak ? ' a' : ' kvůli'} polovodičům (SMH ${(sec.SMH.d1 * 100).toFixed(1)} %)` : ''}${sec.XLK ? `, XLK ${(sec.XLK.d5 * 100).toFixed(1)} % za 5 dní` : ''}.`;
+    if (techWeak || (semisWeak && energyWeak)) t += ` Tech má teď problém${energyWeak ? ` kvůli energii (XLE ${(sec.XLE.d1 * 100).toFixed(1)} %)` : ''}${semisWeak ? `${energyWeak ? ' a' : ' kvůli'} polovodičům (SMH ${(sec.SMH.d1 * 100).toFixed(1)} %)` : ''}${sec.XLK ? `, XLK ${(sec.XLK.d5 * 100).toFixed(1)} % za 5 dní` : ''}.`;
     if (S.preNote) t += ' ' + S.preNote.trim();
     if (Q && X && V) {
-      const bear = so.score < 0;
-      t += bear ? ` Pokud se tyhle kusy spojí, můžeme jít na další low – ale jen když ztratíme QQQ ${fK(Q.side < 0 ? (Q.dn[0] || Q.pivot) : Q.pivot)} / SPX ${fK(X.pivot)} / VIX ${fK(V.pivot)}.`
-        : ` Pro pokračování nahoru potřebujeme držet QQQ ${fK(Q.pivot)} / SPX ${fK(X.pivot)} a VIX pod ${fK(V.pivot)}.`;
+      const qd = Q.side > 0 ? Q.pivot : (Q.dn[0] != null ? Q.dn[0] : Q.pivot);
+      t += bear ? ` Pokud se tyhle kusy spojí, můžeme jít na další low – ale jen když ztratíme QQQ ${fK(qd)} / SPX ${fK(X.pivot)}${V.regime > 0 && V.edge ? ` a VIX projde nad ${fK(V.edge)}` : ''}.`
+        : ` Pro pokračování nahoru potřebujeme držet QQQ ${fK(Q.pivot)} / SPX ${fK(X.pivot)}${V.regime > 0 ? ` a VIX pod ${fK(V.trigger)}` : ''}.`;
     }
     P.push(t);
   }
   try { const v = cboeText(); if (v) P.push(v); } catch(e){}
-  return { date:preDate(), lean:so.lean, score:so.score, P, at:Date.now(), src:sn.src };
+  if (RG) { P.unshift(RG.t); if (RG.flags.length >= 2) P.push('Pullback se může nabízet, ale očekávání si nebereme za jistotu – necháme net drift a orderflow ukázat skutečný směr.'); }
+  return { date:preDate(), lean:so.lean, score:so.score, P, at:Date.now(), src:sn.src, regime:RG && RG.lvl };
 }
 function preBars(rows, spot, band, title, unit){
   if (!rows || !rows.length || !spot) return '';

@@ -180,10 +180,81 @@ def sentiment_loop():
                 zero = buckets.get('0D') or buckets.get('1D') or buckets.get('W') or []
                 land = landscape(chain, S, now) if name != 'VIX' else None
                 st_ = volframe.surface_stats(chain, S, now)
-                state['sent'][name] = dict(_gex_view(chain, S, now, buckets.get('ALL', []), zero, land), err=None, n=len(chain), stats=st_)
+                rg = volframe.regime_stats(chain, S, now)
+                v = dict(_gex_view(chain, S, now, buckets.get('ALL', []), zero, land), err=None, n=len(chain), stats=st_, regime=rg,
+                         flow=_oi_delta(name, chain, S, 0.35 if name == 'VIX' else 0.06))
+                if name == 'VIX':
+                    v.update(_vix_fwd(S, now))
+                state['sent'][name] = v
             except Exception as e:
                 state['sent'][name] = dict(state['sent'].get(name) or {}, err=f'{type(e).__name__}: {e}')
+        try:
+            d = datetime.now(ET)
+            if d.weekday() < 5 and 570 <= d.hour * 60 + d.minute <= 980:   # RTH + 20 min → today's record ends with the final volume
+                _cboe_hist(_cboe_rec()[4])
+        except Exception:
+            pass
         time.sleep(SENT_POLL)
+
+
+def _oi_delta(name, chain, S, band):
+    """Day-over-day open-interest change by strike (new positioning since yesterday's OI print).
+    Persisted per day in data/oi-<name>.json; returns [[strike, dCallOI, dPutOI, callOI, putOI]] near spot."""
+    fn = os.path.join(DATA_DIR, f'oi-{name}.json')
+    try:
+        with open(fn) as f: H = json.load(f)
+    except Exception:
+        H = {}
+    day = datetime.now(ET).strftime('%Y-%m-%d')
+    cur = {}
+    for c in chain:
+        r = cur.setdefault(str(c.strike), [0.0, 0.0])
+        r[0 if c.right == 'C' else 1] += c.oi or 0.0
+    if sum(a + b for a, b in cur.values()) > 0 and datetime.now(ET).weekday() < 5:
+        H[day] = cur
+        H = dict(sorted(H.items())[-6:])
+        try:
+            with open(fn + '.tmp', 'w') as f: json.dump(H, f)
+            os.replace(fn + '.tmp', fn)
+        except Exception:
+            pass
+    prev = [d for d in H if d < day]
+    if day not in H and prev:                      # weekend: compare the last two stored days
+        cur, prev = H[prev[-1]], prev[:-1]
+    if not prev:
+        return None
+    P = H[prev[-1]]
+    # OI is published once a day; if today's print equals yesterday's (not updated yet) compare the two previous days
+    if all(P.get(k) == v for k, v in cur.items()) and len(prev) > 1:
+        cur, P = P, H[prev[-2]]
+    out = []
+    for k, (c, p) in cur.items():
+        K = float(k)
+        if abs(K / S - 1) > band: continue
+        pc, pp = P.get(k, [0.0, 0.0])
+        out.append([K, round(c - pc), round(p - pp), round(c), round(p)])
+    return sorted(out)
+
+
+def _vix_fwd(F, now):
+    """VIX options price off the VIX future, so put-call parity gives the forward, not spot (backwardation → forward < spot).
+    Keep the forward seen at the cash close (16:00–16:20 ET) so the terminal can scale the last ^VIX close:
+    spot_est = vix_close × F_now / F_close."""
+    fn = os.path.join(DATA_DIR, 'vix-fwd.json')
+    try:
+        with open(fn) as f: H = json.load(f)
+    except Exception:
+        H = {}
+    d = datetime.fromtimestamp(now, ET); m = d.hour * 60 + d.minute
+    if d.weekday() < 5 and 960 <= m <= 980:
+        H[d.strftime('%Y-%m-%d')] = F
+        H = dict(sorted(H.items())[-10:])
+        try:
+            with open(fn, 'w') as f: json.dump(H, f)
+        except Exception:
+            pass
+    last = sorted(H.items())[-1] if H else None
+    return dict(fwd=F, fwd_close=last[1] if last else None, fwd_close_date=last[0] if last else None)
 
 
 def _cboe_hist(rec):
@@ -193,7 +264,8 @@ def _cboe_hist(rec):
     except Exception:
         H = {}
     day = datetime.now(ET).strftime('%Y-%m-%d')
-    H[day] = rec
+    if datetime.now(ET).weekday() < 5:
+        H[day] = rec
     H = dict(sorted(H.items())[-400:])
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
@@ -214,20 +286,54 @@ def _cboe_hist(rec):
         m = sum(xs) / len(xs); sd = (sum((v - m) ** 2 for v in xs) / (len(xs) - 1)) ** 0.5
         return round((x - m) / sd, 2) if sd > 0 else None
     keys = [k for k in rec if rec[k] is not None]
-    return dict(n=len(prev), pct={k: pct(k) for k in keys}, z={k: z(k) for k in keys})
+    pdays = sorted(d for d in H if d < day)
+    last = H[pdays[-1]] if pdays else None
+    def pct_prev(key):
+        if not last or last.get(key) is None: return None
+        xs = [H[d].get(key) for d in pdays[:-1] if H[d].get(key) is not None]
+        if len(xs) < 5: return None
+        return round(sum(1 for v in xs if v <= last[key]) / len(xs), 3)
+    return dict(n=len(prev), pct={k: pct(k) for k in keys}, z={k: z(k) for k in keys},
+                prev=dict(last, date=pdays[-1]) if last else None,
+                prev_pct={k: pct_prev(k) for k in (last or {})},
+                prev_avg20={k: (sum(xs) / len(xs) if xs else None) for k in ('spx_pvol', 'spx_cvol')
+                            for xs in [[H[d].get(k) for d in pdays[-21:-1] if H[d].get(k) is not None]]})
 
 
-@app.get('/cboe')
-def cboe(t: str | None = None):
-    """QQQ and SPX 1M ATM IV, QQQ−SPX spread, 1M 25Δ skew ratio, downside convexity (10Δ/25Δ) + history percentiles / z-scores."""
-    auth(t)
+def _cboe_rec():
     s = state['snap']
     q = volframe.surface_stats(state['chain'], s['spot'], s['ts']) if s else None
     x = (state['sent'].get('SPX') or {}).get('stats')
     rec = dict(qqq_atm=q and q['atm30'], spx_atm=x and x['atm30'],
                spread=(q['atm30'] - x['atm30']) if (q and x and q['atm30'] and x['atm30']) else None,
                qqq_skew=q and q['skew'], spx_skew=x and x['skew'], qqq_conv=q and q['convexity'], spx_conv=x and x['convexity'])
-    return j(dict(qqq=q, spx=x, now=rec, hist=_cboe_hist(rec)))
+    rg = (state['sent'].get('SPX') or {}).get('regime')
+    qr = _qqq_regime()
+    if rg:
+        rec.update(spx_gex=rg['gex'], spx_iv0=rg['iv0'], spx_iv1=rg['iv1'], spx_pvol=rg['pvol'], spx_cvol=rg['cvol'],
+                   spx_pcr=(rg['pvol'] / rg['cvol']) if rg['cvol'] else None)
+    if qr:
+        rec.update(qqq_gex=qr['gex'], qqq_iv0=qr['iv0'], qqq_iv1=qr['iv1'])
+    return q, x, rg, qr, rec
+
+
+@app.get('/cboe')
+def cboe(t: str | None = None):
+    """QQQ and SPX 1M ATM IV, QQQ−SPX spread, 1M 25Δ skew ratio, downside convexity (10Δ/25Δ), regime (dealer gamma, 0DTE/1DTE IV,
+    put/call volume) + daily history percentiles / z-scores (the sentiment loop also saves it, so the final daily values get stored)."""
+    auth(t)
+    q, x, rg, qr, rec = _cboe_rec()
+    return j(dict(qqq=q, spx=x, now=rec, regime=dict(SPX=rg, QQQ=qr), hist=_cboe_hist(rec)))
+
+
+_qr = dict(ts=None, v=None, flow=None)
+def _qqq_regime():
+    s = state['snap']
+    if not s or not state['chain']: return None
+    if _qr['ts'] != s['ts']:
+        _qr.update(ts=s['ts'], v=volframe.regime_stats(state['chain'], s['spot'], s['ts']),
+                   flow=_oi_delta('QQQ', state['chain'], s['spot'], 0.06))
+    return _qr['v']
 
 
 @app.get('/sentiment')
@@ -239,6 +345,7 @@ def sentiment(t: str | None = None):
     if s:
         land = s.get('landscape') or {}
         out['QQQ'] = _gex_view(state['chain'], s['spot'], s['ts'], s['buckets'].get('ALL', []), s['buckets'].get('0D') or s['buckets'].get('1D') or [], land)
+        out['QQQ'].update(regime=_qqq_regime(), flow=_qr['flow'])
     for k, v in state['sent'].items():
         out[k] = v
     return j(out)

@@ -337,29 +337,56 @@
   }
 
 
-  // ───────── Sentiment engine (mentor's daily read): QQQ all-expiry pivot, SPX pivot, VIX gamma pivot, sectors
-  //  pivot      = strike with the largest |net dealer gamma| near spot (the level price has to reclaim / hold)
-  //  POIs       = next heavy strikes beyond spot on each side (where price is likely to interact next)
+  // ───────── Sentiment engine (mentor's daily read): QQQ all-expiry pivot, SPX pivot, VIX gamma regime, sectors
+  //  weight     = |net dealer gamma| at the strike (normalised) + 0.6 × new positioning (day-over-day put OI + ½ call OI, ThetaData)
+  //  bracket    = nearest heavy strike on the round grid below and above spot (QQQ 5, SPX 50); the heavier one (distance-
+  //               discounted) is today's PIVOT, the other is RESISTANCE (above) / SUPPORT (below)  — mentor: QQQ 658 → pivot 655,
+  //               resistance 660; SPX 7370 → focus 7350 (big customer put position), lose it → 7300
+  //  POIs       = next heavy strikes beyond the bracket (QQQ any strike, e.g. 653 / 650; SPX on its POI grid)
   //  status     = above / below the pivot, held ≥ 10 min = reclaimed / lost, else testing; prior session failed reclaim
-  //  sentiment  = QQQ + SPX vs their pivots, VIX vs its pivot (inverse), gamma regime, semis / tech breadth
-  function keyLevels(g, spot, band, idx, round) {
+  function keyLevels(g, spot, band, idx, round, flow, poiGrid) {
     if (!g || !Array.isArray(g.strikes) || !spot) return null;
     const rows = g.strikes.map(r => ({ k: +r[0], v: +r[idx] || 0 })).filter(r => Number.isFinite(r.k) && Math.abs(r.k / spot - 1) <= band * 3);
     if (!rows.length) return null;
+    const fm = new Map((flow || []).map(r => [+r[0], Math.max(0, +r[2] || 0) + 0.5 * Math.max(0, +r[1] || 0)]));
+    const mg = Math.max(...rows.map(r => Math.abs(r.v))) || 1, mf = Math.max(0, ...rows.map(r => fm.get(r.k) || 0)) || 1;
+    rows.forEach(r => { r.f = fm.get(r.k) || 0; r.w = Math.abs(r.v) / mg + (fm.size ? 0.6 * r.f / mf : 0); });
     const near = rows.filter(r => Math.abs(r.k / spot - 1) <= band);
     if (!near.length) return null;
-    // pivot = the heavy strike closest to spot (≥ 40 % of the biggest nearby), round strikes preferred (mentor: 685 / 7700 / 16)
-    const mxN = Math.max(...near.map(r => Math.abs(r.v))) || 1, rnd = round || 1;
-    const cand = near.filter(r => Math.abs(r.v) >= 0.4 * mxN);
-    const pivot = cand.reduce((a, b) => {
-      const d = r => Math.abs(r.k - spot) * (Math.abs(r.k / rnd - Math.round(r.k / rnd)) < 1e-9 ? 0.6 : 1);
-      return d(b) < d(a) ? b : a;
-    });
-    const mx = Math.max(...rows.map(r => Math.abs(r.v))) || 1;
-    const heavy = rows.filter(r => Math.abs(r.v) >= 0.3 * mx && r.k !== pivot.k);
-    const up = heavy.filter(r => r.k > Math.max(spot, pivot.k)).sort((a, b) => a.k - b.k).slice(0, 2).map(r => r.k);
-    const dn = heavy.filter(r => r.k < Math.min(spot, pivot.k)).sort((a, b) => b.k - a.k).slice(0, 2).map(r => r.k);
-    return { pivot: pivot.k, pivotNet: pivot.v, up, dn, zero: Number.isFinite(g.zero_gamma) ? g.zero_gamma : null };
+    const rnd = round || 1, onG = (k, gr) => Math.abs(k / gr - Math.round(k / gr)) < 1e-9;
+    const mxN = Math.max(...near.map(r => r.w)) || 1;
+    let cand = near.filter(r => r.w >= 0.25 * mxN && onG(r.k, rnd));
+    if (cand.length < 2) cand = near.filter(r => r.w >= 0.25 * mxN);
+    const above = cand.filter(r => r.k >= spot).sort((a, b) => a.k - b.k)[0], below = cand.filter(r => r.k < spot).sort((a, b) => b.k - a.k)[0];
+    const sc = r => r.w / (1 + Math.abs(r.k - spot) / (2 * rnd));
+    const pivot = above && below ? (sc(below) >= sc(above) ? below : above) : (above || below);
+    const other = above && below ? (pivot === below ? above : below) : null;
+    const mx = Math.max(...rows.map(r => r.w)) || 1, pg = poiGrid || 0;
+    const heavy = rows.filter(r => r.w >= 0.25 * mx && r.k !== pivot.k && (!other || r.k !== other.k) && (!pg || onG(r.k, pg)));
+    const hi = Math.max(spot, pivot.k, other ? other.k : -Infinity), lo = Math.min(spot, pivot.k, other ? other.k : Infinity);
+    let up = heavy.filter(r => r.k > hi).sort((a, b) => a.k - b.k).slice(0, 2).map(r => r.k);
+    let dn = heavy.filter(r => r.k < lo).sort((a, b) => b.k - a.k).slice(0, 2).map(r => r.k);
+    if (other && other.k > pivot.k) up = [other.k, ...up].slice(0, 2); else if (other) dn = [other.k, ...dn].slice(0, 2);
+    return { pivot: pivot.k, pivotNet: pivot.v, pivotFlow: pivot.f, other: other ? other.k : null, up, dn,
+      zero: Number.isFinite(g.zero_gamma) ? g.zero_gamma : null };
+  }
+  // VIX: where dealer gamma changes sign around spot (mentor: "positive gamma up to 30") + trigger just below spot ("breaking 27")
+  function vixMap(g, spot, idx) {
+    if (!g || !Array.isArray(g.strikes) || !spot) return null;
+    const rows = g.strikes.map(r => ({ k: +r[0], v: +r[idx] || 0 })).filter(r => Number.isFinite(r.k) && r.k > spot * 0.6 && r.k < spot * 1.8).sort((a, b) => a.k - b.k);
+    if (rows.length < 4) return null;
+    const mx = Math.max(...rows.map(r => Math.abs(r.v))) || 1, sig = rows.filter(r => Math.abs(r.v) >= 0.05 * mx);
+    const loc = sig.filter(r => Math.abs(r.k - spot) <= Math.max(1.5, spot * 0.06)).reduce((a, r) => a + r.v, 0);
+    const regime = loc >= 0 ? 1 : -1;
+    let edge = null;
+    if (regime > 0) {   // last strike of the positive run above spot
+      for (let i = 0; i < sig.length; i++) { const r = sig[i]; if (r.k <= spot) continue;
+        if (r.v < 0 && (!sig[i + 1] || sig[i + 1].v <= 0)) { edge = i > 0 && sig[i - 1].k > spot ? sig[i - 1].k : r.k; break; } }
+    } else {            // negative gamma around spot: where the positive zone (below) ends
+      for (let i = sig.length - 1; i >= 0; i--) { const r = sig[i]; if (r.k >= spot) continue; if (r.v > 0) { edge = r.k; break; } }
+    }
+    const peak = rows.filter(r => Math.abs(r.k / spot - 1) <= 0.15).reduce((a, r) => Math.abs(r.v) > Math.abs(a.v) ? r : a, { k: null, v: 0 });
+    return { regime, edge, trigger: Math.floor(spot), peak: peak.k, peakNet: peak.v, pivot: Math.floor(spot), up: [], dn: [] };
   }
   function sideOf(bars, level, spot) {
     const last = bars && bars.length ? bars[bars.length - 1].c : spot;
@@ -382,28 +409,31 @@
   function sentiment(x) {
     const out = { assets: {}, drivers: [], score: 0, lines: [] };
     const add = (v, why) => { out.score += v; out.drivers.push([why, v]); };
-    // QQQ — all-expiry pivot (OI gamma), regime vs zero gamma
-    const qL = keyLevels(x.qqq && x.qqq.full, x.qqq && x.qqq.spot, 0.012, 2, 5) || keyLevels(x.qqq && x.qqq.zero, x.qqq && x.qqq.spot, 0.012, 1, 5);
+    // QQQ — all-expiry gamma (OI) + new positioning
+    const qL = keyLevels(x.qqq && x.qqq.full, x.qqq && x.qqq.spot, 0.012, 2, 5, x.qqq && x.qqq.flow, 0) || keyLevels(x.qqq && x.qqq.zero, x.qqq && x.qqq.spot, 0.012, 1, 5, x.qqq && x.qqq.flow, 0);
     if (qL) {
-      const s = sideOf(x.qqq.bars, qL.pivot, x.qqq.spot);
-      out.assets.QQQ = { ...qL, ...s };
-      add(s.side * (s.held ? 1.5 : 0.5), `QQQ ${s.side > 0 ? 'nad' : 'pod'} all-expiry pivotem ${qL.pivot}`);
+      const s = sideOf(x.qqq.bars, qL.pivot, x.qqq.spot), o = qL.other != null ? sideOf(x.qqq.bars, qL.other, x.qqq.spot) : null;
+      out.assets.QQQ = { ...qL, ...s, otherFail: o && o.prevFail };
+      add(s.side * (s.held ? 1.5 : 0.5), `QQQ ${s.side > 0 ? 'nad' : 'pod'} pivotem ${qL.pivot}`);
+      if (o && o.prevFail === 'reclaim' && qL.other > qL.pivot) add(-0.5, `QQQ včera nedokázalo reclaimnout ${qL.other}`);
       if (s.prevFail === 'reclaim' && s.side < 0) add(-0.5, `QQQ včera nedokázalo reclaimnout ${qL.pivot}`);
       if (qL.zero) add(x.qqq.spot > qL.zero ? 0.5 : -0.5, `QQQ ${x.qqq.spot > qL.zero ? 'nad' : 'pod'} zero gamma ${qL.zero.toFixed(1)}`);
     }
-    // SPX — pivot from the 0DTE + all-expiry profile
-    const sL = keyLevels(x.spx && x.spx.zero, x.spx && x.spx.spot, 0.008, 1, 50) || keyLevels(x.spx && x.spx.full, x.spx && x.spx.spot, 0.008, 2, 50);
+    // SPX — 0DTE + all-expiry profile, round 50 bracket, POIs on the 50 grid
+    const sL = keyLevels(x.spx && x.spx.zero, x.spx && x.spx.spot, 0.008, 1, 50, x.spx && x.spx.flow, 50) || keyLevels(x.spx && x.spx.full, x.spx && x.spx.spot, 0.008, 2, 50, x.spx && x.spx.flow, 50)
+      || keyLevels(x.spx && x.spx.full, x.spx && x.spx.spot, 0.012, 2, 25, x.spx && x.spx.flow, 25);
     if (sL) {
       const s = sideOf(x.spx.bars, sL.pivot, x.spx.spot);
       out.assets.SPX = { ...sL, ...s };
       add(s.side * (s.held ? 1.5 : 0.5), `SPX ${s.side > 0 ? 'nad' : 'pod'} pivotem ${sL.pivot}`);
     }
-    // VIX — gamma pivot; VIX above it = pressure on equities
-    const vL = keyLevels(x.vix && x.vix.full, x.vix && x.vix.spot, 0.12, 2, 1) || keyLevels(x.vix && x.vix.zero, x.vix && x.vix.spot, 0.12, 1, 1);
+    // VIX — gamma regime edge + trigger
+    const vL = vixMap(x.vix && x.vix.full, x.vix && x.vix.spot, 2) || vixMap(x.vix && x.vix.zero, x.vix && x.vix.spot, 1);
     if (vL) {
-      const s = sideOf(x.vix.bars, vL.pivot, x.vix.spot);
-      out.assets.VIX = { ...vL, ...s };
-      add(-s.side * (s.held ? 1 : 0.4), `VIX ${s.side > 0 ? 'nad' : 'pod'} gamma pivotem ${vL.pivot}`);
+      const s = sideOf(x.vix.bars, vL.trigger, x.vix.spot);
+      out.assets.VIX = { ...vL, ...s, last: x.vix.spot, est: x.vix.est, at: x.vix.at };
+      if (vL.regime > 0) add(0.3, `VIX v pozitivní gammě${vL.edge ? ' do ' + vL.edge : ''} – růst VIX tlumený`);
+      else add(-1, `VIX v negativní gammě${vL.edge ? ' nad ' + vL.edge : ''} – VIX může vystřelit`);
     }
     // sectors: semis + tech breadth (AI / data-center risk shows up here first)
     const sec = x.sectors || {};
@@ -414,28 +444,21 @@
       if (up >= names.length - 2 && sec.XLK && sec.XLK.d1 <= 0) out.drivers.push([`rotace: ${up}/${names.length} sektorů nahoru, ale tech ne – SPX/DOW drží, tech zaostává`, 0]); }
     const sc = out.score;
     out.lean = sc >= 2.5 ? 'BULLISH' : sc <= -2.5 ? 'BEARISH' : sc >= 1 ? 'LEAN BULL' : sc <= -1 ? 'LEAN BEAR' : 'NEUTRÁL';
-    // actionable levels on QQQ (→ NQ via k)
+    // chart lines on QQQ (→ NQ via k): pivot, the other bracket strike, POIs
     const Q = out.assets.QQQ;
     if (Q) {
-      const bear = sc < 0, bull = sc > 0;
-      if (Q.side < 0) {
-        out.lines.push({ q: Q.pivot, role: bear ? 'RESISTANCE · SHORT' : 'PIVOT', color: '#ef5350' });
-        Q.dn.forEach((k, i) => out.lines.push({ q: k, role: i === Q.dn.length - 1 ? 'DOWNSIDE · break = sellers' : 'SUPPORT · POI', color: i === Q.dn.length - 1 ? '#ef5350' : '#66bb6a' }));
-      } else {
-        out.lines.push({ q: Q.pivot, role: bull ? 'SUPPORT · LONG' : 'PIVOT', color: '#66bb6a' });
-        Q.up.forEach((k, i) => out.lines.push({ q: k, role: i === Q.up.length - 1 ? 'UPSIDE · break = buyers' : 'RESISTANCE · POI', color: i === Q.up.length - 1 ? '#66bb6a' : '#ef5350' }));
-      }
+      out.lines.push({ q: Q.pivot, role: Q.side < 0 && sc < 0 ? 'PIVOT · SHORT pod ním' : Q.side > 0 && sc > 0 ? 'PIVOT · LONG nad ním' : 'PIVOT', color: '#ef5350' });
+      Q.up.forEach((k, i) => out.lines.push({ q: k, role: i === 0 ? 'RESISTANCE' : 'UPSIDE POI', color: '#ef5350' }));
+      Q.dn.forEach((k, i) => out.lines.push({ q: k, role: i === Q.dn.length - 1 ? 'SUPPORT · break = sellers' : 'SUPPORT', color: '#66bb6a' }));
     }
-    // mentor-style read
-    const t = [];
-    if (Q) t.push(`QQQ ${Q.side < 0 ? (Q.prevFail === 'reclaim' ? 'včera nereclaimlo' : 'je pod') : 'drží nad'} all-expiry pivot ${Q.pivot}. ${Q.side < 0 ? `${Q.pivot} je dnes pivot / resistance, downside POI ${Q.dn.join(' / ') || '—'}${Q.dn.length ? `, prolomení ${Q.dn[Q.dn.length - 1]} = prostor pro sellers` : ''}.` : `Support ${Q.pivot}, upside POI ${Q.up.join(' / ') || '—'}.`}`);
-    const SPX = out.assets.SPX;
-    if (SPX) t.push(`SPX ${SPX.pivot} je hlavní pivot – ${SPX.side > 0 ? 'drží nad ním' : 'reclaim nad ním je klíčový pro další upside'}. Další překážky ${SPX.up.join(', ') || '—'}${SPX.dn.length ? `, pod ním ${SPX.dn.join(', ')}` : ''}.`);
-    const V = out.assets.VIX;
-    if (V) t.push(`VIX ${V.side > 0 ? 'nad' : 'pod'} gamma pivotem ${V.pivot}${V.side > 0 ? ' – tlak na indexy' : ' – pro indexy podpora'}${SPX && SPX.side < 0 && V.side > 0 ? '; se ztrátou SPX pivotu může táhnout trh dolů' : ''}.`);
+    // short read (tooltip / Focus card)
+    const t = [], SPX = out.assets.SPX, V = out.assets.VIX;
+    if (Q) t.push(`QQQ pivot ${Q.pivot} (${Q.side > 0 ? 'nad' : 'pod'}), resistance ${Q.up.join(' / ') || '—'}, support ${Q.dn.join(' / ') || '—'}.`);
+    if (SPX) t.push(`SPX focus ${SPX.pivot} (${SPX.side > 0 ? 'drží' : 'pod'}); ${SPX.side > 0 ? `ztráta → ${SPX.dn[0] || '—'}` : `reclaim → ${SPX.up[0] || '—'}`}.`);
+    if (V) t.push(`VIX ${V.regime > 0 ? `pozitivní gamma${V.edge ? ' do ' + V.edge : ''}, průraz pod ${V.trigger} = pullback/odraz indexů` : `negativní gamma${V.edge ? ' nad ' + V.edge : ''} – VIX může vystřelit`}.`);
     out.text = t;
     return out;
   }
 
-  root.YYY = { et, isRTH, bars5, eig, pca, regime, garch, sigmaGrid, dayType, tpo9, singlePrints, cvdDiv, macro, synth, keyLevels, sentiment };
+  root.YYY = { et, isRTH, bars5, eig, pca, regime, garch, sigmaGrid, dayType, tpo9, singlePrints, cvdDiv, macro, synth, keyLevels, vixMap, sentiment };
 })(typeof window !== 'undefined' ? window : globalThis);
