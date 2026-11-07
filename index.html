@@ -470,7 +470,7 @@ const LAYERS = [
   ['gex0','0DTE GEX'],['gex1','1DTE GEX'],['gexFull','Full chain GEX'],['maxchg','ΔGEX 15m'],
   ['qqq','QQQ walls (0/5)'],['qqqMain','QQQ 0/5 levely'],['gexProf','GEX profil (gexbot)'],['cvd','CVD pod grafem (server)'],['vpProf','Volume profil + LVN (graf)'],['volHist','Objem pod grafem'],['em','EM (VXN/VIX)'],['sigma','σ Grid'],['vp','Prev VP']
 ];
-const DEF = { worker:'', token:'', server:'', srvToken:'', barSrc:'60s', footprint:true, tol:10, minScore:3, range:3, touch:3, brk:6, react:15, lookahead:15,
+const DEF = { worker:'', token:'', server:'', srvToken:'', barSrc:'60s', footprint:true, tol:10, minScore:3, range:3, touch:3, front:25, brk:6, react:15, lookahead:15,
   scanRTH:true, alertDist:8, alertScore:4, showPrev:true, volIndex:'VXN', emStraddle:true, majorAlerts:true, majorStrong:10, focus:true, layers:Object.fromEntries(LAYERS.map(l=>[l[0],true])) };
 
 // ───────── settings (localStorage may be unavailable)
@@ -1298,7 +1298,23 @@ function focusUpdate(r){
   for (const s of fz.segs) {
     if (!s.t1) {
       const hit = bars.find(b => b.t > s.t0 && (s.side === 'short' ? b.h >= s.p - S.touch : b.l <= s.p + S.touch));
-      if (hit) { s.t1 = hit.t; s.end = 'hit'; }
+      // front-run: dealers hedge into a wall before it prints – price stops within S.front points and turns ≥ max(react, 2×gap)
+      // (6.11: QQQ CW 665 = NQ 27,441, QQQ topped at 664.52 = NQ 27,425 and dropped 300 b.)
+      const F = S.front || 25, i0 = bars.findIndex(b => b.t > s.t0);
+      let fr = null;
+      if (i0 >= 0) for (let i = i0; i < bars.length && !fr; i++) {
+        const b = bars[i], ext = s.side === 'short' ? b.h : b.l, gap = s.side === 'short' ? s.p - ext : ext - s.p;
+        if (gap > F || gap <= S.touch) { if (gap <= S.touch) break; continue; }
+        let best = ext, ok = false;
+        for (let j = i + 1; j < Math.min(bars.length, i + 1 + (S.lookahead || 15) * 2); j++) {
+          const c = bars[j], e2 = s.side === 'short' ? c.h : c.l;
+          if (s.side === 'short' ? e2 > best : e2 < best) break;          // made a new extreme → this bar wasn't the turn
+          if ((s.side === 'short' ? best - c.l : c.h - best) >= Math.max(S.react || 15, 2 * gap)) { ok = true; break; }
+        }
+        if (ok) fr = { t:b.t, gap };
+      }
+      if (fr && (!hit || fr.t < hit.t)) { s.t1 = fr.t; s.end = 'hit'; s.res = 'front'; s.gap = Math.round(fr.gap * 4) / 4; }
+      else if (hit) { s.t1 = hit.t; s.end = 'hit'; }
     }
     if (s.end === 'hit' && !s.res) {
       const ev = A.statusOf(s.p, s.side === 'short' ? s.p - 1 : s.p + 1, bars.filter(b => b.t >= s.t1), S).find(e => e.type !== 'testing');
@@ -1395,7 +1411,7 @@ function drawFocus(out){
     fz.axis.push(series.createPriceLine({ price:l.nq, color:l.color, lineWidth:2, lineStyle:0, lineVisible:true, axisLabelVisible:true,
       axisLabelColor:l.color, axisLabelTextColor:'#07080a', title:`${l.role} · QQQ ${l.q}` }));
   for (const s of hits) {
-    const res = s.res === 'reacted' ? '✔ reakce' : s.res === 'broken' ? '✘ proraženo' : '● zasaženo';
+    const res = s.res === 'front' ? `✔ reakce ${s.gap} b. před levelem` : s.res === 'reacted' ? '✔ reakce' : s.res === 'broken' ? '✘ proraženo' : '● zasaženo';
     const col = s.res === 'reacted' ? '#5ee0c8' : s.res === 'broken' ? '#f05a6e' : '#8a8f97';
     fz.axis.push(series.createPriceLine({ price: s.p, color: col + '99', lineWidth: 1, lineStyle: 1, lineVisible: true,
       axisLabelVisible: true, axisLabelColor: col, axisLabelTextColor: '#07080a', title: `${fzLabel(s)} · ${res} ${A.hhmm(s.t1)}` }));
