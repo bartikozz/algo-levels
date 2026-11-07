@@ -68,6 +68,7 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .focbtn{position:absolute;left:8px;top:8px;z-index:3;font-size:11px;padding:5px 9px;border:1px solid var(--line2);border-radius:6px;background:rgba(7,8,10,.8);color:var(--muted);letter-spacing:.06em}
 .focbtn.on{color:#5ee0c8;border-color:rgba(94,224,200,.55)}
 .rpbtn{left:auto;right:72px} body.replay .rpbtn{display:none}
+.fzc .tv{margin-left:auto;font:inherit;font-size:10px;padding:3px 7px;border:1px solid var(--line2);border-radius:5px;background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap}
 .fzc{display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--line2);border-radius:6px;background:var(--panel);flex:1;min-width:260px}
 .fzc .sd{font-weight:800;letter-spacing:.08em;font-size:11px} .fzc.short{border-color:rgba(94,224,200,.45)} .fzc.short .sd{color:#5ee0c8}
 .fzc.long{border-color:rgba(255,95,162,.45)} .fzc.long .sd{color:#ff5fa2} .fzc b{font-size:14px} .fzc .m{font-size:11px;color:var(--muted)}
@@ -1382,6 +1383,20 @@ function fzLabel(s){
   return `${t.map(x => '(' + x + ')').join(' ')}${t.length ? ' | ' : ''}${o.type} - ${o.hor}`;
 }
 const fzW = () => Math.max(S.touch || 3, +S.zone || 25);
+const fzRange = s => { const W = fzW(); return s.side === 'short' ? [s.p - W, s.p] : [s.p, s.p + W]; };
+const fzRangeTxt = s => { const [a, b] = fzRange(s); return `${fmtP(a)} – ${fmtP(b)}`; };
+// today's zones for TradingView: one line per zone "lo-hi R|S label" → paste into pine/algo_zones_paste.pine
+function fzTvText(){
+  const seen = [];
+  for (const s of fz.segs) { if (s.end === 'replaced') continue; if (seen.some(x => Math.abs(x.p - s.p) <= S.tol && x.side === s.side)) continue; seen.push(s); }
+  return seen.map(s => { const [a, b] = fzRange(s);
+    const res = s.end === 'hit' ? (s.res === 'reacted' ? ' reakce' : s.res === 'broken' ? ' proraz' : ' zasah') + ' ' + A.hhmm(s.t1) : '';
+    return `${a.toFixed(2)}-${b.toFixed(2)} ${s.side === 'short' ? 'R' : 'S'} ${fzLabel(s).replace(/[|]/g, '/')}${res}`; }).join('\n');
+}
+async function fzCopy(){
+  const t = fzTvText(); if (!t) { toast('Dnes zatím žádné zóny'); return; }
+  try { await navigator.clipboard.writeText(t); toast('Zóny zkopírovány – vlož do indikátoru Algo Zones (TV)'); } catch(e) { toast(t); }
+}
 const hexA = (h, a) => { const n = parseInt(h.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
 // filled band between the wall (p) and the inner edge, from when the zone appeared to the right edge of the chart
 function fzZone(out, s, col, alpha){
@@ -1425,12 +1440,12 @@ function drawFocus(out){
     const col = s.res === 'reacted' ? '#5ee0c8' : s.res === 'broken' ? '#f05a6e' : '#8a8f97';
     fzZone(out, s, col, 0.10);
     fz.axis.push(series.createPriceLine({ price: s.p, color: col + '99', lineWidth: 1, lineStyle: 1, lineVisible: false,
-      axisLabelVisible: true, axisLabelColor: col, axisLabelTextColor: '#07080a', title: `${fzLabel(s)} · ${res} ${A.hhmm(s.t1)}` }));
+      axisLabelVisible: true, axisLabelColor: col, axisLabelTextColor: '#07080a', title: `${fzLabel(s)} · ${fzRangeTxt(s)} · ${res} ${A.hhmm(s.t1)}` }));
   }
   for (const s of segs) {
     fzZone(out, s, s.side === 'short' ? '#f05a6e' : '#5ee0c8', 0.16);
     fz.axis.push(series.createPriceLine({ price: s.p, color: '#a4a9b0', lineWidth: 1, lineStyle: 0, lineVisible: false,
-      axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: fzLabel(s) }));
+      axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: `${fzLabel(s)} · ${fzRangeTxt(s)}` }));
   }
 }
 function focusCards(r){
@@ -1443,14 +1458,14 @@ function focusCards0(r){
   const act = ['short', 'long'].map(side => fz.segs.find(s => !s.t1 && s.side === side)).filter(Boolean);
   if (!act.length) {
     const g = st.data.gex || {}, why = !(g.zero || g.full) ? ` · GEXbot data se nenačetla (${esc($('upd').textContent || '')})` : gexStale() ? ' · GEXbot data jsou starší než 15 min' : '';
-    return `<div class="fzc"><span class="m">◎ Žádná zóna s dost silnou konfluencí v dosahu${why}.</span></div>`;
+    return `<div class="fzc"><span class="m">◎ Žádná zóna s dost silnou konfluencí v dosahu${why}.</span>${fz.segs.length ? '<button class="tv" onclick="fzCopy()">📋 TV</button>' : ''}</div>`;
   }
   return act.map(s => {
     const d = s.p - r.last, l = r.levels.find(x => Math.abs(x.price - s.p) <= S.tol), h = l && levelHist(l);
     const near = Math.abs(d) <= S.alertDist;
     return `<div class="fzc ${s.side} ${near ? 'near' : ''}"><span class="sd">${esc(fzLabel(s))}</span>
-      <b>${fmtP(s.p)}</b><span class="m" title="${esc((s.why || []).map(([t, k]) => `${t} ×${k.toFixed(2)}`).join('\n'))}">${d > 0 ? '+' : ''}${d.toFixed(0)} b. · skóre ${s.score} · ${esc(s.tags.slice(0, 3).join(', '))}${(s.why || []).length ? ' · ' + esc([...s.why].filter(w => w[1] !== 1 && !/^vzdálenost/.test(w[0])).sort((x, y) => Math.abs(Math.log(y[1])) - Math.abs(Math.log(x[1]))).slice(0, 2).map(w => `${w[0]} ${w[1] > 1 ? '↑' : '↓'}`).join(', ')) : ''}</span></div>`;
-  }).join('');
+      <b>${fzRangeTxt(s)}</b><span class="m" title="${esc((s.why || []).map(([t, k]) => `${t} ×${k.toFixed(2)}`).join('\n'))}">${d > 0 ? '+' : ''}${d.toFixed(0)} b. · skóre ${s.score} · ${esc(s.tags.slice(0, 3).join(', '))}${(s.why || []).length ? ' · ' + esc([...s.why].filter(w => w[1] !== 1 && !/^vzdálenost/.test(w[0])).sort((x, y) => Math.abs(Math.log(y[1])) - Math.abs(Math.log(x[1]))).slice(0, 2).map(w => `${w[0]} ${w[1] > 1 ? '↑' : '↓'}`).join(', ')) : ''}</span></div>`;
+  }).join('').replace(/<\/div>$/, '<button class="tv" onclick="fzCopy()" title="Zkopírovat dnešní zóny pro TradingView">📋 TV</button></div>');
 }
 function checkFocusAlerts(){
   const r = st.res; if (!r) return;

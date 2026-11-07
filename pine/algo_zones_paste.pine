@@ -1,0 +1,59 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Algo Zones (paste) — draws the Focus zones from the Algo Levels terminal.
+// In the terminal click "📋 TV" on the Focus card, then paste into the "Zóny" box of this indicator (Settings → Inputs).
+// One zone per line:  "27416.00-27441.00 R (G-) / RESISTANCE - L reakce 09:53"
+//   lo-hi   zone in NQ points (the wall is the outer edge: top of R, bottom of S)
+//   R | S   resistance (short) / support (long)
+//   rest    label text
+//@version=6
+indicator("Algo Zones (paste)", overlay = true, max_boxes_count = 100, max_labels_count = 100, max_lines_count = 100)
+
+txt     = input.text_area("", "Zóny (vlož z terminálu 📋 TV)")
+colR    = input.color(color.new(#f05a6e, 82), "Resistance zóna")
+colS    = input.color(color.new(#5ee0c8, 82), "Support zóna")
+showLbl = input.bool(true, "Popisky")
+showWall = input.bool(true, "Zvýraznit wall (vnější hranu)")
+fromH   = input.int(9, "Kreslit od (hod ET)", minval = 0, maxval = 23)
+fromM   = input.int(30, "Kreslit od (min)", minval = 0, maxval = 59)
+
+var box[]   bxs = array.new<box>()
+var label[] lbs = array.new<label>()
+var line[]  lns = array.new<line>()
+
+if barstate.islast
+    for b in bxs
+        b.delete()
+    for l in lbs
+        l.delete()
+    for l in lns
+        l.delete()
+    bxs.clear()
+    lbs.clear()
+    lns.clear()
+    tz = "America/New_York"
+    int left = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), fromH, fromM)
+    if left > time
+        left := time - 3 * 3600 * 1000
+    for ln in str.split(txt, "\n")
+        array<string> tk = array.new<string>()
+        for t in str.split(ln, " ")
+            if str.length(t) > 0
+                tk.push(t)
+        if tk.size() >= 2
+            array<string> pr = str.split(tk.get(0), "-")
+            if pr.size() == 2
+                float a = str.tonumber(pr.get(0))
+                float b = str.tonumber(pr.get(1))
+                if not na(a) and not na(b)
+                    float lo = math.min(a, b)
+                    float hi = math.max(a, b)
+                    bool isR = str.upper(tk.get(1)) == "R"
+                    color c = isR ? colR : colS
+                    bxs.push(box.new(left, hi, time, lo, xloc = xloc.bar_time, extend = extend.right, bgcolor = c, border_color = color.new(c, 40), border_width = 1))
+                    float wall = isR ? hi : lo
+                    if showWall
+                        lns.push(line.new(left, wall, time, wall, xloc = xloc.bar_time, extend = extend.right, color = color.new(c, 0), width = 2))
+                    if showLbl
+                        string rest = tk.size() > 2 ? array.join(tk.slice(2, tk.size()), " ") : (isR ? "RESISTANCE" : "SUPPORT")
+                        string t2 = rest + "  " + str.tostring(lo, "#.00") + " – " + str.tostring(hi, "#.00")
+                        lbs.push(label.new(time, isR ? hi : lo, t2, xloc = xloc.bar_time, style = isR ? label.style_label_lower_left : label.style_label_upper_left, color = color.new(c, 100), textcolor = color.new(c, 0), size = size.small))
