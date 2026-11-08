@@ -20,7 +20,7 @@
 <script src="bias.js?v=3"></script>
 <script src="analysis.js?v=1"></script>
 <script src="backtest.js?v=1"></script>
-<script src="pro.js?v=6"></script>
+<script src="pro.js?v=8"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -132,6 +132,7 @@ body.focus .meta{display:none!important}
 .ofchart{height:min(60dvh,560px);min-height:300px}
 .ofleg{position:absolute;left:84px;top:8px;z-index:3;font:11px var(--mono);color:#9aa0a8;pointer-events:none;display:flex;flex-wrap:wrap;gap:4px 12px;max-width:calc(100% - 90px)}
 .ofleg i{font-style:normal}
+.ofcust{width:100%;height:min(62dvh,600px);min-height:340px;border:1px solid var(--line);border-radius:8px;display:block}
 .ofstrikes{width:100%;height:min(60dvh,560px);min-height:300px;border:1px solid var(--line);border-radius:8px;display:block}
 @media (max-width:760px){.ofgrid{grid-template-columns:1fr}.ofchart{height:52dvh}.ofstrikes{height:60dvh}}
 .pushbox{margin:4px 0 6px}
@@ -402,7 +403,7 @@ body.focus .meta{display:none!important}
   <div class="sfil" id="pSub"></div>
   <canvas id="cvPro" class="anacv" style="height:66dvh"></canvas>
   <p class="hint" id="pNote"></p>
-  <div id="ofWrap" class="ofwrap" hidden><div id="ofStats" class="ofstats"></div><div class="ofgrid"><div class="ofmain"><div id="ofChart" class="ofchart"></div><div id="ofLeg" class="ofleg"></div></div><canvas id="ofStrikes" class="ofstrikes"></canvas></div></div>
+  <div id="ofWrap" class="ofwrap" hidden><div id="ofStats" class="ofstats"></div><div class="ofgrid"><div class="ofmain"><div id="ofChart" class="ofchart"></div><div id="ofLeg" class="ofleg"></div></div><canvas id="ofStrikes" class="ofstrikes"></canvas></div><canvas id="ofCust" class="ofcust"></canvas></div>
   <div id="pKey" class="keylv" hidden></div>
   <div id="pTape" class="otape" hidden></div>
   <div class="btns"><button id="pClose">Zavřít</button></div>
@@ -443,6 +444,7 @@ body.focus .meta{display:none!important}
     <div class="f"><label>Silná zóna (b.)</label><input id="sMS" type="number" step="1"></div>
   </div>
   <h4>PUSH NA TELEFON (ntfy)</h4>
+  <label class="cb"><input id="sPushTv" type="checkbox"> Posílat zóny pro TradingView do telefonu (ntfy, při každé nové zóně – podržením zkopíruješ a vložíš do indikátoru Algo Zones)</label>
   <label class="cb"><input id="sPush" type="checkbox"> Poslat upozornění na telefon, když se cena přiblíží k Focus zóně a když ji zasáhne (i se zavřeným terminálem)</label>
   <div class="pushbox">
     <div class="f full"><label>Tvoje soukromé téma v aplikaci ntfy</label><input id="sTopic" type="text" readonly autocapitalize="off" spellcheck="false"></div>
@@ -1191,7 +1193,7 @@ function fzLoad(date){
   fz.date = date; fz.alerted = {};
   try { fz.segs = JSON.parse(localStorage.getItem('algoLevels.focus.' + date) || '[]'); } catch(e){ fz.segs = []; }
 }
-function fzSave(){ if (st.replay) return; try { localStorage.setItem('algoLevels.focus.' + fz.date, JSON.stringify(fz.segs)); } catch(e){} try { pushPublish(false); } catch(e){} }
+function fzSave(){ if (st.replay) return; try { localStorage.setItem('algoLevels.focus.' + fz.date, JSON.stringify(fz.segs)); } catch(e){} try { pushPublish(false); } catch(e){} try { pushTv(); } catch(e){} }
 // level tag → journal kind (so the zone can carry its measured reaction rate)
 function tagKind(t){
   let m;
@@ -1391,7 +1393,7 @@ function fzTvText(){
   for (const s of fz.segs) { if (s.end === 'replaced') continue; if (seen.some(x => Math.abs(x.p - s.p) <= S.tol && x.side === s.side)) continue; seen.push(s); }
   return seen.map(s => { const [a, b] = fzRange(s);
     const res = s.end === 'hit' ? (s.res === 'reacted' ? ' reakce' : s.res === 'broken' ? ' proraz' : ' zasah') + ' ' + A.hhmm(s.t1) : '';
-    return `${a.toFixed(2)}-${b.toFixed(2)} ${s.side === 'short' ? 'R' : 'S'} ${fzLabel(s).replace(/[|]/g, '/')}${res}`; }).join('\n');
+    return `${fz.date || ''} ${a.toFixed(2)}-${b.toFixed(2)} ${s.side === 'short' ? 'R' : 'S'} ${fzLabel(s).replace(/[|]/g, '/')}${res}`.trim(); }).join('\n');
 }
 async function fzCopy(){
   const t = fzTvText(); if (!t) { toast('Dnes zatím žádné zóny'); return; }
@@ -1869,8 +1871,8 @@ async function proShow(){
       note(`0DTE GEX (OI) po strikech v čase z options serveru (každých ${30} s) + cena NQ. ${rows.length} snímků dnes.`);
     } else if (t === 'oflow') {
       const f = pr.sub.oflow || 'all', q = f === 'big' ? '&min_prem=100000' : f === '0d' ? '&only0d=1' : f === 'sweep' ? '&kind=SWEEP' : '';
-      const D = await srv('/options/flow?n=150' + q);
-      ofRender(D);
+      const [D, Cu] = await Promise.all([srv('/options/flow?n=150' + q), srv('/options/customer?pct=0.03' + (f === '0d' ? '&only0d=1' : '')).catch(() => null)]);
+      ofRender(D); OF.C = Cu; ofCust();
       const sideCls = x => /BUY|buy/.test(x.side) ? (x.right === 'C' ? 'bull' : 'bear') : /SELL|sell/.test(x.side) ? (x.right === 'C' ? 'bear' : 'bull') : '';
       $('pTape').innerHTML = `<table><tr><th>čas</th><th>kontrakt</th><th>NQ</th><th>strana</th><th>typ</th><th>size</th><th>cena</th><th>prémie</th><th>Δ</th><th>IV</th></tr>` +
         D.tape.map(x => `<tr class="${sideCls(x)}"><td>${A.hhmm(x.t)}</td><td>${x.exp.slice(5).replace('-', '/')}${x.is0d ? ' <i>0D</i>' : ''} ${x.strike}${x.right}</td><td>${x.nq ? x.nq.toFixed(0) : ''}</td><td>${x.side}</td><td>${x.kind === 'SWEEP' ? '⚡ SWEEP' + (x.ex > 1 ? ' ×' + x.ex : '') : x.kind === 'BLOCK' ? '■ BLOK' : ''}</td><td>${x.size}</td><td>${x.px.toFixed(2)}</td><td><b>${(x.prem / 1000).toFixed(0)}k</b></td><td>${x.d != null ? x.d.toFixed(2) : ''}</td><td>${x.iv ? (x.iv * 100).toFixed(0) + '%' : ''}</td></tr>`).join('') + '</table>' +
@@ -2424,6 +2426,26 @@ function ofRender(D){
   if (!OF.fitted && (ser.length || qb.length)) { OF.chart.timeScale().fitContent(); OF.fitted = true; }
   ofLegend(null); ofStrikes();
 }
+function ofCust(){
+  const cv = $('ofCust'); if (!cv || !OF.C) return;
+  const qb = (st.data.qqqBars || []).filter(b => b.c > 0 && A.isRTH(b.t)).map(b => ({ t:b.t, c:b.c }));
+  Pro.customer(cv, OF.C, { bars:qb, k:OF.C.k || (st.res && st.res.info && st.res.info.ratio), levels:ofLevels(), label:A.hhmm, hover:OF.ch });
+  if (cv._bound) return; cv._bound = true;
+  cv.addEventListener('mousemove', e => {
+    const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    const h = (cv._cells || []).reduce((a, q) => { const d = Math.hypot(q.x - x, (q.y - y) * 0.6); return d < 14 && (!a || d < a.d) ? { ...q, d } : a; }, null);
+    if (!h) { if (OF.ch) { OF.ch = null; ofCust(); } return hideTip(); }
+    OF.ch = h; ofCust();
+    let cp = 0, pp = 0; for (const q of cv._cells) if (q.k === h.k && q.t <= h.t) { cp += q.cn; pp += q.pn; }
+    const qb = st.data.qqqBars || [], b = qb.reduce((a, z) => Math.abs(z.t - h.t) < Math.abs((a ? a.t : 0) - h.t) ? z : a, null), k = OF.C.k;
+    const sg = v => (v > 0 ? '+' : '') + Math.round(v).toLocaleString('en-US');
+    $('tip').innerHTML = `<div class="h"><b>${A.hhmm(h.t)} ET · ${h.k}${k ? ' (NQ ' + Math.round(h.k * k) + ')' : ''}</b></div>
+      <p>Calls this minute <b class="${h.cn >= 0 ? 'up' : 'dn'}">${sg(h.cn)}</b><br>Puts this minute <b class="${h.pn >= 0 ? 'up' : 'dn'}">${sg(h.pn)}</b><br>Call position ${sg(cp)}<br>Put position ${sg(pp)}${b ? `<br>QQQ ${b.c.toFixed(2)}` : ''}</p>`;
+    $('tip').hidden = false; $('tip').style.left = Math.min(innerWidth - 240, e.clientX + 14) + 'px'; $('tip').style.top = Math.min(innerHeight - 150, e.clientY + 14) + 'px';
+  });
+  cv.addEventListener('mouseleave', () => { OF.ch = null; ofCust(); hideTip(); });
+  window.addEventListener('resize', () => { if (!$('ofWrap').hidden) ofCust(); });
+}
 function ofStrikes(){ if (OF.D) Pro.flowStrikes($('ofStrikes'), OF.D, { spot:OF.D.summary.spot, levels:ofLevels(), hover:OF.hover }); }
 function ofLegend(p){
   const ser = OF.D && OF.D.series || []; if (!ser.length) { $('ofLeg').textContent = ''; return; }
@@ -2435,7 +2457,20 @@ function ofLegend(p){
 
 // ───────── phone push (ntfy): the Worker watches the active Focus zones every minute and pushes "near" / "hit"
 function pushTopic(){ if (!S.ntfyTopic) { const a = new Uint8Array(12); crypto.getRandomValues(a); S.ntfyTopic = 'algo-' + [...a].map(x => x.toString(36).padStart(2, '0')).join('').slice(0, 20); save(); } return S.ntfyTopic; }
-function pushUI(){ $('sPush').checked = !!S.push; $('sTopic').value = pushTopic(); $('sNear').value = S.pushNear || 15; }
+// zones → phone as ready-to-paste text for the TradingView indicator (direct ntfy publish, CORS-enabled); only when the set of ranges changes
+async function pushTv(){
+  if (!S.pushTv || !S.worker || st.demo || st.replay || !fz.date) return;
+  const t = fzTvText(); if (!t) return;
+  const key = fz.date + '|' + t.split('\n').map(l => l.split(' ').slice(0, 3).join(' ')).join(',');
+  if (key === S.pushTvKey) return;
+  try {
+    const r = await fetch('https://ntfy.sh/', { method:'POST', headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify({ topic:pushTopic(), title:'Zóny pro TradingView · ' + fz.date.slice(5).split('-').reverse().join('.'), message:t, priority:2, tags:['clipboard'] }) });
+    if (r.ok) { S.pushTvKey = key; save(); }
+  } catch(e){}
+}
+setInterval(pushTv, 60000);
+function pushUI(){ $('sPushTv').checked = !!S.pushTv; $('sPush').checked = !!S.push; $('sTopic').value = pushTopic(); $('sNear').value = S.pushNear || 15; }
 async function pushPublish(force){
   if (!S.push || !S.worker || st.demo || st.replay || !st.res) return;
   const z = fz.segs.filter(s => !s.t1).map(s => ({ side:s.side, p:s.p, score:s.score, tags:s.tags.slice(0, 4) }));
@@ -2446,6 +2481,7 @@ async function pushPublish(force){
     st.pushKey = key; st.pushAt = Date.now();
   } catch(e){}
 }
+$('sPushTv').onchange = () => { S.pushTv = $('sPushTv').checked; S.pushTvKey = ''; save(); pushTv(); };
 $('sPush').onchange = async () => { S.push = $('sPush').checked; save(); if (S.push) await pushAdopt(); st.pushKey = ''; pushPublish(true); };
 $('sNear').onchange = () => { S.pushNear = Math.max(3, +$('sNear').value || 15); save(); st.pushKey = ''; pushPublish(true); };
 $('bTopicCopy').onclick = async () => { try { await navigator.clipboard.writeText(pushTopic()); toast('Téma zkopírováno'); } catch(e) { $('sTopic').select(); } };

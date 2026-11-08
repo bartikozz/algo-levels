@@ -670,6 +670,15 @@ def flow(t: str | None = None):
     return j(dict(cvd_series=tape.cvd_series(), profile_rth=tape.volume_profile('rth'), profile_eth=tape.volume_profile('eth'), tpo=tape.tpo_profile(), **tape.summary()))
 
 
+@app.get('/options/customer')
+def opt_customer(pct: float = 0.03, only0d: int = 0, t: str | None = None):
+    """customer contracts per minute × strike (aggressor side from NBBO), running position by strike, net drift"""
+    auth(t)
+    D = oflow.customer(pct, bool(only0d))
+    D['k'] = state['k']
+    return j(D)
+
+
 @app.get('/options/flow')
 def opt_flow(min_prem: float | None = None, only0d: int = 0, kind: str | None = None, pct: float = 0.04, n: int = 150, t: str | None = None):
     """options flow: day totals, cumulative bullish/bearish premium + delta per minute, net premium by strike, tape of large orders"""

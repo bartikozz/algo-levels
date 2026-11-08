@@ -254,6 +254,55 @@
     if (o.spot && o.spot >= p0 && o.spot <= p1) { const y = Y(o.spot); c.strokeStyle = C.white; c.setLineDash([2, 3]); c.beginPath(); c.moveTo(x0, y); c.lineTo(w - 8, y); c.stroke(); c.setLineDash([]); c.fillStyle = C.white; c.textAlign = 'left'; c.fillText('QQQ ' + o.spot.toFixed(2), x0 + 4, y - 7); }
   }
 
+  // ── Customer contracts per minute × strike (mentor's map): spikes up = customers buying, down = selling;
+  //    QQQ price path on top, net drift (cumulative customer delta) strip at the bottom; hit cells for hover
+  function customer(cv, D, o) {
+    const { c, w, h } = setup(cv);
+    const cells = (D && D.cells) || [];
+    if (!cells.length) return empty(c, w, h, 'Zatím žádné obchody zákazníků (customer flow).');
+    const L = 8, R = w - 74, top = 22, driftH = Math.min(70, h * 0.18), bot = h - 18 - driftH - 8;
+    const ks0 = cells.map(x => x[1]).sort((x, y) => x - y), mid = ks0[ks0.length >> 1];
+    const path = (o.bars || []).filter(b => b.t >= cells[0][0] - 60 && Math.abs(b.c / mid - 1) < 0.04);
+    const t0 = Math.min(cells[0][0], path.length ? path[0].t : Infinity), t1 = Math.max(cells[cells.length - 1][0] + 60, path.length ? path[path.length - 1].t : 0);
+    const ks = cells.map(x => x[1]), pv = path.map(b => b.c);
+    let lo = Math.min(...ks, ...pv), hi = Math.max(...ks, ...pv); lo -= 0.5; hi += 0.5;
+    const X = t => L + (t - t0) / (t1 - t0 || 1) * (R - L), Y = p => top + (hi - p) / (hi - lo || 1) * (bot - top);
+    const thr = Math.max(1, D.threshold || 1), mx = Math.max(thr, D.tallest || thr), row = (bot - top) / Math.max(1, hi - lo);
+    c.fillStyle = C.txt2; c.textAlign = 'left';
+    c.fillText(`Customer contracts / min · ▲ nákup  ▼ prodej · spike ≥ ${Math.round(thr)} kontr./min · max ${Math.round(mx)}`, L, 9);
+    // strike grid + labels (QQQ · NQ)
+    const step = row >= 12 ? 1 : row >= 6 ? 2 : 5;
+    c.textAlign = 'left';
+    for (let k = Math.ceil(lo / step) * step; k <= hi; k += step) { const y = Y(k);
+      c.fillStyle = k % 5 === 0 ? '#1b2029' : C.grid; c.fillRect(L, y, R - L, 1);
+      c.fillStyle = k % 5 === 0 ? C.txt2 : C.txt; c.fillText(`${k}${o.k ? ' · ' + Math.round(k * o.k) : ''}`, R + 4, y); }
+    for (const L0 of o.levels || []) { if (L0.q < lo || L0.q > hi) continue; const y = Y(L0.q); c.strokeStyle = L0.col; c.globalAlpha = .5; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(L, y); c.lineTo(R, y); c.stroke(); c.setLineDash([]); c.globalAlpha = 1; }
+    // spikes
+    cv._cells = [];
+    const bw = Math.max(1, Math.min(4, (R - L) / ((t1 - t0) / 60) * 0.6)), maxLen = Math.max(8, row * 3);
+    for (const [t, k, cn, pn] of cells) {
+      const n = cn + pn, m = Math.abs(cn) + Math.abs(pn); if (!n) continue;
+      const big = m >= thr, x = X(t + 30), y = Y(k), len = Math.max(1.5, Math.min(maxLen, Math.sqrt(m / mx) * maxLen));
+      c.fillStyle = n > 0 ? `rgba(${C.pos},${big ? .95 : .28})` : `rgba(${C.neg},${big ? .95 : .28})`;
+      c.fillRect(x - bw / 2, n > 0 ? y - len : y, bw, len);
+      cv._cells.push({ x, y, t, k, cn, pn, big });
+    }
+    // price path
+    if (path.length) { c.strokeStyle = C.white; c.lineWidth = 1.4; c.beginPath(); path.forEach((b, i) => i ? c.lineTo(X(b.t + 30), Y(b.c)) : c.moveTo(X(b.t + 30), Y(b.c))); c.stroke();
+      const lb = path[path.length - 1]; c.fillStyle = C.white; c.textAlign = 'right'; c.fillText(`QQQ ${lb.c.toFixed(2)}`, R - 2, Y(lb.c) - 9); }
+    if (o.hover) { c.strokeStyle = 'rgba(255,255,255,.35)'; c.setLineDash([2, 3]); c.beginPath(); c.moveTo(o.hover.x, top); c.lineTo(o.hover.x, bot); c.stroke(); c.setLineDash([]); }
+    // net drift strip
+    const dr = (D.drift || []).filter(r => r[0] >= t0), d0 = Math.min(0, ...dr.map(r => r[1])), d1 = Math.max(0, ...dr.map(r => r[1]));
+    const dt = bot + 8, db = dt + driftH, YD = v => dt + (d1 - v) / (d1 - d0 || 1) * (db - dt);
+    c.fillStyle = C.grid; c.fillRect(L, YD(0), R - L, 1);
+    if (dr.length > 1) { const last = dr[dr.length - 1][1]; c.strokeStyle = last >= 0 ? `rgb(${C.pos})` : `rgb(${C.neg})`; c.lineWidth = 1.5; c.beginPath(); dr.forEach((r, i) => i ? c.lineTo(X(r[0] + 30), YD(r[1])) : c.moveTo(X(r[0] + 30), YD(r[1]))); c.stroke();
+      c.fillStyle = c.strokeStyle; c.textAlign = 'left'; c.fillText(`net drift ${last >= 0 ? '+' : ''}${fmtM(last)} Δ${o.k ? ` ≈ ${last >= 0 ? '+' : ''}${(last / (20 * o.k)).toFixed(0)} NQ` : ''}`, L + 2, dt + 6); }
+    c.fillStyle = C.txt; c.textAlign = 'center';
+    const lt = o.label || (t => String(t)); const span = t1 - t0, tick = span > 4 * 3600 ? 3600 : span > 3600 ? 1800 : 600;
+    for (let t = Math.ceil(t0 / tick) * tick; t <= t1; t += tick) c.fillText(lt(t), X(t), h - 7);
+    cv._geo = { X, Y, t0, t1 };
+  }
+
   // ── footprint overlay on the main chart: "bid × ask" per price inside each visible bar
   function footprint(cv, bars, map, o) {
     const dpr = window.devicePixelRatio || 1, w = o.w, h = o.h;
@@ -276,5 +325,5 @@
     }
   }
 
-  root.Pro = { levelsChart, matrix, vol, landscape, flow, optflow, flowStrikes, footprint, fmtM };
+  root.Pro = { levelsChart, matrix, vol, landscape, flow, optflow, flowStrikes, customer, footprint, fmtM };
 })(typeof window !== 'undefined' ? window : globalThis);

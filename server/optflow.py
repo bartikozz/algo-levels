@@ -45,6 +45,7 @@ class OptionFlow:
         self.strikes: dict = {}   # (strike, right, is0d) → [bull prem, bear prem, contracts, delta]
         self.orders: deque = deque(maxlen=1500)
         self.pending: dict = {}   # (key, side) → open order being aggregated
+        self.grid: dict = {}      # (minute, strike, is0d) → [net call contracts, net put contracts]  (customer bought +, sold −)
 
     # ── reference data ──────────────────────────────────────────────────────
     def set_chain(self, chain, S):
@@ -119,6 +120,9 @@ class OptionFlow:
             if bull > 0: sr[0] += bull
             elif bull < 0: sr[1] -= bull
             sr[2] += size; sr[3] += dsh
+            if sign:
+                g = self.grid.setdefault((mi, K, is0d), [0.0, 0.0])
+                g[0 if right == 'C' else 1] += (1 if sign > 0 else -1) * size
             # order aggregation (sweeps)
             pk = (key, side)
             o = self.pending.get(pk)
@@ -196,6 +200,30 @@ class OptionFlow:
         os_ = [o for o in os_ if o['prem'] >= m and (not only0d or o['is0d']) and (not kind or o['kind'] == kind)]
         return [{k: v for k, v in o.items() if k not in ('t_last',)} for o in os_[-n:]][::-1]
 
+    def customer(self, pct=0.03, only0d=False):
+        """Customer contracts per minute by strike (mentor's 'customers buying / selling' map) + running position by strike
+        and the net drift (cumulative customer delta, shares). cells = [minute, strike, net calls, net puts]."""
+        S = self.spot
+        with self.lock:
+            items = list(self.grid.items())
+            rows = sorted(self.minutes.items())
+        agg = {}
+        for (mi, K, is0d), (c, p) in items:
+            if only0d and not is0d: continue
+            if S and abs(K / S - 1) > pct: continue
+            a = agg.setdefault((mi, K), [0.0, 0.0]); a[0] += c; a[1] += p
+        cells = sorted([[mi, K, round(c), round(p)] for (mi, K), (c, p) in agg.items() if round(c) or round(p)])
+        mags = sorted(abs(c) + abs(p) for _, _, c, p in cells)
+        thr = mags[int(len(mags) * 0.95)] if len(mags) >= 20 else (mags[-1] if mags else 0)
+        pos = {}
+        for _, K, c, p in cells:
+            q = pos.setdefault(K, [0, 0]); q[0] += c; q[1] += p
+        drift, cd = [], 0.0
+        for t, (b, r, d, n) in rows:
+            cd += d; drift.append([t, round(cd)])
+        return dict(cells=cells, threshold=thr, tallest=mags[-1] if mags else 0,
+                    pos=sorted([[K, c, p] for K, (c, p) in pos.items()]), drift=drift, spot=S, day=self.today)
+
     def flow_levels(self, n=2):
         """Strikes with the most one-sided premium today (0DTE + 1DTE weighted) → candidate levels."""
         rows = self.by_strike(pct=0.03)
@@ -210,6 +238,7 @@ class OptionFlow:
         with self.lock:
             st = dict(today=self.today, tot=self.tot, minutes={str(k): v for k, v in self.minutes.items()},
                       strikes=[[list(k), v] for k, v in self.strikes.items()],
+                      grid=[[list(k), v] for k, v in self.grid.items()],
                       orders=[{**o, 'ex': o['ex'] if isinstance(o['ex'], int) else len(o['ex'])} for o in self.orders])
         tmp = self.state_file + '.tmp'
         with open(tmp, 'w') as f: json.dump(st, f)
@@ -223,5 +252,6 @@ class OptionFlow:
             self.today, self.tot = st['today'], st['tot']
             self.minutes = {int(k): v for k, v in st['minutes'].items()}
             self.strikes = {tuple(k): v for k, v in st['strikes']}
+            self.grid = {tuple(k): v for k, v in st.get('grid', [])}
             self.orders = deque(st['orders'], maxlen=1500)
         return True

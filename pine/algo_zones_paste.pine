@@ -1,26 +1,55 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// Algo Zones (paste) — draws the Focus zones from the Algo Levels terminal.
-// In the terminal click "📋 TV" on the Focus card, then paste into the "Zóny" box of this indicator (Settings → Inputs).
-// One zone per line:  "27416.00-27441.00 R (G-) / RESISTANCE - L reakce 09:53"
-//   lo-hi   zone in NQ points (the wall is the outer edge: top of R, bottom of S)
-//   R | S   resistance (short) / support (long)
-//   rest    label text
+// Algo Zones (paste) — draws the Focus zones from the Algo Levels terminal and fires TradingView alerts when price enters one.
+// Terminal: "📋 TV" on the Focus card (or the ntfy push "Zóny pro TradingView") → paste into Settings → Inputs → Zóny.
+// One zone per line (the date is optional; without it the zone belongs to today):
+//   2026-11-06 27416.00-27441.00 R (G-) / RESISTANCE - L reakce 09:53
+//   date        lo-hi             R|S label…
+// Zones keep their own day: pasting several days at once draws each one on its own session (today's extend right).
+// Alerts: create one alert on this indicator with "Any alert() function call" → fires once per zone when price enters it.
 //@version=6
-indicator("Algo Zones (paste)", overlay = true, max_boxes_count = 100, max_labels_count = 100, max_lines_count = 100)
+indicator("Algo Zones (paste)", overlay = true, max_boxes_count = 200, max_labels_count = 200, max_lines_count = 200)
 
-txt     = input.text_area("", "Zóny (vlož z terminálu 📋 TV)")
-colR    = input.color(color.new(#f05a6e, 82), "Resistance zóna")
-colS    = input.color(color.new(#5ee0c8, 82), "Support zóna")
-showLbl = input.bool(true, "Popisky")
+txt      = input.text_area("", "Zóny (vlož z terminálu 📋 TV)")
+colR     = input.color(color.new(#f05a6e, 82), "Resistance zóna")
+colS     = input.color(color.new(#5ee0c8, 82), "Support zóna")
+showLbl  = input.bool(true, "Popisky")
 showWall = input.bool(true, "Zvýraznit wall (vnější hranu)")
-fromH   = input.int(9, "Kreslit od (hod ET)", minval = 0, maxval = 23)
-fromM   = input.int(30, "Kreslit od (min)", minval = 0, maxval = 59)
+fromH    = input.int(9, "Kreslit od (hod ET)", minval = 0, maxval = 23)
+fromM    = input.int(30, "Kreslit od (min)", minval = 0, maxval = 59)
+doAlert  = input.bool(true, "Alert při vstupu do zóny (dnešní zóny)")
 
-var box[]   bxs = array.new<box>()
-var label[] lbs = array.new<label>()
-var line[]  lns = array.new<line>()
+const string TZ = "America/New_York"
+
+// "2026-11-06" → session start (ET) of that day; na if not a date
+f_dayStart(string d) =>
+    array<string> p = str.split(d, "-")
+    int r = na
+    if p.size() == 3 and str.length(d) == 10
+        int y = int(str.tonumber(p.get(0)))
+        int m = int(str.tonumber(p.get(1)))
+        int dd = int(str.tonumber(p.get(2)))
+        if not na(y) and not na(m) and not na(dd)
+            r := timestamp(TZ, y, m, dd, fromH, fromM)
+    r
+
+// parse once per bar on the last bar only (drawings) — zone arrays for alerts are kept separately
+var array<box>    bxs = array.new<box>()
+var array<label>  lbs = array.new<label>()
+var array<line>   lns = array.new<line>()
+var array<float>  aLo = array.new<float>()
+var array<float>  aHi = array.new<float>()
+var array<string> aTx = array.new<string>()
+var array<bool>   aDone = array.new<bool>()
+var string  lastTxt = ""
+
+int todayStart = timestamp(TZ, year(timenow, TZ), month(timenow, TZ), dayofmonth(timenow, TZ), fromH, fromM)
 
 if barstate.islast
+    if txt != lastTxt
+        aLo.clear()
+        aHi.clear()
+        aTx.clear()
+        aDone.clear()
     for b in bxs
         b.delete()
     for l in lbs
@@ -30,30 +59,50 @@ if barstate.islast
     bxs.clear()
     lbs.clear()
     lns.clear()
-    tz = "America/New_York"
-    int left = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), fromH, fromM)
-    if left > time
-        left := time - 3 * 3600 * 1000
     for ln in str.split(txt, "\n")
         array<string> tk = array.new<string>()
         for t in str.split(ln, " ")
             if str.length(t) > 0
                 tk.push(t)
+        int dStart = na
+        if tk.size() > 0
+            dStart := f_dayStart(tk.get(0))
+            if not na(dStart)
+                tk.shift()
         if tk.size() >= 2
             array<string> pr = str.split(tk.get(0), "-")
             if pr.size() == 2
                 float a = str.tonumber(pr.get(0))
-                float b = str.tonumber(pr.get(1))
-                if not na(a) and not na(b)
-                    float lo = math.min(a, b)
-                    float hi = math.max(a, b)
+                float bb = str.tonumber(pr.get(1))
+                if not na(a) and not na(bb)
+                    float lo = math.min(a, bb)
+                    float hi = math.max(a, bb)
                     bool isR = str.upper(tk.get(1)) == "R"
                     color c = isR ? colR : colS
-                    bxs.push(box.new(left, hi, time, lo, xloc = xloc.bar_time, extend = extend.right, bgcolor = c, border_color = color.new(c, 40), border_width = 1))
+                    int left = na(dStart) ? todayStart : dStart
+                    bool isToday = left >= todayStart
+                    int right = isToday ? time : left + (16 * 60 - (fromH * 60 + fromM)) * 60 * 1000
+                    if left > time
+                        left := time - 3 * 3600 * 1000
+                    string ex = isToday ? extend.right : extend.none
+                    bxs.push(box.new(left, hi, right, lo, xloc = xloc.bar_time, extend = ex, bgcolor = c, border_color = color.new(c, 40), border_width = 1))
                     float wall = isR ? hi : lo
                     if showWall
-                        lns.push(line.new(left, wall, time, wall, xloc = xloc.bar_time, extend = extend.right, color = color.new(c, 0), width = 2))
+                        lns.push(line.new(left, wall, right, wall, xloc = xloc.bar_time, extend = ex, color = color.new(c, 0), width = 2))
+                    string rest = tk.size() > 2 ? array.join(tk.slice(2, tk.size()), " ") : (isR ? "RESISTANCE" : "SUPPORT")
+                    string t2 = rest + "  " + str.tostring(lo, "#.00") + " – " + str.tostring(hi, "#.00")
                     if showLbl
-                        string rest = tk.size() > 2 ? array.join(tk.slice(2, tk.size()), " ") : (isR ? "RESISTANCE" : "SUPPORT")
-                        string t2 = rest + "  " + str.tostring(lo, "#.00") + " – " + str.tostring(hi, "#.00")
-                        lbs.push(label.new(time, isR ? hi : lo, t2, xloc = xloc.bar_time, style = isR ? label.style_label_lower_left : label.style_label_upper_left, color = color.new(c, 100), textcolor = color.new(c, 0), size = size.small))
+                        lbs.push(label.new(right, isR ? hi : lo, t2, xloc = xloc.bar_time, style = isR ? label.style_label_lower_left : label.style_label_upper_left, color = color.new(c, 100), textcolor = color.new(c, 0), size = size.small))
+                    if isToday and txt != lastTxt
+                        aLo.push(lo)
+                        aHi.push(hi)
+                        aTx.push((isR ? "RESISTANCE " : "SUPPORT ") + str.tostring(lo, "#.00") + " – " + str.tostring(hi, "#.00") + " · " + rest)
+                        aDone.push(false)
+    lastTxt := txt
+
+// alerts on realtime bars: once per zone when the bar trades into it
+if doAlert and barstate.isrealtime and aLo.size() > 0
+    for i = 0 to aLo.size() - 1
+        if not aDone.get(i) and high >= aLo.get(i) and low <= aHi.get(i)
+            aDone.set(i, true)
+            alert("Algo Zones: cena v zóně " + aTx.get(i) + " · " + syminfo.ticker + " " + str.tostring(close, "#.00"), alert.freq_once_per_bar)

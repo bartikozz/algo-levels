@@ -570,7 +570,7 @@ export default {
             .map(z => ({ side: z.side, p: +z.p, score: +z.score || 0, tags: (Array.isArray(z.tags) ? z.tags : []).slice(0, 4).map(String) }));
           const cfg = { date: url.searchParams.get('date') || etParts(Date.now() / 1000 + 6 * 3600).date, zones, topic,
             basis: +url.searchParams.get('b') || 0, near: Math.min(60, Math.max(3, +url.searchParams.get('near') || 15)),
-            touch: Math.min(10, Math.max(0, +url.searchParams.get('touch') || 3)), at: Date.now() };
+            touch: Math.min(60, Math.max(0, +url.searchParams.get('touch') || 3)), at: Date.now() };
           await env.SNAP.put('fz:cur', JSON.stringify(cfg));
           return json({ ok: true, zones: zones.length }, 200, cors);
         }
