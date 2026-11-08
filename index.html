@@ -426,6 +426,7 @@ body.focus .meta{display:none!important}
   <div class="grid2">
     <div class="f"><label>Touch (b.)</label><input id="sTouch" type="number" step="0.5"></div>
     <div class="f"><label>Šířka zóny (b.)</label><input id="sZone" type="number" step="1"></div>
+    <div class="f"><label>Spojit zóny do (b.)</label><input id="sMerge" type="number" step="5"></div>
     <div class="f"><label>Break close (b.)</label><input id="sBrk" type="number" step="0.5"></div>
     <div class="f"><label>Reakce (b.)</label><input id="sReact" type="number" step="1"></div>
     <div class="f"><label>Lookahead (bary)</label><input id="sLook" type="number" step="1"></div>
@@ -1407,11 +1408,10 @@ const fzRange = s => { const W = fzW(); return s.side === 'short' ? [s.p - W, s.
 const fzRangeTxt = s => { const [a, b] = fzRange(s); return `${fmtP(a)} – ${fmtP(b)}`; };
 // today's zones for TradingView: one line per zone "lo-hi R|S label" → paste into pine/algo_zones_paste.pine
 function fzTvText(){
-  const seen = [];
-  for (const s of fz.segs) { if (s.end === 'replaced') continue; if (seen.some(x => Math.abs(x.p - s.p) <= S.tol && x.side === s.side)) continue; seen.push(s); }
-  return seen.map(s => { const [a, b] = fzRange(s);
-    const res = s.end === 'hit' ? (s.res === 'reacted' ? ' reakce' : s.res === 'broken' ? ' proraz' : ' zasah') + ' ' + A.hhmm(s.t1) : '';
-    return `${fz.date || ''} ${a.toFixed(2)}-${b.toFixed(2)} ${s.side === 'short' ? 'R' : 'S'} ${fzLabel(s).replace(/[|]/g, '/')}${res}`.trim(); }).join('\n');
+  const list = fz.segs.filter(s => s.end !== 'replaced');
+  return fzClusters(list).sort((a, b) => b.p - a.p).map(c => {
+    const h = c.hit, res = !c.active && h ? (h.res === 'reacted' ? ' reakce' : h.res === 'broken' ? ' proraz' : ' zasah') + ' ' + A.hhmm(h.t1) : '';
+    return `${fz.date || ''} ${c.lo.toFixed(2)}-${c.hi.toFixed(2)} ${c.side === 'short' ? 'R' : 'S'} ${c.label.replace(/[|]/g, '/')}${res}`.trim(); }).join('\n');
 }
 async function fzCopy(){
   const t = fzTvText(); if (!t) { toast('Dnes zatím žádné zóny'); return; }
@@ -1419,9 +1419,31 @@ async function fzCopy(){
 }
 const hexA = (h, a) => { const n = parseInt(h.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
 // filled band between the wall (p) and the inner edge, from when the zone appeared to the right edge of the chart
+// zones on the same side that overlap or sit within `merge` points of each other become one zone (one band, one label)
+function fzClusters(list){
+  const gap = Number.isFinite(+S.merge) && S.merge !== '' ? +S.merge : 2 * fzW();
+  const items = list.map(s => { const [lo, hi] = fzRange(s); return { s, lo, hi }; }).sort((a, b) => a.lo - b.lo);
+  const out = [];
+  for (const it of items) {
+    const c = out.find(c => c.side === it.s.side && it.lo <= c.hi + gap && it.hi >= c.lo - gap);
+    if (c) { c.lo = Math.min(c.lo, it.lo); c.hi = Math.max(c.hi, it.hi); c.segs.push(it.s); }
+    else out.push({ side:it.s.side, lo:it.lo, hi:it.hi, segs:[it.s] });
+  }
+  for (const c of out) {
+    c.major = c.segs.some(s => s.major); c.active = c.segs.some(s => !s.t1); c.t0 = Math.min(...c.segs.map(s => s.t0));
+    c.p = c.side === 'short' ? c.hi : c.lo;
+    c.lead = c.segs.find(s => s.major && !s.t1) || c.segs.filter(s => !s.t1).sort((a, b) => b.score - a.score)[0] || c.segs.find(s => s.major) || c.segs[0];
+    c.label = fzLabel(c.lead) + (c.segs.length > 1 ? ` + ${c.segs.length - 1} konfl.` : '');
+    c.range = `${fmtP(c.lo)} – ${fmtP(c.hi)}`;
+    const hs = c.segs.filter(s => s.t1 && s.end === 'hit').sort((a, b) => a.t1 - b.t1);
+    c.hit = hs[0] || null;
+    c.score = Math.max(...c.segs.map(s => +s.score || 0));
+  }
+  return out;
+}
 function fzZone(out, s, col, alpha){
   if (!out.length) return;
-  const W = fzW(), lo = s.side === 'short' ? s.p - W : s.p, hi = s.side === 'short' ? s.p : s.p + W;
+  const W = fzW(), lo = s.lo != null ? s.lo : s.side === 'short' ? s.p - W : s.p, hi = s.hi != null ? s.hi : s.side === 'short' ? s.p : s.p + W;
   const t0 = D(s.t0), pts = out.filter(o => o.time >= t0);
   if (!pts.length) return;
   const z = chart.addBaselineSeries({ baseValue:{ type:'price', price:lo }, lineWidth:1, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false,
@@ -1438,7 +1460,7 @@ function drawFocus(out){
   const hits = [];
   if (S.focus) for (const s of fz.segs.filter(s => s.end === 'hit'))
     if (!segs.some(a => Math.abs(a.p - s.p) <= S.tol) && !hits.some(h => Math.abs(h.p - s.p) <= S.tol)) hits.push(s);
-  const hash = JSON.stringify(segs.map(s => [s.p, s.side, fzLabel(s)])) + JSON.stringify(hits.map(s => [s.p, s.res])) + JSON.stringify(sn && sn.out ? sn.out.lines.map(l => [l.nq, l.role]) : []) + vis('sent') + JSON.stringify(st.res ? st.res.levels.filter(l => l.fast).map(l => l.price) : []) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus;
+  const hash = JSON.stringify(segs.map(s => [s.p, s.side, fzLabel(s)])) + JSON.stringify(hits.map(s => [s.p, s.res])) + JSON.stringify(sn && sn.out ? sn.out.lines.map(l => [l.nq, l.role]) : []) + vis('sent') + JSON.stringify(st.res ? st.res.levels.filter(l => l.fast).map(l => l.price) : []) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus + '|' + S.merge + '|' + fzW();
   if (hash === fz.hash) return; fz.hash = hash;
   try { series.setMarkers([]); } catch(e){}
   fz.series.forEach(x => { try { chart.removeSeries(x); } catch(e){} }); fz.series = [];
@@ -1455,17 +1477,18 @@ function drawFocus(out){
   if (S.focus && vis('sent') && sn && sn.out && !st.replay) for (const l of sn.out.lines) if (l.nq && !segs.some(s => Math.abs(s.p - l.nq) <= S.tol))
     fz.axis.push(series.createPriceLine({ price:l.nq, color:l.color, lineWidth:2, lineStyle:0, lineVisible:true, axisLabelVisible:true,
       axisLabelColor:l.color, axisLabelTextColor:'#07080a', title:`${l.role} · QQQ ${l.q}` }));
-  for (const s of hits) {
-    const res = s.res === 'reacted' ? `✔ reakce${s.gap > 2 ? ` ${s.gap} b. před levelem` : ''}` : s.res === 'broken' ? '✘ proraženo' : '● v zóně';
-    const col = s.res === 'reacted' ? '#5ee0c8' : s.res === 'broken' ? '#f05a6e' : '#8a8f97';
-    fzZone(out, s, col, 0.10);
-    fz.axis.push(series.createPriceLine({ price: s.p, color: col + '99', lineWidth: 1, lineStyle: 1, lineVisible: false,
-      axisLabelVisible: true, axisLabelColor: col, axisLabelTextColor: '#07080a', title: `${fzLabel(s)} · ${fzRangeTxt(s)} · ${res} ${A.hhmm(s.t1)}` }));
-  }
-  for (const s of segs) {
-    fzZone(out, s, s.side === 'short' ? '#f05a6e' : '#5ee0c8', 0.16);
-    fz.axis.push(series.createPriceLine({ price: s.p, color: '#a4a9b0', lineWidth: 1, lineStyle: 0, lineVisible: false,
-      axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: `${fzLabel(s)} · ${fzRangeTxt(s)}` }));
+  const resTxt = s => s.res === 'reacted' ? `✔ reakce${s.gap > 2 ? ` ${s.gap} b. před levelem` : ''}` : s.res === 'broken' ? '✘ proraženo' : '● v zóně';
+  for (const c of fzClusters([...segs, ...hits])) {
+    if (c.active) {
+      fzZone(out, c, c.side === 'short' ? '#f05a6e' : '#5ee0c8', 0.16);
+      fz.axis.push(series.createPriceLine({ price: c.p, color: '#a4a9b0', lineWidth: 1, lineStyle: 0, lineVisible: false,
+        axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: `${c.label} · ${c.range}${c.hit ? ` · ${resTxt(c.hit)} ${A.hhmm(c.hit.t1)}` : ''}` }));
+    } else {
+      const h = c.hit || c.segs[0], col = h.res === 'reacted' ? '#5ee0c8' : h.res === 'broken' ? '#f05a6e' : '#8a8f97';
+      fzZone(out, c, col, 0.10);
+      fz.axis.push(series.createPriceLine({ price: c.p, color: col + '99', lineWidth: 1, lineStyle: 1, lineVisible: false,
+        axisLabelVisible: true, axisLabelColor: col, axisLabelTextColor: '#07080a', title: `${c.label} · ${c.range} · ${resTxt(h)} ${h.t1 ? A.hhmm(h.t1) : ''}` }));
+    }
   }
 }
 function focusCards(r){
@@ -1480,11 +1503,11 @@ function focusCards0(r){
     const g = st.data.gex || {}, why = !(g.zero || g.full) ? ` · GEXbot data se nenačetla (${esc($('upd').textContent || '')})` : gexStale() ? ' · GEXbot data jsou starší než 15 min' : '';
     return `<div class="fzc"><span class="m">◎ Žádná zóna s dost silnou konfluencí v dosahu${why}.</span>${fz.segs.length ? '<button class="tv" onclick="fzCopy()">📋 TV</button>' : ''}</div>`;
   }
-  return act.map(s => {
-    const d = s.p - r.last, l = r.levels.find(x => Math.abs(x.price - s.p) <= S.tol), h = l && levelHist(l);
+  return fzClusters(act).sort((a, b) => b.p - a.p).map(c => {
+    const s = c.lead, d = c.p - r.last;
     const near = Math.abs(d) <= S.alertDist;
-    return `<div class="fzc ${s.side} ${near ? 'near' : ''}"><span class="sd">${esc(fzLabel(s))}</span>
-      <b>${fzRangeTxt(s)}</b><span class="m" title="${esc((s.why || []).map(([t, k]) => `${t} ×${k.toFixed(2)}`).join('\n'))}">${d > 0 ? '+' : ''}${d.toFixed(0)} b. · skóre ${s.score} · ${esc(s.tags.slice(0, 3).join(', '))}${(s.why || []).length ? ' · ' + esc([...s.why].filter(w => w[1] !== 1 && !/^vzdálenost/.test(w[0])).sort((x, y) => Math.abs(Math.log(y[1])) - Math.abs(Math.log(x[1]))).slice(0, 2).map(w => `${w[0]} ${w[1] > 1 ? '↑' : '↓'}`).join(', ')) : ''}</span></div>`;
+    return `<div class="fzc ${s.side} ${near ? 'near' : ''}"><span class="sd">${esc(c.label)}</span>
+      <b>${c.range}</b><span class="m" title="${esc((s.why || []).map(([t, k]) => `${t} ×${k.toFixed(2)}`).join('\n'))}">${d > 0 ? '+' : ''}${d.toFixed(0)} b. · skóre ${c.score} · ${esc([...new Set(c.segs.flatMap(x => x.tags))].slice(0, 4).join(', '))}${(s.why || []).length ? ' · ' + esc([...s.why].filter(w => w[1] !== 1 && !/^vzdálenost/.test(w[0])).sort((x, y) => Math.abs(Math.log(y[1])) - Math.abs(Math.log(x[1]))).slice(0, 2).map(w => `${w[0]} ${w[1] > 1 ? '↑' : '↓'}`).join(', ')) : ''}</span></div>`;
   }).join('').replace(/<\/div>$/, '<button class="tv" onclick="fzCopy()" title="Zkopírovat dnešní zóny pro TradingView">📋 TV</button></div>');
 }
 function checkFocusAlerts(){
@@ -1913,7 +1936,7 @@ $('pSub').onclick = e => { const b = e.target.closest('button'); if (!b) return;
 function openSettings(){
   $('sWorker').value = S.worker; $('sToken').value = S.token; $('sServer').value = S.server || ''; $('sSrvToken').value = S.srvToken || '';
   $('sTol').value = S.tol; $('sMin').value = S.minScore; $('sRange').value = S.range;
-  $('sTouch').value = S.touch; $('sZone').value = fzW(); $('sBrk').value = S.brk; $('sReact').value = S.react; $('sLook').value = S.lookahead;
+  $('sTouch').value = S.touch; $('sZone').value = fzW(); $('sMerge').value = S.merge != null && S.merge !== '' ? S.merge : 2 * fzW(); $('sBrk').value = S.brk; $('sReact').value = S.react; $('sLook').value = S.lookahead;
   $('sRTH').checked = S.scanRTH; $('sVol').value = S.volIndex || 'VXN'; $('sStr').checked = S.emStraddle !== false; $('sAD').value = S.alertDist; $('sAS').value = S.alertScore; $('sMS').value = S.majorStrong; $('sMA').checked = S.majorAlerts;
   $('layers').innerHTML = LAYERS.map(([k,n]) => `<label class="cb"><input type="checkbox" data-l="${k}" ${S.layers[k] ? 'checked' : ''}> ${n}</label>`).join('');
   $('settings').classList.add('show');
@@ -1929,7 +1952,7 @@ $('bSave').onclick = () => {
   if (sv !== S.server) { S.server = sv; resolveServer(true).then(srvConnect); }
   S.srvToken = $('sSrvToken').value.trim();
   S.tol = num('sTol',S.tol); S.minScore = num('sMin',S.minScore); S.range = num('sRange',S.range);
-  S.touch = num('sTouch',S.touch); S.zone = num('sZone',fzW()); S.brk = num('sBrk',S.brk); S.react = num('sReact',S.react);
+  S.touch = num('sTouch',S.touch); S.zone = num('sZone',fzW()); S.merge = num('sMerge', 2 * fzW()); S.brk = num('sBrk',S.brk); S.react = num('sReact',S.react);
   S.lookahead = Math.max(1, Math.round(num('sLook',S.lookahead)));
   const volChanged = S.volIndex !== $('sVol').value;
   S.scanRTH = $('sRTH').checked; S.volIndex = $('sVol').value; S.emStraddle = $('sStr').checked;
