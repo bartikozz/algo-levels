@@ -45,6 +45,15 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .badge.pos{color:var(--long);border-color:rgba(47,197,159,.35)}
 .badge.neg{color:var(--short);border-color:rgba(240,90,110,.35)}
 #gear{width:34px;height:34px;border:1px solid var(--line2);border-radius:6px;font-size:15px}
+#hlth{width:34px;height:34px;border:1px solid var(--line2);border-radius:6px;display:flex;align-items:center;justify-content:center;background:transparent;cursor:pointer}
+#hlth .hdot{width:10px;height:10px;border-radius:50%;background:#7b828c;box-shadow:0 0 0 3px rgba(123,130,140,.15)}
+#hlth.ok .hdot{background:#2fd39a;box-shadow:0 0 0 3px rgba(47,211,154,.18)} #hlth.warn .hdot{background:#f0a020;box-shadow:0 0 0 3px rgba(240,160,32,.18)} #hlth.bad .hdot{background:#f05a6e;box-shadow:0 0 0 3px rgba(240,90,110,.2)}
+#hlthPanel{position:fixed;z-index:60;right:max(12px,env(safe-area-inset-right,0px));top:60px;width:min(440px,calc(100vw - 24px));max-height:75vh;overflow:auto;background:var(--panel);border:1px solid var(--line2);border-radius:10px;padding:12px 14px;box-shadow:0 18px 48px rgba(0,0,0,.5);font-family:var(--mono);font-size:12px}
+#hlthPanel h5{margin:0 0 8px;font-size:11px;letter-spacing:.1em;color:var(--muted);display:flex;justify-content:space-between}
+#hlthPanel .hr{display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:8px;padding:6px 0;border-top:1px solid var(--line);align-items:baseline}
+#hlthPanel .hr:first-of-type{border-top:0} #hlthPanel .hr i{width:8px;height:8px;border-radius:50%;display:inline-block;background:#7b828c}
+#hlthPanel .hr i.ok{background:#2fd39a} #hlthPanel .hr i.warn{background:#f0a020} #hlthPanel .hr i.bad{background:#f05a6e}
+#hlthPanel .hr span{color:var(--text)} #hlthPanel .hr em{font-style:normal;color:var(--muted);text-align:right} #hlthPanel p{margin:8px 0 0;color:var(--muted);line-height:1.5}
 #help{width:34px;height:34px;border:1px solid var(--line2);border-radius:6px;font-size:15px;display:flex;align-items:center;justify-content:center;color:var(--text);text-decoration:none;font-family:var(--mono)}
 
 .meta{display:flex;flex-wrap:wrap;gap:6px 14px;padding:8px 16px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--line)}
@@ -310,6 +319,7 @@ body.focus .meta{display:none!important}
   <button id="proBtn" class="hbtn" aria-label="PRO data" style="color:#5ee0c8">◆</button>
   <button id="anaBtn" class="hbtn" aria-label="Analýza">⊞</button>
   <button id="statsBtn" class="hbtn" aria-label="Statistiky levelů">▦</button>
+  <button id="hlth" class="hbtn" aria-label="Stav systému" title="Stav systému"><i class="hdot"></i></button>
   <a id="help" href="guide.html" aria-label="Jak to funguje">?</a>
   <button id="gear" aria-label="Nastavení">⚙</button>
   <nav id="tabbar" class="tabbar">
@@ -323,6 +333,7 @@ body.focus .meta{display:none!important}
     <button data-tab="stats"><i>▦</i>Deník</button>
   </nav>
 </header>
+<div id="hlthPanel" hidden role="dialog" aria-label="Stav systému"></div>
 <div class="meta pg-chart">
   <span id="src" class="badge">—</span>
   <span><i id="live" class="dotlive"></i><span id="upd">čekám na data</span></span>
@@ -2309,7 +2320,7 @@ function drawKeyTables(){
   if (document.body.dataset.tab === 'levels') { const el = $('keyLv'); if (el && el._h !== h) { el.innerHTML = h; el._h = h; } }
   const p = $('pKey'); if (p && !p.hidden && p._h !== h) { p.innerHTML = h; p._h = h; }
 }
-setInterval(() => { try { drawKeyTables(); } catch(e){} }, 2000);
+setInterval(() => { try { if (document.visibilityState === 'visible' && (document.body.dataset.tab === 'levels' || ($('pKey') && !$('pKey').hidden))) drawKeyTables(); } catch(e){} }, 2000);
 
 // ───────── explanations on hover: PRO levels chart, main chart (zones + lines), key levels table
 const EXPLAIN = [
@@ -2502,7 +2513,7 @@ function ofLegend(p){
 function pushTopic(){ if (!S.ntfyTopic) { const a = new Uint8Array(12); crypto.getRandomValues(a); S.ntfyTopic = 'algo-' + [...a].map(x => x.toString(36).padStart(2, '0')).join('').slice(0, 20); save(); } return S.ntfyTopic; }
 // zones → phone as ready-to-paste text for the TradingView indicator (direct ntfy publish, CORS-enabled); only when the set of ranges changes
 async function pushTv(){
-  if (!S.pushTv || !S.worker || st.demo || st.replay || !fz.date) return;
+  if (!S.pushTv || !S.worker || st.demo || st.replay || !fz.date || document.visibilityState !== 'visible') return;
   const t = fzTvText(); if (!t) return;
   const key = fz.date + '|' + t.split('\n').map(l => l.split(' ').slice(0, 3).join(' ')).join(',');
   if (key === S.pushTvKey) return;
@@ -3159,6 +3170,57 @@ async function openPre(force){
   if (!sn.out) $('preBody').innerHTML = '<p class="hint">Načítám QQQ / SPX / VIX gammu a sektory…</p>';
   try { await Promise.all([loadSent(force), preLoadDaily(), cboeLoad(force)]); preRender(); } catch(e) { $('preBody').innerHTML = `<p class="hint">Chyba: ${esc(e.message)}</p>`; }
 }
+
+// ───────── system health: one dot in the header (worst state), panel with every data source, its age and the last error
+const ageTxt = s => s == null ? '—' : s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : s < 172800 ? `${(s / 3600).toFixed(1)} h` : `${Math.round(s / 86400)} d`;
+let hl = { srv:null, at:0 };
+function healthRows(){
+  const now = Date.now() / 1000, R = [];
+  const add = (st_, name, val, why) => R.push({ st:st_, name, val, why });
+  const rth = (() => { const d = new Date(new Date().toLocaleString('en-US', { timeZone:'America/New_York' })), m = d.getHours() * 60 + d.getMinutes(); return d.getDay() >= 1 && d.getDay() <= 5 && m >= 570 && m < 960; })();
+  // GEXbot live price
+  if (!S.worker) add('bad', 'Worker', 'nenastaven', 'Nastav Worker URL a token v ⚙.');
+  else add(st.liveSrc === 'live' ? 'ok' : st.liveSrc === 'err' ? 'bad' : rth ? 'warn' : 'ok', 'GEXbot cena', st.liveSrc === 'live' ? `live · ${ageTxt(st.liveAge)}` : st.liveSrc === 'stale' ? 'mimo RTH' : st.liveSrc === 'err' ? 'chyba' : '—',
+    st.liveSrc === 'err' ? 'Worker nebo GEXbot nevrací cenu (limit nebo klíč).' : '');
+  const g = st.data.gex && (st.data.gex.zero || st.data.gex.full), ga = g && Number.isFinite(g.timestamp) ? now - g.timestamp : null;
+  add(ga == null ? 'bad' : ga < 900 ? 'ok' : rth ? 'warn' : 'ok', 'GEXbot GEX', ga == null ? 'žádná data' : ageTxt(ga), ga != null && ga >= 900 && rth ? 'Data starší než 15 min v RTH.' : '');
+  const b = st.data.bars, ba = b && b.length ? now - b[b.length - 1].t : null;
+  add(ba == null ? 'bad' : ba < 900 ? 'ok' : rth ? 'warn' : 'ok', 'NQ svíčky', ba == null ? '—' : `${ageTxt(ba)} · ${b.length} barů`, '');
+  // data server
+  const H = hl.srv;
+  if (!S.server) add('warn', 'Data server', 'vypnutý', 'Bez serveru chybí ThetaData vrstvy (flow, vol, sentiment SPX/VIX).');
+  else if (!H) add('bad', 'Data server', st.srv.err ? 'nedostupný' : 'čekám', st.srv.err || 'PC vypnutý nebo tunel spadl.');
+  else {
+    add('ok', 'Data server', H.demo ? 'DEMO' : `OK · tunel ${H.tunnel || '—'}`, '');
+    add(H.options_err ? 'bad' : H.options_age < 120 ? 'ok' : 'warn', 'ThetaData QQQ chain', H.options_err ? 'chyba' : ageTxt(H.options_age), H.options_err || '');
+    add(H.opt_stream === 'live' || H.opt_stream === 'demo' ? 'ok' : rth ? 'warn' : 'ok', 'Opční stream (flow)', `${H.opt_stream} · ${(H.opt_trades || 0).toLocaleString('cs-CZ')} obchodů${H.opt_excluded ? ` · vyřazeno ${H.opt_excluded.toLocaleString('cs-CZ')}` : ''}`, H.opt_stream_err || '');
+    for (const [k, v] of Object.entries(H.sent || {})) add(v.err ? 'warn' : 'ok', `ThetaData ${k}`, v.err ? 'fallback GEXbot' : ageTxt(v.age), v.err || '');
+    add(H.futures === 'live' || H.futures === 'demo' ? 'ok' : 'ok', 'CME futures feed', H.futures, H.futures_err || '');
+  }
+  if (typeof sn !== 'undefined' && sn.src) add(Object.values(sn.src).includes('GEXbot') && S.server ? 'warn' : 'ok', 'Sentiment zdroje', Object.entries(sn.src).map(([k, v]) => `${k} ${v === 'ThetaData' ? 'Theta' : 'GEX'}`).join(' · '), '');
+  if (typeof cb !== 'undefined' && cb.srv && cb.srv.hist) add(cb.srv.hist.n >= 5 ? 'ok' : 'warn', 'Historie vol / Cboe', `${cb.srv.hist.n} dní`, cb.srv.hist.n < 5 ? 'Percentily skew a put volume potřebují aspoň 5 dní.' : '');
+  add(S.push ? 'ok' : 'warn', 'Push na telefon', `${S.push ? 'zóny ✔' : 'zóny ✘'} · ${S.pushTv ? 'TV ✔' : 'TV ✘'}`, S.push ? '' : 'Zapni v ⚙, ať ti přijde zásah zóny.');
+  const zs = fz.segs || [];
+  add('ok', 'Focus zóny dnes', `${zs.filter(s => !s.t1).length} aktivní · ${zs.filter(s => s.end === 'hit').length} zasažené`, '');
+  return R;
+}
+function healthDot(){
+  const R = healthRows(), w = R.some(r => r.st === 'bad') ? 'bad' : R.some(r => r.st === 'warn') ? 'warn' : 'ok';
+  $('hlth').className = 'hbtn ' + w; return R;
+}
+async function healthPanel(){
+  const P = $('hlthPanel');
+  if (S.server) { try { hl.srv = await srv('/health'); hl.at = Date.now(); } catch(e) { hl.srv = null; st.srv.err = e.message; } }
+  const R = healthDot();
+  P.innerHTML = `<h5><span>STAV SYSTÉMU</span><span>${new Date().toLocaleTimeString('cs-CZ', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}</span></h5>` +
+    R.map(r => `<div class="hr" title="${esc(r.why || '')}"><i class="${r.st}"></i><span>${esc(r.name)}</span><em>${esc(r.val)}</em></div>`).join('') +
+    (R.filter(r => r.why).length ? `<p>${R.filter(r => r.why).map(r => `<b>${esc(r.name)}:</b> ${esc(r.why)}`).join('<br>')}</p>` : '');
+}
+$('hlth').onclick = async ev => { ev.stopPropagation(); const P = $('hlthPanel'); if (!P.hidden) { P.hidden = true; return; } P.hidden = false; P.innerHTML = '<h5><span>STAV SYSTÉMU</span><span>…</span></h5>'; await healthPanel(); };
+document.addEventListener('click', ev => { const P = $('hlthPanel'); if (!P.hidden && !P.contains(ev.target)) P.hidden = true; });
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') $('hlthPanel').hidden = true; });
+setInterval(() => { try { if (document.visibilityState !== 'visible') return; if (S.server && Date.now() - hl.at > 60e3) srv('/health').then(h => { hl.srv = h; hl.at = Date.now(); healthDot(); }).catch(() => { hl.srv = null; healthDot(); }); else healthDot(); if (!$('hlthPanel').hidden) healthPanel(); } catch(e){} }, 15000);
+setTimeout(() => { try { healthDot(); } catch(e){} }, 8000);
 $('preBtn').onclick = () => openPre(false);
 $('preReload').onclick = () => openPre(true);
 $('preClose').onclick = () => $('pre').classList.remove('show');

@@ -498,7 +498,9 @@ def health():
                 options_age=round(time.time() - state['opt_ts'], 1) if state['opt_ts'] else None, options_err=state['opt_err'], k=state['k'],
                 opt_stream=('demo' if DEMO else (state['ostream'].status if state['ostream'] else 'off')),
                 opt_stream_err=state['ostream'].err if state['ostream'] else None, opt_trades=oflow.tot['trades'],
-                token_set=bool(TOKEN), tunnel=WORKER['status'])
+                token_set=bool(TOKEN), tunnel=WORKER['status'], opt_excluded=oflow.tot.get('excluded', 0),
+                sent={k: dict(err=v.get('err'), age=round(time.time() - v['timestamp'], 1) if v.get('timestamp') else None, n=v.get('n'))
+                      for k, v in state['sent'].items()})
 
 
 @app.get('/levels')

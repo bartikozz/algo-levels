@@ -40,3 +40,31 @@ def test_parse_v2():
          "trade": {"ms_of_day": 36000000, "sequence": 1, "size": 10, "condition": 18, "price": 2.15, "exchange": 5, "date": 20261026}}
     kind, key, d = parse(m)
     assert kind == 'trade' and key == ('2026-10-26', 725.0, 'C') and d['size'] == 10 and d['price'] == 2.15
+
+
+def test_condition_filter_and_net_drift():
+    import time as _t
+    from optflow import OptionFlow
+    f = OptionFlow(); f.spot = 650.0
+    now = _t.time(); e = _t.strftime('%Y-%m-%d', _t.localtime(now))
+    f.on_trade((e, 660.0, 'C'), now, 1.0, 10, 0.9, 1.0, 1, 0)      # regular, bought OTM call
+    f.on_trade((e, 660.0, 'C'), now, 1.0, 500, 0.9, 1.0, 1, 130)   # multi-leg → excluded
+    f.on_trade((e, 640.0, 'P'), now, 2.0, 5, 2.0, 2.1, 1, 13)      # SOLD_LAST → excluded
+    f.on_trade((e, 640.0, 'P'), now, 2.0, 7, 2.0, 2.1, 1, 18)      # sold OTM put at the bid
+    d = f.customer(0.05)
+    assert d['excluded'] == 2
+    last = d['drift'][-1]
+    assert last[2] == 1000 and last[3] == -1400 and last[4] == 3
+    cells = {c[1]: c for c in d['cells']}
+    assert cells[660.0][2] == 10 and cells[640.0][3] == -7
+
+
+def test_regime_stats_synth():
+    import sys, os, time as _t
+    sys.path.insert(0, os.path.dirname(__file__))
+    from synth import synth_chain
+    from exposure import enrich
+    import volframe
+    S = 725.0; now = _t.time(); ch = synth_chain(S, now); enrich(ch, S, now)
+    r = volframe.regime_stats(ch, S, now)
+    assert r['iv0'] and 0.05 < r['iv0'] < 1.5 and r['iv1'] and r['pvol'] > 0 and r['coi'] > 0
