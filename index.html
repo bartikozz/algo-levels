@@ -1193,6 +1193,7 @@ function fzLoad(date){
   fz.date = date; fz.alerted = {};
   try { fz.segs = JSON.parse(localStorage.getItem('algoLevels.focus.' + date) || '[]'); } catch(e){ fz.segs = []; }
 }
+window.AL = { get st(){ return st; }, get fz(){ return fz; } };   // console debugging
 function fzSave(){ if (st.replay) return; try { localStorage.setItem('algoLevels.focus.' + fz.date, JSON.stringify(fz.segs)); } catch(e){} try { pushPublish(false); } catch(e){} try { pushTv(); } catch(e){} }
 // level tag → journal kind (so the zone can carry its measured reaction rate)
 function tagKind(t){
@@ -1317,18 +1318,41 @@ function focusUpdate(r){
       }
     }
   }
-  for (const side of ['short', 'long']) { // safety: at most one active zone per side
-    const a = fz.segs.filter(s => !s.t1 && s.side === side);
+  // ★ anchor zones: the day's biggest QQQ call wall (above price) and put wall (below price) are always on the chart,
+  // whatever the ranking says (6.11: ★CW 665 = 27,441 and ★PW 655 = 27,029 were the obvious levels)
+  const firstT0 = (side, p) => {
+    const open = bars.findIndex(b => A.isRTH(b.t)); if (open < 0) return lastT;
+    const W2 = fzW(), lo = side === 'short' ? p - W2 : p, hi = side === 'short' ? p : p + W2;
+    let j = bars.length - 1; while (j >= open && !(bars[j].h >= lo && bars[j].l <= hi)) j--;
+    const k = Math.max(open, j + 1); return k < bars.length - 1 ? bars[k].t : lastT;
+  };
+  const em = r.info.em ? r.info.em.em : 300;
+  for (const m of (r.info.majors || [])) {
+    if (!Number.isFinite(m.price) || m.stale) continue;
+    const side = m.type === 'CW' ? 'short' : 'long';
+    const ex = fz.segs.find(s => s.major && s.side === side && s.q === m.qqq);
+    if (ex) { if (!ex.t1) ex.p = m.price; continue; }
+    if (side === 'short' ? m.price <= r.last + fzW() : m.price >= r.last - fzW()) continue;   // already inside / through it
+    if (Math.abs(m.price - r.last) > em * 1.5) continue;
+    fz.segs.filter(s => s.major && !s.t1 && s.side === side).forEach(s => { s.t1 = lastT; s.end = 'replaced'; });   // the ★ moved to another strike
+    const l = r.levels.find(x => Math.abs(x.price - m.price) <= S.tol);
+    fz.segs.push({ side, p:m.price, q:m.qqq, major:true, t0:firstT0(side, m.price), score:l ? l.score : 0,
+      tags:[`★${m.type} QQQ ${m.qqq}`, ...(l ? l.tags.filter(t => !/★/.test(t)).slice(0, 3) : [])], why:l && l.stack ? [[`wall na ${l.stack.on} ${l.stack.src}`, 1.3]] : [] });
+  }
+  for (const side of ['short', 'long']) { // safety: at most one active ranked zone per side
+    const a = fz.segs.filter(s => !s.t1 && s.side === side && !s.major);
     a.slice(0, -1).forEach(s => { s.t1 = lastT; s.end = 'replaced'; });
   }
   const lv = r.levels.map(l => { const why = []; return { l, q: focusRank(l, r, why), why }; }).filter(x => x.q > 0);
   for (const side of ['short', 'long']) {
-    const cand = lv.filter(x => side === 'short' ? x.l.dist > fzW() : x.l.dist < -fzW()).sort((a, b) => b.q - a.q);
-    const best = cand[0], act = fz.segs.find(s => !s.t1 && s.side === side);
+    const majP = fz.segs.filter(s => s.major && !s.t1).map(s => s.p);
+    const cand = lv.filter(x => (side === 'short' ? x.l.dist > fzW() : x.l.dist < -fzW()) && !majP.some(p => Math.abs(p - x.l.price) <= S.tol)).sort((a, b) => b.q - a.q);
+    const best = cand[0], act = fz.segs.find(s => !s.t1 && s.side === side && !s.major);
     const cur = act && cand.find(x => Math.abs(x.l.price - act.p) <= S.tol);
     if (act && cur && (!best || best === cur || best.q < cur.q * 1.25)) { // hysteresis: keep the active zone unless clearly beaten
       act.score = cur.l.score; act.tags = cur.l.tags.slice(0, 4); act.p = cur.l.price; act.why = cur.why; continue;
     }
+    if (act && !best) continue;   // the level just slipped under a filter for a moment – keep it instead of flickering
     if (act) {
       if (lastT - act.t0 < 300) fz.segs.splice(fz.segs.indexOf(act), 1);   // flicker < 5 min: drop
       else { act.t1 = lastT; act.end = 'replaced'; }
@@ -1336,13 +1360,7 @@ function focusUpdate(r){
     if (best) {
       // the day's first zone on a side has been valid since the RTH open (GEX/EM are computed from it)
       // (from the bar after price last touched it, so it is not "hit" retroactively)
-      const open = bars.findIndex(b => A.isRTH(b.t)), p = best.l.price;
-      let t0 = lastT;
-      if (!fz.segs.some(s => s.side === side) && open >= 0) {
-        const W2 = fzW(), lo = side === 'short' ? p - W2 : p, hi = side === 'short' ? p : p + W2;
-        let j = bars.length - 1; while (j >= open && !(bars[j].h >= lo && bars[j].l <= hi)) j--;
-        const k = Math.max(open, j + 1); if (k < bars.length - 1) t0 = bars[k].t;
-      }
+      const p = best.l.price, t0 = fz.segs.some(s => s.side === side && !s.major) ? lastT : firstT0(side, p);
       fz.segs.push({ side, p:best.l.price, t0, score:best.l.score, tags:best.l.tags.slice(0, 4), why:best.why });
     }
   }
@@ -1382,7 +1400,7 @@ function fzLabel(s){
   if (lv && lv.stack) t.push(lv.stack.on === 'HVN' ? 'H+' : 'L+');
   if (o.v) t.push(o.v > 0 ? 'V+' : 'V−');
   if (o.g) t.push(o.g > 0 ? 'G+' : 'G−');
-  return `${t.map(x => '(' + x + ')').join(' ')}${t.length ? ' | ' : ''}${o.type} - ${o.hor}`;
+  return `${s.major ? '★ ' : ''}${t.map(x => '(' + x + ')').join(' ')}${t.length ? ' | ' : ''}${o.type} - ${o.hor}`;
 }
 const fzW = () => Math.max(S.touch || 3, +S.zone || 25);
 const fzRange = s => { const W = fzW(); return s.side === 'short' ? [s.p - W, s.p] : [s.p, s.p + W]; };
@@ -1457,7 +1475,7 @@ function focusCards(r){
   return gate + sentCard() + focusCards0(r);
 }
 function focusCards0(r){
-  const act = ['short', 'long'].map(side => fz.segs.find(s => !s.t1 && s.side === side)).filter(Boolean);
+  const act = fz.segs.filter(s => !s.t1).sort((a, b) => b.p - a.p);
   if (!act.length) {
     const g = st.data.gex || {}, why = !(g.zero || g.full) ? ` · GEXbot data se nenačetla (${esc($('upd').textContent || '')})` : gexStale() ? ' · GEXbot data jsou starší než 15 min' : '';
     return `<div class="fzc"><span class="m">◎ Žádná zóna s dost silnou konfluencí v dosahu${why}.</span>${fz.segs.length ? '<button class="tv" onclick="fzCopy()">📋 TV</button>' : ''}</div>`;
