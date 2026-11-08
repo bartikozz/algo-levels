@@ -19,6 +19,24 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 ET = ZoneInfo('America/New_York')
+
+# Trade-condition filter (ThetaData codes, http-docs.thetadata.us → Trade Conditions), same as the QuantData
+# "Exclude tied and complex (more directional bias)" filter group: complex, tied, floor, cancelled, SOLD_LAST.
+COND_GROUPS = {
+    'complex': {35, 36, 37, 38, 130, 131, 132, 133, 134, 136, 137, 144},      # spreads, straddles, buy-writes, combos, multi-leg
+    'tied': {53, 105, 124, 135, 138, 139, 140, 141, 142, 143},                 # stock-tied / contingent / QCT
+    'floor': {129, 133, 137, 140, 143, 144},                                   # non-electronic floor trades
+    'cancel': {40, 41, 42, 43, 44},                                            # cancel messages
+    'soldlast': {13, 15, 56},                                                  # late reports
+}
+EXCLUDE = set().union(*(COND_GROUPS[g] for g in os.environ.get('FLOW_EXCLUDE', 'complex,tied,floor,cancel,soldlast').split(',') if g in COND_GROUPS))
+
+
+def _cond(x):
+    try:
+        return int(x)
+    except (TypeError, ValueError):
+        return None
 SWEEP_MS = 350
 BLOCK_SIZE = 200
 
@@ -40,8 +58,10 @@ class OptionFlow:
     def _reset(self, ts):
         self.today = _day(ts)
         self.tot = dict(call_buy=0.0, call_sell=0.0, put_buy=0.0, put_sell=0.0, mid=0.0, delta=0.0, trades=0, contracts=0,
-                        bull=0.0, bear=0.0, bull_0d=0.0, bear_0d=0.0, sweeps=0, blocks=0)
-        self.minutes: dict = {}   # minute → [bull prem, bear prem, delta shares, contracts]
+                        bull=0.0, bear=0.0, bull_0d=0.0, bear_0d=0.0, sweeps=0, blocks=0, excluded=0)
+        # minute → [bull prem, bear prem, delta shares, contracts,
+        #           net call prem, net put prem, net call prem OTM, net put prem OTM, net contracts, net contracts OTM]   (net = bought − sold)
+        self.minutes: dict = {}
         self.strikes: dict = {}   # (strike, right, is0d) → [bull prem, bear prem, contracts, delta]
         self.orders: deque = deque(maxlen=1500)
         self.pending: dict = {}   # (key, side) → open order being aggregated
@@ -89,6 +109,10 @@ class OptionFlow:
         """key = (exp 'YYYY-MM-DD', strike, 'C'|'P'); ts = epoch seconds; price per share; size in contracts."""
         if not price or not size or price <= 0:
             return
+        cd = _cond(cond)
+        if cd is not None and cd in EXCLUDE:
+            self.tot['excluded'] = self.tot.get('excluded', 0) + 1
+            return
         with self.lock:
             if _day(ts) != self.today:
                 self._flush(force=True)
@@ -112,10 +136,20 @@ class OptionFlow:
             if bull > 0: T['bull'] += bull; T['bull_0d'] += bull if is0d else 0
             elif bull < 0: T['bear'] -= bull; T['bear_0d'] -= bull if is0d else 0
             mi = int(ts // 60 * 60)
-            row = self.minutes.setdefault(mi, [0.0, 0.0, 0.0, 0])
+            row = self.minutes.setdefault(mi, [0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            if len(row) < 10: row.extend([0.0] * (10 - len(row)))
             if bull > 0: row[0] += bull
             elif bull < 0: row[1] -= bull
             row[2] += dsh; row[3] += size
+            if sign:
+                sg = 1 if sign > 0 else -1
+                S0 = self.spot or K
+                otm = K > S0 if right == 'C' else K < S0
+                row[4 if right == 'C' else 5] += sg * prem
+                row[8] += sg * size
+                if otm:
+                    row[6 if right == 'C' else 7] += sg * prem
+                    row[9] += sg * size
             sr = self.strikes.setdefault((K, right, is0d), [0.0, 0.0, 0, 0.0])
             if bull > 0: sr[0] += bull
             elif bull < 0: sr[1] -= bull
@@ -170,7 +204,8 @@ class OptionFlow:
         with self.lock:
             rows = sorted(self.minutes.items())
         out, cb, cr, cd = [], 0.0, 0.0, 0.0
-        for t, (b, r, d, n) in rows:
+        for t, v in rows:
+            b, r, d, n = v[:4]
             cb += b; cr += r; cd += d
             out.append([t, round(cb), round(cr), round(cd), n])
         return out
@@ -200,7 +235,7 @@ class OptionFlow:
         os_ = [o for o in os_ if o['prem'] >= m and (not only0d or o['is0d']) and (not kind or o['kind'] == kind)]
         return [{k: v for k, v in o.items() if k not in ('t_last',)} for o in os_[-n:]][::-1]
 
-    def customer(self, pct=0.03, only0d=False):
+    def customer(self, pct=0.03, only0d=False, otm=True):
         """Customer contracts per minute by strike (mentor's 'customers buying / selling' map) + running position by strike
         and the net drift (cumulative customer delta, shares). cells = [minute, strike, net calls, net puts]."""
         S = self.spot
@@ -218,10 +253,14 @@ class OptionFlow:
         pos = {}
         for _, K, c, p in cells:
             q = pos.setdefault(K, [0, 0]); q[0] += c; q[1] += p
-        drift, cd = [], 0.0
-        for t, (b, r, d, n) in rows:
-            cd += d; drift.append([t, round(cd)])
-        return dict(cells=cells, threshold=thr, tallest=mags[-1] if mags else 0,
+        # net drift like QuantData: cumulative (bought − sold) premium, calls and puts separately (OTM only by default) + net volume
+        drift, cd, cc, cp, cv = [], 0.0, 0.0, 0.0, 0.0
+        for t, v in rows:
+            v = list(v) + [0.0] * (10 - len(v))
+            cd += v[2]
+            cc += v[6] if otm else v[4]; cp += v[7] if otm else v[5]; cv += v[9] if otm else v[8]
+            drift.append([t, round(cd), round(cc), round(cp), round(cv)])
+        return dict(cells=cells, threshold=thr, tallest=mags[-1] if mags else 0, otm=otm, excluded=self.tot.get('excluded', 0),
                     pos=sorted([[K, c, p] for K, (c, p) in pos.items()]), drift=drift, spot=S, day=self.today)
 
     def flow_levels(self, n=2):

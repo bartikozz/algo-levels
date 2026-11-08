@@ -260,7 +260,7 @@
     const { c, w, h } = setup(cv);
     const cells = (D && D.cells) || [];
     if (!cells.length) return empty(c, w, h, 'Zatím žádné obchody zákazníků (customer flow).');
-    const L = 8, R = w - 74, top = 22, driftH = Math.min(70, h * 0.18), bot = h - 18 - driftH - 8;
+    const L = 8, R = w - 74, top = 22, driftH = Math.min(150, h * 0.3), bot = h - 18 - driftH - 8;
     const ks0 = cells.map(x => x[1]).sort((x, y) => x - y), mid = ks0[ks0.length >> 1];
     const path = (o.bars || []).filter(b => b.t >= cells[0][0] - 60 && Math.abs(b.c / mid - 1) < 0.04);
     const t0 = Math.min(cells[0][0], path.length ? path[0].t : Infinity), t1 = Math.max(cells[cells.length - 1][0] + 60, path.length ? path[path.length - 1].t : 0);
@@ -291,12 +291,23 @@
     if (path.length) { c.strokeStyle = C.white; c.lineWidth = 1.4; c.beginPath(); path.forEach((b, i) => i ? c.lineTo(X(b.t + 30), Y(b.c)) : c.moveTo(X(b.t + 30), Y(b.c))); c.stroke();
       const lb = path[path.length - 1]; c.fillStyle = C.white; c.textAlign = 'right'; c.fillText(`QQQ ${lb.c.toFixed(2)}`, R - 2, Y(lb.c) - 9); }
     if (o.hover) { c.strokeStyle = 'rgba(255,255,255,.35)'; c.setLineDash([2, 3]); c.beginPath(); c.moveTo(o.hover.x, top); c.lineTo(o.hover.x, bot); c.stroke(); c.setLineDash([]); }
-    // net drift strip
-    const dr = (D.drift || []).filter(r => r[0] >= t0), d0 = Math.min(0, ...dr.map(r => r[1])), d1 = Math.max(0, ...dr.map(r => r[1]));
-    const dt = bot + 8, db = dt + driftH, YD = v => dt + (d1 - v) / (d1 - d0 || 1) * (db - dt);
-    c.fillStyle = C.grid; c.fillRect(L, YD(0), R - L, 1);
-    if (dr.length > 1) { const last = dr[dr.length - 1][1]; c.strokeStyle = last >= 0 ? `rgb(${C.pos})` : `rgb(${C.neg})`; c.lineWidth = 1.5; c.beginPath(); dr.forEach((r, i) => i ? c.lineTo(X(r[0] + 30), YD(r[1])) : c.moveTo(X(r[0] + 30), YD(r[1]))); c.stroke();
-      c.fillStyle = c.strokeStyle; c.textAlign = 'left'; c.fillText(`net drift ${last >= 0 ? '+' : ''}${fmtM(last)} Δ${o.k ? ` ≈ ${last >= 0 ? '+' : ''}${(last / (20 * o.k)).toFixed(0)} NQ` : ''}`, L + 2, dt + 6); }
+    // net drift strip (QuantData style): cumulative bought − sold premium, calls green / puts red, net volume shaded below
+    const dr = (D.drift || []).filter(r => r[0] >= t0), dt = bot + 8, db = dt + driftH;
+    if (dr.length > 1 && dr[0].length >= 5) {
+      const vals = dr.flatMap(r => [r[2], r[3]]), d0 = Math.min(0, ...vals), d1 = Math.max(0, ...vals), YD = v => dt + (d1 - v) / (d1 - d0 || 1) * (db - dt);
+      const vv = dr.map(r => r[4]), vm = Math.max(1, ...vv.map(Math.abs)), vb = db, YV = v => vb - Math.abs(v) / vm * driftH * 0.35;
+      c.fillStyle = 'rgba(255,95,162,.12)'; dr.forEach(r => { if (r[4] < 0) c.fillRect(X(r[0]), YV(r[4]), Math.max(1, (R - L) / ((t1 - t0) / 60)), vb - YV(r[4])); });
+      c.fillStyle = 'rgba(94,224,200,.12)'; dr.forEach(r => { if (r[4] > 0) c.fillRect(X(r[0]), YV(r[4]), Math.max(1, (R - L) / ((t1 - t0) / 60)), vb - YV(r[4])); });
+      c.fillStyle = C.grid; c.fillRect(L, YD(0), R - L, 1);
+      const ln = (i, col) => { c.strokeStyle = col; c.lineWidth = 1.5; c.beginPath(); dr.forEach((r, j) => j ? c.lineTo(X(r[0] + 30), YD(r[i])) : c.moveTo(X(r[0] + 30), YD(r[i]))); c.stroke(); };
+      ln(2, `rgb(${C.pos})`); ln(3, `rgb(${C.neg})`);
+      const lr = dr[dr.length - 1];
+      c.textAlign = 'left'; c.fillStyle = C.txt2; c.fillText(`Net drift${D.otm ? ' (OTM)' : ''}:`, L + 2, dt + 6);
+      c.fillStyle = `rgb(${C.pos})`; c.fillText(`Calls ${lr[2] >= 0 ? '+' : ''}${fmtM(lr[2])} $`, L + 100, dt + 6);
+      c.fillStyle = `rgb(${C.neg})`; c.fillText(`Puts ${lr[3] >= 0 ? '+' : ''}${fmtM(lr[3])} $`, L + 210, dt + 6);
+      c.fillStyle = C.txt; c.fillText(`net vol ${lr[4] >= 0 ? '+' : ''}${fmtM(lr[4])}${D.excluded ? ` · vyřazeno ${fmtM(D.excluded)} complex/tied/floor/cancel/late` : ''}`, L + 320, dt + 6);
+      c.textAlign = 'right'; c.fillText(fmtM(d1), R + 40, dt + 4); c.fillText(fmtM(d0), R + 40, db - 4);
+    }
     c.fillStyle = C.txt; c.textAlign = 'center';
     const lt = o.label || (t => String(t)); const span = t1 - t0, tick = span > 4 * 3600 ? 3600 : span > 3600 ? 1800 : 600;
     for (let t = Math.ceil(t0 / tick) * tick; t <= t1; t += tick) c.fillText(lt(t), X(t), h - 7);

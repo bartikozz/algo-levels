@@ -671,10 +671,11 @@ def flow(t: str | None = None):
 
 
 @app.get('/options/customer')
-def opt_customer(pct: float = 0.03, only0d: int = 0, t: str | None = None):
-    """customer contracts per minute × strike (aggressor side from NBBO), running position by strike, net drift"""
+def opt_customer(pct: float = 0.03, only0d: int = 0, otm: int = 1, t: str | None = None):
+    """customer contracts per minute × strike (aggressor side from NBBO), running position by strike, net drift
+    (cumulative bought − sold premium for calls / puts, OTM only by default); complex / tied / floor / cancelled / SOLD_LAST excluded"""
     auth(t)
-    D = oflow.customer(pct, bool(only0d))
+    D = oflow.customer(pct, bool(only0d), bool(otm))
     D['k'] = state['k']
     return j(D)
 
