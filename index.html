@@ -1316,24 +1316,37 @@ function focusUpdate(r){
     // zone: short = [p − W, p], long = [p, p + W]; p = the wall itself, the inner edge is where dealers start hedging into it
     // (6.11: QQQ CW 665 = NQ 27,441, high 27,425 → turned 300 b. inside the zone, never printed the wall)
     const W = fzW();
+    const [zlo, zhi] = fzRange(s);
     if (!s.t1) {
-      const hit = bars.find(b => b.t > s.t0 && (s.side === 'short' ? b.h >= s.p - W : b.l <= s.p + W));
+      const hit = bars.find(b => b.t > s.t0 && (s.side === 'short' ? b.h >= zlo : b.l <= zhi));
       if (hit) { s.t1 = hit.t; s.end = 'hit'; }
     }
     if (s.end === 'hit' && !s.res) {
       // outcome: close more than `brk` beyond the wall = broken; a turn ≥ `react` from the extreme = reaction (depth into the zone kept)
       let ext = null;
       for (const b of bars.filter(b => b.t >= s.t1)) {
-        if (s.side === 'short' ? b.c > s.p + S.brk : b.c < s.p - S.brk) { s.res = 'broken'; break; }
+        if (s.side === 'short' ? b.c > zhi + S.brk : b.c < zlo - S.brk) { s.res = 'broken'; s.brkT = b.t; break; }
         ext = ext == null ? (s.side === 'short' ? b.h : b.l) : (s.side === 'short' ? Math.max(ext, b.h) : Math.min(ext, b.l));
         if ((s.side === 'short' ? ext - b.l : b.h - ext) >= S.react) { s.res = 'reacted'; s.gap = Math.round((s.side === 'short' ? s.p - ext : ext - s.p) * 4) / 4; break; }
       }
     }
     // reacted first, broken later: keep the reaction for the stats, but mark the flip (resistance → support and back)
     if (s.res === 'reacted' && !s.flip) {
-      const b = bars.find(b => b.t > s.t1 && (s.side === 'short' ? b.c > s.p + S.brk : b.c < s.p - S.brk));
+      const b = bars.find(b => b.t > s.t1 && (s.side === 'short' ? b.c > zhi + S.brk : b.c < zlo - S.brk));
       if (b) s.flip = b.t;
     }
+  }
+  // polarity flip: a broken zone turns into an active zone on the other side (broken resistance = support to retest),
+  // same price band, live from the first bar that fully cleared it; one flipped zone per side, newest wins
+  for (const s of fz.segs.filter(s => (s.res === 'broken' || s.flip) && !s.flipped)) {
+    const [lo, hi] = fzRange(s), ns = s.side === 'short' ? 'long' : 'short';
+    const tb = s.flip || s.brkT || (bars.find(b => b.t > s.t1 && (s.side === 'short' ? b.c > hi + S.brk : b.c < lo - S.brk)) || {}).t;
+    if (!tb) continue;
+    const clr = bars.find(b => b.t > tb && (ns === 'long' ? b.l > hi : b.h < lo));
+    if (!clr) continue;
+    s.flipped = 1;
+    fz.segs.filter(x => x.flipOf && !x.t1 && x.side === ns).forEach(x => { x.t1 = clr.t; x.end = 'replaced'; });
+    fz.segs.push({ side:ns, p:s.p, band:[lo, hi], t0:clr.t, score:s.score, tags:s.tags.slice(0, 4), flipOf:s.side, why:[] });
   }
   // ★ anchor zones: the day's biggest QQQ call wall (above price) and put wall (below price) are always on the chart,
   // whatever the ranking says (6.11: ★CW 665 = 27,441 and ★PW 655 = 27,029 were the obvious levels)
@@ -1357,14 +1370,14 @@ function focusUpdate(r){
       tags:[`★${m.type} QQQ ${m.qqq}`, ...(l ? l.tags.filter(t => !/★/.test(t)).slice(0, 3) : [])], why:l && l.stack ? [[`wall na ${l.stack.on} ${l.stack.src}`, 1.3]] : [] });
   }
   for (const side of ['short', 'long']) { // safety: at most one active ranked zone per side
-    const a = fz.segs.filter(s => !s.t1 && s.side === side && !s.major);
+    const a = fz.segs.filter(s => !s.t1 && s.side === side && !s.major && !s.flipOf);
     a.slice(0, -1).forEach(s => { s.t1 = lastT; s.end = 'replaced'; });
   }
   const lv = r.levels.map(l => { const why = []; return { l, q: focusRank(l, r, why), why }; }).filter(x => x.q > 0);
   for (const side of ['short', 'long']) {
     const majP = fz.segs.filter(s => s.major && !s.t1).map(s => s.p);
     const cand = lv.filter(x => (side === 'short' ? x.l.dist > fzW() : x.l.dist < -fzW()) && !majP.some(p => Math.abs(p - x.l.price) <= S.tol)).sort((a, b) => b.q - a.q);
-    const best = cand[0], act = fz.segs.find(s => !s.t1 && s.side === side && !s.major);
+    const best = cand[0], act = fz.segs.find(s => !s.t1 && s.side === side && !s.major && !s.flipOf);
     const cur = act && cand.find(x => Math.abs(x.l.price - act.p) <= S.tol);
     if (act && cur && (!best || best === cur || best.q < cur.q * 1.25)) { // hysteresis: keep the active zone unless clearly beaten
       act.score = cur.l.score; act.tags = cur.l.tags.slice(0, 4); act.p = cur.l.price; act.why = cur.why; continue;
@@ -1419,11 +1432,11 @@ function fzLabel(s){
   if (lv && lv.stack) t.push(lv.stack.on === 'HVN' ? 'H+' : 'L+');
   if (o.v) t.push(o.v > 0 ? 'V+' : 'V−');
   if (o.g) t.push(o.g > 0 ? 'G+' : 'G−');
-  return `${s.major ? '★ ' : ''}${t.map(x => '(' + x + ')').join(' ')}${t.length ? ' | ' : ''}${o.type} - ${o.hor}`;
+  return `${s.flipOf ? '↻ ' : ''}${s.major ? '★ ' : ''}${t.map(x => '(' + x + ')').join(' ')}${t.length ? ' | ' : ''}${o.type} - ${o.hor}`;
 }
 // zone width: auto = 0.4 QQQ in NQ points (≈ 16 b.) – 6.11 front-runs were 16 b. (★CW 665) and 9.5 b. (★PW 655); manual value in ⚙ wins
 const fzW = () => { const k = st.res && st.res.info && st.res.info.ratio; return Math.max(S.touch || 3, S.zoneSet && +S.zone > 0 ? +S.zone : k ? Math.round(0.4 * k * 4) / 4 : 16); };
-const fzRange = s => { const W = fzW(); return s.side === 'short' ? [s.p - W, s.p] : [s.p, s.p + W]; };
+const fzRange = s => { if (s.band) return s.band; const W = fzW(); return s.side === 'short' ? [s.p - W, s.p] : [s.p, s.p + W]; };
 const fzRangeTxt = s => { const [a, b] = fzRange(s); return `${fmtP(a)} – ${fmtP(b)}`; };
 // today's zones for TradingView: one line per zone "lo-hi R|S label" → paste into pine/algo_zones_paste.pine
 function fzTvText(){
@@ -1478,7 +1491,7 @@ function drawFocus(out){
   const segs = S.focus ? fz.segs.filter(s => !s.t1) : [];
   // levels already hit today stay on the chart (dimmed, with the outcome) until the session ends
   const hits = [];
-  if (S.focus) for (const s of fz.segs.filter(s => s.end === 'hit'))
+  if (S.focus) for (const s of fz.segs.filter(s => s.end === 'hit' && !s.flipped))
     if (!segs.some(a => Math.abs(a.p - s.p) <= S.tol) && !hits.some(h => Math.abs(h.p - s.p) <= S.tol)) hits.push(s);
   // declutter: finished zones only near price (≤ 150 b.), at most the 3 nearest
   if (st.res) { const px = st.res.last; hits.splice(0, hits.length, ...hits.filter(h => Math.abs(h.p - px) <= 150).sort((a, b) => Math.abs(a.p - px) - Math.abs(b.p - px)).slice(0, 3)); }
