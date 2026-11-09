@@ -3055,6 +3055,12 @@ function preRegime(){
   const vx = cb.y['^VIX'];
   if (vx && vx.length > 200) { const y = vx.slice(-252).map(b => b.c), l = y.at(-1), lo = Math.min(...y), hi = Math.max(...y), rank = hi > lo ? (l - lo) / (hi - lo) : 0;
     parts.push(`IV rank ${pc(rank)} % (VIX, 1R)${l >= Math.max(...y.slice(-200, -1)) ? ' – nejvýš za letošek' : ''}`); if (rank >= 0.6) fl.push('IV rank'); }
+  // 1M realized vol vs the last year (mentor: "1M RV is at 99th percentile")
+  const gs = cb.y['^GSPC'];
+  if (gs && gs.length > 120) { const lr = gs.slice(1).map((b, i) => Math.log(b.c / gs[i].c)), rv = [];
+    for (let i = 21; i <= lr.length; i++) { const w = lr.slice(i - 21, i), m = w.reduce((a, x) => a + x, 0) / 21; rv.push(Math.sqrt(w.reduce((a, x) => a + (x - m) ** 2, 0) / 20 * 252)); }
+    const cur = rv.at(-1), pr = rv.filter(x => x <= cur).length / rv.length;
+    parts.push(`SPX 1M RV ${pc(cur)} % (${pc(pr)}. percentil za rok)`); if (pr >= 0.9) fl.push('RV extrém'); }
   if (c.term) { parts.push(`VIX křivka ${c.term >= 1 ? 'v backwardation' : 'v contangu'} (${c.term.toFixed(2)})`); if (c.term >= 1) fl.push('backwardation'); }
   if (n.spx_gex != null) {
     const p = H.pct && H.pct.spx_gex, b = n.spx_gex / 1e9;
@@ -3084,10 +3090,13 @@ function preReport(){
     const res = Q.up[0], sup = Q.dn;
     let t = Q.otherFail === 'reclaim' && Q.other > Q.pivot ? `Včera QQQ nedokázalo reclaimnout ${fK(Q.other)}, ${fK(Q.other)} je dnes resistance. `
       : Q.prevFail === 'reclaim' ? `Včera QQQ nedokázalo reclaimnout ${fK(Q.pivot)}. ` : '';
+    const inn = (Q.inner || []).filter(x => x != null);
     if (Q.side > 0) {
-      t += `QQQ je u ${fK(Q.pivot)}${nq(Q.pivot)} – pivot pro dnešek${res != null && !(Q.otherFail === 'reclaim') ? `, nad námi resistance ${fK(res)}` : ''}.`;
-      t += bear ? (sup.length ? ` Pokud chceme pokračovat níž, máme ${sup.map(fK).join(' a ')} po cestě; prolomení ${fK(sup.at(-1))}${nq(sup.at(-1))} by bylo dobré pro sellers.` : '')
-        : (res != null ? ` Pro upside potřebujeme reclaim ${fK(res)}${nq(res)}${Q.up[1] ? `, další ${fK(Q.up[1])}` : ''}.` : '');
+      // mentor style: "QQQ is now trading above 660, that is gonna act as a pivot. 663 and 658 … losing 655 opens the road to 650s"
+      t += `QQQ se obchoduje nad ${fK(Q.pivot)}${nq(Q.pivot)}, to bude dnes pivot.`;
+      if (inn.length) t += ` Hlídám ${inn.map(x => fK(x) + nq(x)).join(' a ')}.`;
+      if (res != null) t += ` Nahoru ${fK(res)}${nq(res)}${Q.up[1] ? `, pak ${fK(Q.up[1])}` : ''}.`;
+      if (sup.length) t += ` Pokud chceme níž, mám ${fK(sup[0])}${nq(sup[0])}, jeho ztráta otevře cestu na ${sup[1] != null ? fK(sup[1]) + nq(sup[1]) : 'níž'}.`;
     } else {
       t += `QQQ je pod pivotem ${fK(Q.pivot)}${nq(Q.pivot)} – reclaim je klíčový pro upside${res != null ? ` (další ${fK(res)})` : ''}.`;
       if (sup.length) t += ` Downside POI ${sup.map(fK).join(' / ')}, prolomení ${fK(sup.at(-1))}${nq(sup.at(-1))} by bylo dobré pro sellers.`;
@@ -3097,7 +3106,7 @@ function preReport(){
   }
   // SPX + VIX
   if (X) {
-    let t = X.side > 0 ? `Na SPX se soustředíme na ${fK(X.pivot)}${X.dn[0] != null ? `, pokud ${fK(X.pivot)} ztratíme, cesta na ${fK(X.dn[0])} je otevřená` : ''}.`
+    let t = X.side > 0 ? `SPX: pivot ${fK(X.pivot)}.${X.other != null && X.other > X.pivot ? ` Konsolidujeme pod ${fK(X.other)}, reclaim → ${fK(X.magnet && X.magnet > X.other ? X.magnet : (X.up[1] != null ? X.up[1] : X.other))}${X.magnet && X.magnet > X.other ? ' (velký pozitivní GEX)' : ''}.` : X.magnet ? ` Magnet nahoře ${fK(X.magnet)} (největší +GEX).` : ''}${X.dn[0] != null ? ` Ztráta ${fK(X.pivot)} → ${fK(X.dn[0])}.` : ''}`
       : `SPX je pod ${fK(X.pivot)} – agresivní reclaim je klíčový pro další upside${X.up[0] != null ? ` (další problém ${fK(X.up[0])})` : ''}${X.dn[0] != null ? `, jinak ${fK(X.dn[0])}` : ''}.`;
     if (X.pivotFlow > 0) t += ` Na ${fK(X.pivot)} je velká nová pozice (+${Math.round(X.pivotFlow).toLocaleString('en-US')} OI).`;
     if (V) {

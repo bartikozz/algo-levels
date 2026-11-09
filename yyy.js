@@ -344,7 +344,11 @@
   //               resistance 660; SPX 7370 → focus 7350 (big customer put position), lose it → 7300
   //  POIs       = next heavy strikes beyond the bracket (QQQ any strike, e.g. 653 / 650; SPX on its POI grid)
   //  status     = above / below the pivot, held ≥ 10 min = reclaimed / lost, else testing; prior session failed reclaim
-  function keyLevels(g, spot, band, idx, round, flow, poiGrid) {
+  //  mentor style (9.11: QQQ 662 → "trading above 660 = pivot", 663 / 658 watch, 655 → 650s; SPX 7441 → 7450 reclaim →
+  //  7490 big +GEX, 7400 pivot): the pivot is the heavy round strike price trades ABOVE (just below spot) – unless price
+  //  already traded above the strike overhead today and lost it, then that one is the pivot (bearish). inner = the nearest
+  //  heavy strikes off the round grid (663 / 658), magnet = biggest positive GEX above spot, outer levels only within ±1 %.
+  function keyLevels(g, spot, band, idx, round, flow, poiGrid, bars) {
     if (!g || !Array.isArray(g.strikes) || !spot) return null;
     const rows = g.strikes.map(r => ({ k: +r[0], v: +r[idx] || 0 })).filter(r => Number.isFinite(r.k) && Math.abs(r.k / spot - 1) <= band * 3);
     if (!rows.length) return null;
@@ -358,8 +362,10 @@
     let cand = near.filter(r => r.w >= 0.25 * mxN && onG(r.k, rnd));
     if (cand.length < 2) cand = near.filter(r => r.w >= 0.25 * mxN);
     const above = cand.filter(r => r.k >= spot).sort((a, b) => a.k - b.k)[0], below = cand.filter(r => r.k < spot).sort((a, b) => b.k - a.k)[0];
-    const sc = r => r.w / (1 + Math.abs(r.k - spot) / (2 * rnd));
-    const pivot = above && below ? (sc(below) >= sc(above) ? below : above) : (above || below);
+    let dayHi = null;
+    if (bars && bars.length) { const d = et(bars[bars.length - 1].t).date; const td = bars.filter(b => et(b.t).date === d); if (td.length) dayHi = Math.max(...td.map(b => b.h)); }
+    const lost = above && dayHi != null && dayHi > above.k + rnd * 0.1;
+    const pivot = above && below ? (lost ? above : below) : (above || below);
     const other = above && below ? (pivot === below ? above : below) : null;
     const mx = Math.max(...rows.map(r => r.w)) || 1, pg = poiGrid || 0;
     const heavy = rows.filter(r => r.w >= 0.25 * mx && r.k !== pivot.k && (!other || r.k !== other.k) && (!pg || onG(r.k, pg)));
@@ -367,7 +373,18 @@
     let up = heavy.filter(r => r.k > hi).sort((a, b) => a.k - b.k).slice(0, 2).map(r => r.k);
     let dn = heavy.filter(r => r.k < lo).sort((a, b) => b.k - a.k).slice(0, 2).map(r => r.k);
     if (other && other.k > pivot.k) up = [other.k, ...up].slice(0, 2); else if (other) dn = [other.k, ...dn].slice(0, 2);
-    return { pivot: pivot.k, pivotNet: pivot.v, pivotFlow: pivot.f, other: other ? other.k : null, up, dn,
+    // outer levels only near spot, ±1.5 % (keep the nearest one per side even if farther)
+    const in1 = k => Math.abs(k / spot - 1) <= 0.015;
+    up = up.filter((k, i) => i === 0 || in1(k)); dn = dn.filter((k, i) => i === 0 || in1(k));
+    // inner levels: nearest heavy off-grid strikes between spot and the bracket
+    const used = new Set([pivot.k, ...(other ? [other.k] : []), ...up, ...dn]);
+    const tight = rows.filter(r => Math.abs(r.k / spot - 1) <= 0.008), mxT = Math.max(0, ...tight.map(r => r.w)) || 1;
+    const inr = tight.filter(r => r.w >= 0.25 * mxT && !used.has(r.k) && !onG(r.k, rnd));
+    const iUp = inr.filter(r => r.k > spot && r.k < (up[0] != null ? up[0] : Infinity)).sort((a, b) => a.k - b.k)[0];
+    const iDn = inr.filter(r => r.k < spot && r.k > (dn[0] != null ? dn[0] : -Infinity) && r.k !== pivot.k).sort((a, b) => b.k - a.k)[0];
+    const mag = rows.filter(r => r.k > spot && r.v > 0 && Math.abs(r.k / spot - 1) <= 0.012).sort((a, b) => b.v - a.v)[0];
+    return { pivot: pivot.k, pivotNet: pivot.v, pivotFlow: pivot.f, other: other ? other.k : null, up, dn, lost: !!lost,
+      inner: [iUp ? iUp.k : null, iDn ? iDn.k : null], magnet: mag ? mag.k : null,
       zero: Number.isFinite(g.zero_gamma) ? g.zero_gamma : null };
   }
   // VIX: where dealer gamma changes sign around spot (mentor: "positive gamma up to 30") + trigger just below spot ("breaking 27")
@@ -410,7 +427,8 @@
     const out = { assets: {}, drivers: [], score: 0, lines: [] };
     const add = (v, why) => { out.score += v; out.drivers.push([why, v]); };
     // QQQ — all-expiry gamma (OI) + new positioning
-    const qL = keyLevels(x.qqq && x.qqq.full, x.qqq && x.qqq.spot, 0.012, 2, 5, x.qqq && x.qqq.flow, 0) || keyLevels(x.qqq && x.qqq.zero, x.qqq && x.qqq.spot, 0.012, 1, 5, x.qqq && x.qqq.flow, 0);
+    const qb = x.qqq && x.qqq.bars;
+    const qL = keyLevels(x.qqq && x.qqq.full, x.qqq && x.qqq.spot, 0.012, 2, 5, x.qqq && x.qqq.flow, 0, qb) || keyLevels(x.qqq && x.qqq.zero, x.qqq && x.qqq.spot, 0.012, 1, 5, x.qqq && x.qqq.flow, 0, qb);
     if (qL) {
       const s = sideOf(x.qqq.bars, qL.pivot, x.qqq.spot), o = qL.other != null ? sideOf(x.qqq.bars, qL.other, x.qqq.spot) : null;
       out.assets.QQQ = { ...qL, ...s, otherFail: o && o.prevFail };
@@ -420,8 +438,9 @@
       if (qL.zero) add(x.qqq.spot > qL.zero ? 0.5 : -0.5, `QQQ ${x.qqq.spot > qL.zero ? 'nad' : 'pod'} zero gamma ${qL.zero.toFixed(1)}`);
     }
     // SPX — 0DTE + all-expiry profile, round 50 bracket, POIs on the 50 grid
-    const sL = keyLevels(x.spx && x.spx.zero, x.spx && x.spx.spot, 0.008, 1, 50, x.spx && x.spx.flow, 50) || keyLevels(x.spx && x.spx.full, x.spx && x.spx.spot, 0.008, 2, 50, x.spx && x.spx.flow, 50)
-      || keyLevels(x.spx && x.spx.full, x.spx && x.spx.spot, 0.012, 2, 25, x.spx && x.spx.flow, 25);
+    const sb = x.spx && x.spx.bars;
+    const sL = keyLevels(x.spx && x.spx.zero, x.spx && x.spx.spot, 0.008, 1, 50, x.spx && x.spx.flow, 50, sb) || keyLevels(x.spx && x.spx.full, x.spx && x.spx.spot, 0.008, 2, 50, x.spx && x.spx.flow, 50, sb)
+      || keyLevels(x.spx && x.spx.full, x.spx && x.spx.spot, 0.012, 2, 25, x.spx && x.spx.flow, 25, sb);
     if (sL) {
       const s = sideOf(x.spx.bars, sL.pivot, x.spx.spot);
       out.assets.SPX = { ...sL, ...s };
@@ -433,7 +452,7 @@
       const s = sideOf(x.vix.bars, vL.trigger, x.vix.spot);
       out.assets.VIX = { ...vL, ...s, last: x.vix.spot, est: x.vix.est, at: x.vix.at };
       if (vL.regime > 0) add(0.3, `VIX v pozitivní gammě${vL.edge ? ' do ' + vL.edge : ''} – růst VIX tlumený`);
-      else add(-1, `VIX v negativní gammě${vL.edge ? ' nad ' + vL.edge : ''} – VIX může vystřelit`);
+      else add(-0.5, `VIX v negativní gammě${vL.edge ? ' nad ' + vL.edge : ''} – VIX může vystřelit`);
     }
     // sectors: semis + tech breadth (AI / data-center risk shows up here first)
     const sec = x.sectors || {};
@@ -450,11 +469,13 @@
       out.lines.push({ q: Q.pivot, role: Q.side < 0 && sc < 0 ? 'PIVOT · SHORT pod ním' : Q.side > 0 && sc > 0 ? 'PIVOT · LONG nad ním' : 'PIVOT', color: '#ef5350' });
       Q.up.forEach((k, i) => out.lines.push({ q: k, role: i === 0 ? 'RESISTANCE' : 'UPSIDE POI', color: '#ef5350' }));
       Q.dn.forEach((k, i) => out.lines.push({ q: k, role: i === Q.dn.length - 1 ? 'SUPPORT · break = sellers' : 'SUPPORT', color: '#66bb6a' }));
+      if (Q.inner[0] != null) out.lines.push({ q: Q.inner[0], role: 'LEVEL', color: '#9aa3b2' });
+      if (Q.inner[1] != null) out.lines.push({ q: Q.inner[1], role: 'LEVEL', color: '#9aa3b2' });
     }
     // short read (tooltip / Focus card)
     const t = [], SPX = out.assets.SPX, V = out.assets.VIX;
-    if (Q) t.push(`QQQ pivot ${Q.pivot} (${Q.side > 0 ? 'nad' : 'pod'}), resistance ${Q.up.join(' / ') || '—'}, support ${Q.dn.join(' / ') || '—'}.`);
-    if (SPX) t.push(`SPX focus ${SPX.pivot} (${SPX.side > 0 ? 'drží' : 'pod'}); ${SPX.side > 0 ? `ztráta → ${SPX.dn[0] || '—'}` : `reclaim → ${SPX.up[0] || '—'}`}.`);
+    if (Q) t.push(`QQQ ${Q.side > 0 ? 'nad' : 'pod'} ${Q.pivot} = pivot${Q.lost ? ' (dnes ztracený)' : ''}. Hlídám ${Q.inner.filter(k => k != null).join(' a ') || '—'}. Nahoru ${Q.up.join(' / ') || '—'}, dolů ${Q.dn.join(' / ') || '—'}${Q.dn.length ? `, ztráta ${Q.dn[Q.dn.length - 1]} otevře cestu níž` : ''}.`);
+    if (SPX) t.push(`SPX pivot ${SPX.pivot} (${SPX.side > 0 ? 'drží' : 'pod'})${SPX.other != null && SPX.other > SPX.pivot ? `, reclaim ${SPX.other}` : ''}${SPX.magnet ? ` → ${SPX.magnet} (největší +GEX)` : SPX.up[0] ? ` → ${SPX.up[0]}` : ''}${SPX.side > 0 && SPX.dn[0] ? `; ztráta pivotu → ${SPX.dn[0]}` : ''}.`);
     if (V) t.push(`VIX ${V.regime > 0 ? `pozitivní gamma${V.edge ? ' do ' + V.edge : ''}, průraz pod ${V.trigger} = pullback/odraz indexů` : `negativní gamma${V.edge ? ' nad ' + V.edge : ''} – VIX může vystřelit`}.`);
     out.text = t;
     return out;
