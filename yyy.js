@@ -316,7 +316,7 @@
       if (pn != null && pn >= 0.8) { score -= 1; out.caveats.push('Krátkodobý put skew je strmý vůči historii – bearish lean / zajištění.'); }
       if (pn != null && pn <= 0.3 && pm != null && pm >= 0.8) out.caveats.push('Krátkodobě klid, ale 20–50 DTE silně zajištěné – něco se chystá dál.');
       if (V.skew && V.skew.squeeze) { score += 1; out.caveats.push('Call skew se blíží put skew – reálná poptávka po callech (squeeze setup).'); }
-      if (V.contango === false) out.caveats.push('Backwardation: nefadeovat velké směrové pohyby, GEX levely se snáz prorazí.');
+      if (V.contango === false) out.caveats.push('QQQ IV křivka v backwardation (front > 30–65 DTE; VIX/VIX3M může být v contangu): nefadeovat velké směrové pohyby, GEX levely se snáz prorazí.');
       if (V.brackets && V.brackets.d1_down && V.brackets.d1_up && V.brackets.d1_down > V.brackets.d1_up * 1.1) { score -= 0.5; out.caveats.push('Dolní 1D bracket je širší než horní – opce se kloní dolů.'); }
     }
     // macro tie-break

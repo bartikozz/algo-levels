@@ -1329,6 +1329,11 @@ function focusUpdate(r){
         if ((s.side === 'short' ? ext - b.l : b.h - ext) >= S.react) { s.res = 'reacted'; s.gap = Math.round((s.side === 'short' ? s.p - ext : ext - s.p) * 4) / 4; break; }
       }
     }
+    // reacted first, broken later: keep the reaction for the stats, but mark the flip (resistance → support and back)
+    if (s.res === 'reacted' && !s.flip) {
+      const b = bars.find(b => b.t > s.t1 && (s.side === 'short' ? b.c > s.p + S.brk : b.c < s.p - S.brk));
+      if (b) s.flip = b.t;
+    }
   }
   // ★ anchor zones: the day's biggest QQQ call wall (above price) and put wall (below price) are always on the chart,
   // whatever the ranking says (6.11: ★CW 665 = 27,441 and ★PW 655 = 27,029 were the obvious levels)
@@ -1404,7 +1409,9 @@ function fzOpt(s){
     const G = st.data.gex || {}, z = hor === 'S' ? (G.zero || G.full) : (G.full || G.zero), last = st.res ? st.res.last : 0;
     if (z && Array.isArray(z.strikes)) { const o = Number.isFinite(z.spot) && Math.abs(z.spot - last) > 40 ? last - z.spot : 0; pick(z.strikes.map(x => [x[0] + o, x[1]]), 0, 1, null); }
   }
-  return { g, v, gx, vx, hor, surf, type: surf ? 'SURFACE' : s.side === 'short' ? 'RESISTANCE' : 'SUPPORT' };
+  // a zone price has closed through acts from the other side now (broken resistance = support)
+  const eff = (s.res === 'broken' || s.flip) ? (s.side === 'short' ? 'long' : 'short') : s.side;
+  return { g, v, gx, vx, hor, surf, type: surf ? 'SURFACE' : eff === 'short' ? 'RESISTANCE' : 'SUPPORT' };
 }
 function fzLabel(s){
   const o = fzOpt(s), t = [];
@@ -1422,7 +1429,7 @@ const fzRangeTxt = s => { const [a, b] = fzRange(s); return `${fmtP(a)} – ${fm
 function fzTvText(){
   const list = fz.segs.filter(s => s.end !== 'replaced');
   return fzClusters(list).sort((a, b) => b.p - a.p).map(c => {
-    const h = c.hit, res = !c.active && h ? (h.res === 'reacted' ? ' reakce' : h.res === 'broken' ? ' proraz' : ' zasah') + ' ' + A.hhmm(h.t1) : '';
+    const h = c.hit, res = !c.active && h ? (h.res === 'reacted' ? ' reakce' : h.res === 'broken' ? ' proraz' : ' zasah') + ' ' + A.hhmm(h.t1) + (h.flip ? ' proraz ' + A.hhmm(h.flip) : '') : '';
     return `${fz.date || ''} ${c.lo.toFixed(2)}-${c.hi.toFixed(2)} ${c.side === 'short' ? 'R' : 'S'} ${c.label.replace(/[|]/g, '/')}${res}`.trim(); }).join('\n');
 }
 async function fzCopy(){
@@ -1473,7 +1480,7 @@ function drawFocus(out){
   const hits = [];
   if (S.focus) for (const s of fz.segs.filter(s => s.end === 'hit'))
     if (!segs.some(a => Math.abs(a.p - s.p) <= S.tol) && !hits.some(h => Math.abs(h.p - s.p) <= S.tol)) hits.push(s);
-  const hash = JSON.stringify(segs.map(s => [s.p, s.side, fzLabel(s)])) + JSON.stringify(hits.map(s => [s.p, s.res])) + JSON.stringify(sn && sn.out ? sn.out.lines.map(l => [l.nq, l.role]) : []) + vis('sent') + JSON.stringify(st.res ? st.res.levels.filter(l => l.fast).map(l => l.price) : []) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus + '|' + S.merge + '|' + fzW();
+  const hash = JSON.stringify(segs.map(s => [s.p, s.side, fzLabel(s)])) + JSON.stringify(hits.map(s => [s.p, s.res, s.flip || 0])) + JSON.stringify(sn && sn.out ? sn.out.lines.map(l => [l.nq, l.role]) : []) + vis('sent') + JSON.stringify(st.res ? st.res.levels.filter(l => l.fast).map(l => l.price) : []) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus + '|' + S.merge + '|' + fzW();
   if (hash === fz.hash) return; fz.hash = hash;
   try { series.setMarkers([]); } catch(e){}
   fz.series.forEach(x => { try { chart.removeSeries(x); } catch(e){} }); fz.series = [];
@@ -1490,14 +1497,14 @@ function drawFocus(out){
   if (S.focus && vis('sent') && sn && sn.out && !st.replay) for (const l of sn.out.lines) if (l.nq && !segs.some(s => Math.abs(s.p - l.nq) <= S.tol))
     fz.axis.push(series.createPriceLine({ price:l.nq, color:l.color, lineWidth:2, lineStyle:0, lineVisible:true, axisLabelVisible:true,
       axisLabelColor:l.color, axisLabelTextColor:'#07080a', title:`${l.role} · QQQ ${l.q}` }));
-  const resTxt = s => s.res === 'reacted' ? `✔ reakce${s.gap > 2 ? ` ${s.gap} b. před levelem` : ''}` : s.res === 'broken' ? '✘ proraženo' : '● v zóně';
+  const resTxt = s => s.res === 'reacted' ? `✔ reakce${s.gap > 2 ? ` ${s.gap} b. před levelem` : ''}${s.flip ? ` → ✘ proraženo ${A.hhmm(s.flip)}` : ''}` : s.res === 'broken' ? '✘ proraženo' : '● v zóně';
   for (const c of fzClusters([...segs, ...hits])) {
     if (c.active) {
       fzZone(out, c, c.side === 'short' ? '#f05a6e' : '#5ee0c8', 0.16);
       fz.axis.push(series.createPriceLine({ price: c.p, color: '#a4a9b0', lineWidth: 1, lineStyle: 0, lineVisible: false,
         axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: `${c.label} · ${c.range}${c.hit ? ` · ${resTxt(c.hit)} ${A.hhmm(c.hit.t1)}` : ''}` }));
     } else {
-      const h = c.hit || c.segs[0], col = h.res === 'reacted' ? '#5ee0c8' : h.res === 'broken' ? '#f05a6e' : '#8a8f97';
+      const h = c.hit || c.segs[0], col = h.flip || h.res === 'broken' ? '#f05a6e' : h.res === 'reacted' ? '#5ee0c8' : '#8a8f97';
       fzZone(out, c, col, 0.10);
       fz.axis.push(series.createPriceLine({ price: c.p, color: col + '99', lineWidth: 1, lineStyle: 1, lineVisible: false,
         axisLabelVisible: true, axisLabelColor: col, axisLabelTextColor: '#07080a', title: `${c.label} · ${c.range} · ${resTxt(h)} ${h.t1 ? A.hhmm(h.t1) : ''}` }));
@@ -1525,18 +1532,21 @@ function focusCards0(r){
 }
 function checkFocusAlerts(){
   const r = st.res; if (!r) return;
+  // Plán dne CRITICAL (size ZERO): zone alerts stay informative only – no sound, no "trade it" wording
+  const noTrade = st.gate && st.gate.label === 'CRITICAL' && !st.replay;
+  const ping = () => { if (!noTrade) beep(); };
   for (const s of fz.segs) {
     const k = `${s.side}:${s.p}:${s.t0}`;
     if (!s.t1 && Math.abs(s.p - r.last) <= S.alertDist && !fz.alerted[k + ':near']) {
       fz.alerted[k + ':near'] = 1;
-      const msg = `◎ ${s.side === 'short' ? 'SHORT' : 'LONG'} reversal zóna ${fmtP(s.p)} – cena ${fmtP(r.last)} · skóre ${s.score} · ${s.tags.slice(0, 3).join(', ')}`;
-      toast(msg, true); beep();
+      const msg = noTrade ? `◎ Zóna ${fmtP(s.p)} blízko (cena ${fmtP(r.last)}) – NO TRADE dnes, size ZERO` : `◎ ${s.side === 'short' ? 'SHORT' : 'LONG'} reversal zóna ${fmtP(s.p)} – cena ${fmtP(r.last)} · skóre ${s.score} · ${s.tags.slice(0, 3).join(', ')}`;
+      toast(msg, !noTrade); ping();
       try { if ('Notification' in window && Notification.permission === 'granted') new Notification('Reversal zóna', { body:msg }); } catch(e){}
     }
     if (s.end === 'hit' && !fz.alerted[k + ':hit'] && Date.now() / 1000 - s.t1 < 600) {
       fz.alerted[k + ':hit'] = 1;
-      const msg = `◎ Zóna ${fmtP(s.p)} zasažena – sleduj footprint na ${s.side === 'short' ? 'short' : 'long'}`;
-      toast(msg, true); beep();
+      const msg = noTrade ? `◎ Zóna ${fmtP(s.p)} zasažena – NO TRADE dnes (Plán dne: size ZERO), jen sleduj` : `◎ Zóna ${fmtP(s.p)} zasažena – sleduj footprint na ${s.side === 'short' ? 'short' : 'long'}`;
+      toast(msg, !noTrade); ping();
       try { if ('Notification' in window && Notification.permission === 'granted') new Notification('Zóna zasažena', { body:msg }); } catch(e){}
     }
   }
@@ -2528,10 +2538,11 @@ function pushUI(){ $('sPushTv').checked = !!S.pushTv; $('sPush').checked = !!S.p
 async function pushPublish(force){
   if (!S.push || !S.worker || st.demo || st.replay || !st.res) return;
   const z = fz.segs.filter(s => !s.t1).map(s => ({ side:s.side, p:s.p, score:s.score, tags:s.tags.slice(0, 4) }));
-  const key = JSON.stringify([z, Math.round(st.basis || 0), S.pushNear || 15, st.res.today]);
+  const nt = st.gate && st.gate.label === 'CRITICAL' ? 1 : 0;
+  const key = JSON.stringify([z, Math.round(st.basis || 0), S.pushNear || 15, st.res.today, nt]);
   if (!force && key === st.pushKey && Date.now() - (st.pushAt || 0) < 10 * 60e3) return;
   try {
-    await api(`/focus/set?topic=${encodeURIComponent(pushTopic())}&date=${st.res.today}&b=${encodeURIComponent((st.basis || 0).toFixed(2))}&near=${S.pushNear || 15}&touch=${fzW()}&z=${encodeURIComponent(JSON.stringify(z))}`);
+    await api(`/focus/set?topic=${encodeURIComponent(pushTopic())}&date=${st.res.today}&b=${encodeURIComponent((st.basis || 0).toFixed(2))}&near=${S.pushNear || 15}&touch=${fzW()}&nt=${nt}&z=${encodeURIComponent(JSON.stringify(z))}`);
     st.pushKey = key; st.pushAt = Date.now();
   } catch(e){}
 }
@@ -2729,14 +2740,14 @@ function planRender(){
   if (V) {
     const sk = V.skew, hp = V.hist && V.hist.pct || {}, fr = V.front || {};
     h += `<div class="pl-card"><h5>04 SKEW <span>${sk.squeeze ? 'SQUEEZE?' : (hp.near >= 0.8 ? 'STRMÝ' : 'OK')}</span></h5>
-      ${plRow('25Δ put − call · 0–7 DTE', `${(sk.near * 100).toFixed(1)} b.${hp.near != null ? ' · ' + Math.round(hp.near * 100) + '. percentil' : ''}`, hp.near >= 0.8 ? 'd' : '')}
-      ${plRow('25Δ put − call · 20–50 DTE', sk.medium != null ? `${(sk.medium * 100).toFixed(1)} b.${hp.medium != null ? ' · ' + Math.round(hp.medium * 100) + '. percentil' : ''}` : '—', hp.medium >= 0.8 ? 'd' : '')}
+      ${plRow('25Δ put − call · 0–7 DTE', `${(sk.near * 100).toFixed(1)} b.${hp.near != null ? ' · ' + Math.round(hp.near * 100) + '. percentil (' + V.hist.n + ' d)' : ''}`, hp.near >= 0.8 ? 'd' : '')}
+      ${plRow('25Δ put − call · 20–50 DTE', sk.medium != null ? `${(sk.medium * 100).toFixed(1)} b.${hp.medium != null ? ' · ' + Math.round(hp.medium * 100) + '. percentil (' + V.hist.n + ' d)' : ''}` : '—', hp.medium >= 0.8 ? 'd' : '')}
       ${plRow('Levé křídlo IV(0.90) − ATM', sk.wing90 != null ? `${(sk.wing90 * 100).toFixed(1)} b.` : '—', hp.wing90 >= 0.8 ? 'd' : '')}
       ${plRow('Call strana', sk.squeeze ? 'zvednutá ≈ put → poptávka po callech' : 'plochá (normál)', sk.squeeze ? 'u' : '')}
       ${plRow('Konzistence σ přes DTE', V.sigma_consistency != null ? (V.sigma_consistency < 0.01 ? 'stabilní' : 'skáče → levely méně spolehlivé') : '—', V.sigma_consistency >= 0.01 ? 'w' : '')}</div>`;
     h += `<div class="pl-card"><h5>05 IV POVRCH <span>${V.atm_bucket || '—'}</span></h5>
       ${plRow('ATM IV 1D · 7D · 30D', [V.atm.d1, V.atm.d7, V.atm.d30].map(x => plPct(x)).join(' · '))}
-      ${plRow('Term structure', V.contango == null ? '—' : V.contango ? 'CONTANGO (normál)' : 'BACKWARDATION', V.contango === false ? 'x' : 'u')}
+      ${plRow('QQQ IV křivka (front vs 30–65 DTE)', V.contango == null ? '—' : V.contango ? 'CONTANGO (normál)' : 'BACKWARDATION', V.contango === false ? 'x' : 'u')}
       ${plRow('Forward vol 7→30 · 30→60 d', `${plPct(V.fwd.f7_30)} · ${plPct(V.fwd.f30_60)}`, V.fwd.f7_30 && V.atm.d7 && V.fwd.f7_30 > V.atm.d7 * 1.1 ? 'w' : '')}
       ${plRow('Front edge spike (event)', V.front_spikes.length ? V.front_spikes.join(', ') : 'žádný')}
       ${plRow('Díry v IV (0–7 DTE)', `${V.holes}${V.hist && V.hist.holes_change != null ? ' (' + (V.hist.holes_change >= 0 ? '+' : '') + V.hist.holes_change + ' vs včera)' : ''}`, V.hist && V.hist.holes_change > 3 ? 'w' : '')}

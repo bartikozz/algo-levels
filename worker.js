@@ -115,10 +115,11 @@ async function focusWatch(env) {
     const tags = (z.tags || []).join(', ');
     if (hit && !st[id + ':hit']) {
       st[id + ':hit'] = st[id + ':near'] = now; changed = true;
-      await ntfy(cfg.topic, `◎ ${side} zóna zasažena · ${fmtNQ(z.p)}`, `NQ ${fmtNQ(px)} · skóre ${z.score} · ${tags}\nSleduj footprint na ${z.side === 'short' ? 'short' : 'long'}.`, 'urgent', z.side === 'short' ? 'red_circle' : 'green_circle');
+      if (cfg.noTrade) await ntfy(cfg.topic, `◎ Zóna zasažena · ${fmtNQ(z.p)} · NO TRADE`, `NQ ${fmtNQ(px)} · Plán dne: size ZERO, jen sledovat.`, 'low', 'no_entry');
+      else await ntfy(cfg.topic, `◎ ${side} zóna zasažena · ${fmtNQ(z.p)}`, `NQ ${fmtNQ(px)} · skóre ${z.score} · ${tags}\nSleduj footprint na ${z.side === 'short' ? 'short' : 'long'}.`, 'urgent', z.side === 'short' ? 'red_circle' : 'green_circle');
     } else if (!hit && Math.abs(d) <= cfg.near && !st[id + ':near']) {
       st[id + ':near'] = now; changed = true;
-      await ntfy(cfg.topic, `◎ ${side} zóna ${fmtNQ(z.p)} – cena ${Math.abs(d).toFixed(0)} b.`, `NQ ${fmtNQ(px)} · skóre ${z.score} · ${tags}`, 'high', 'eyes');
+      if (!cfg.noTrade) await ntfy(cfg.topic, `◎ ${side} zóna ${fmtNQ(z.p)} – cena ${Math.abs(d).toFixed(0)} b.`, `NQ ${fmtNQ(px)} · skóre ${z.score} · ${tags}`, 'high', 'eyes');
     }
   }
   if (changed) await env.SNAP.put(key, JSON.stringify(st), { expirationTtl: 3 * 86400 });
@@ -570,7 +571,7 @@ export default {
             .map(z => ({ side: z.side, p: +z.p, score: +z.score || 0, tags: (Array.isArray(z.tags) ? z.tags : []).slice(0, 4).map(String) }));
           const cfg = { date: url.searchParams.get('date') || etParts(Date.now() / 1000 + 6 * 3600).date, zones, topic,
             basis: +url.searchParams.get('b') || 0, near: Math.min(60, Math.max(3, +url.searchParams.get('near') || 15)),
-            touch: Math.min(60, Math.max(0, +url.searchParams.get('touch') || 3)), at: Date.now() };
+            touch: Math.min(60, Math.max(0, +url.searchParams.get('touch') || 3)), noTrade: url.searchParams.get('nt') === '1', at: Date.now() };
           await env.SNAP.put('fz:cur', JSON.stringify(cfg));
           return json({ ok: true, zones: zones.length }, 200, cors);
         }
