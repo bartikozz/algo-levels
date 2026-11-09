@@ -1480,6 +1480,8 @@ function drawFocus(out){
   const hits = [];
   if (S.focus) for (const s of fz.segs.filter(s => s.end === 'hit'))
     if (!segs.some(a => Math.abs(a.p - s.p) <= S.tol) && !hits.some(h => Math.abs(h.p - s.p) <= S.tol)) hits.push(s);
+  // declutter: finished zones only near price (≤ 150 b.), at most the 3 nearest
+  if (st.res) { const px = st.res.last; hits.splice(0, hits.length, ...hits.filter(h => Math.abs(h.p - px) <= 150).sort((a, b) => Math.abs(a.p - px) - Math.abs(b.p - px)).slice(0, 3)); }
   const hash = JSON.stringify(segs.map(s => [s.p, s.side, fzLabel(s)])) + JSON.stringify(hits.map(s => [s.p, s.res, s.flip || 0])) + JSON.stringify(sn && sn.out ? sn.out.lines.map(l => [l.nq, l.role]) : []) + vis('sent') + JSON.stringify(st.res ? st.res.levels.filter(l => l.fast).map(l => l.price) : []) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus + '|' + S.merge + '|' + fzW();
   if (hash === fz.hash) return; fz.hash = hash;
   try { series.setMarkers([]); } catch(e){}
@@ -1494,20 +1496,21 @@ function drawFocus(out){
     fz.axis.push(series.createPriceLine({ price: l.price, color: '#f0a020', lineWidth: 1, lineStyle: 2, lineVisible: true, axisLabelVisible: true,
       axisLabelColor: '#f0a020', axisLabelTextColor: '#07080a', title: '⚡ FLIP v LVN · rychlý pohyb' }));
   // sentiment levels (QQQ all-expiry pivot + POIs → NQ), mentor-style labels
-  if (S.focus && vis('sent') && sn && sn.out && !st.replay) for (const l of sn.out.lines) if (l.nq && !segs.some(s => Math.abs(s.p - l.nq) <= S.tol))
+  if (S.focus && vis('sent') && sn && sn.out && !st.replay) for (const l of sn.out.lines) if (l.nq && ![...segs, ...hits].some(s => Math.abs(s.p - l.nq) <= S.tol))
     fz.axis.push(series.createPriceLine({ price:l.nq, color:l.color, lineWidth:2, lineStyle:0, lineVisible:true, axisLabelVisible:true,
       axisLabelColor:l.color, axisLabelTextColor:'#07080a', title:`${l.role} · QQQ ${l.q}` }));
-  const resTxt = s => s.res === 'reacted' ? `✔ reakce${s.gap > 2 ? ` ${s.gap} b. před levelem` : ''}${s.flip ? ` → ✘ proraženo ${A.hhmm(s.flip)}` : ''}` : s.res === 'broken' ? '✘ proraženo' : '● v zóně';
   for (const c of fzClusters([...segs, ...hits])) {
     if (c.active) {
       fzZone(out, c, c.side === 'short' ? '#f05a6e' : '#5ee0c8', 0.16);
       fz.axis.push(series.createPriceLine({ price: c.p, color: '#a4a9b0', lineWidth: 1, lineStyle: 0, lineVisible: false,
-        axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: `${c.label} · ${c.range}${c.hit ? ` · ${resTxt(c.hit)} ${A.hhmm(c.hit.t1)}` : ''}` }));
+        axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: c.label }));
     } else {
-      const h = c.hit || c.segs[0], col = h.flip || h.res === 'broken' ? '#f05a6e' : h.res === 'reacted' ? '#5ee0c8' : '#8a8f97';
-      fzZone(out, c, col, 0.10);
-      fz.axis.push(series.createPriceLine({ price: c.p, color: col + '99', lineWidth: 1, lineStyle: 1, lineVisible: false,
-        axisLabelVisible: true, axisLabelColor: col, axisLabelTextColor: '#07080a', title: `${c.label} · ${c.range} · ${resTxt(h)} ${h.t1 ? A.hhmm(h.t1) : ''}` }));
+      // finished zone: grey, faint band, short label "SUP · ✔ 10:39 → ✘ 10:43" (full detail stays in Levely / Deník)
+      const h = c.hit || c.segs[0], col = '#6b7079', typ = fzOpt(h).type;
+      const stx = h.res === 'reacted' ? `✔ ${A.hhmm(h.t1)}${h.flip ? ` → ✘ ${A.hhmm(h.flip)}` : ''}` : h.res === 'broken' ? `✘ ${A.hhmm(h.t1)}` : `● ${A.hhmm(h.t1)}`;
+      fzZone(out, c, col, 0.06);
+      fz.axis.push(series.createPriceLine({ price: c.p, color: col, lineWidth: 1, lineStyle: 1, lineVisible: false,
+        axisLabelVisible: true, axisLabelColor: col, axisLabelTextColor: '#e6e8eb', title: `${typ === 'RESISTANCE' ? 'RES' : typ === 'SUPPORT' ? 'SUP' : 'SURF'} · ${stx}` }));
     }
   }
 }
