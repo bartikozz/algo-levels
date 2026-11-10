@@ -311,7 +311,7 @@ body.focus .meta{display:none!important}
 </head>
 <body>
 <header>
-  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10d</small></div>
+  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10e</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="planBtn" class="hbtn" hidden aria-label="Plán dne">✦</button>
@@ -1509,11 +1509,12 @@ function drawFocus(out){
   const segs = S.focus ? fzShow(fz.segs.filter(s => !s.t1)) : [];
   // levels already hit today stay on the chart (dimmed, with the outcome) until the session ends
   const hits = [];
-  if (S.focus) for (const s of fzShow(fz.segs.filter(s => s.end === 'hit' && !s.flipped)).filter(s => S.majorOnly === false || s.major))
+  const bb = st.data.bars || [], now = bb.length ? bb[bb.length - 1].t : Date.now() / 1000;
+  if (S.focus) for (const s of fzShow(fz.segs.filter(s => s.end === 'hit' && !s.flipped)).filter(s => S.majorOnly === false || (s.major && now - s.t1 <= 2 * 3600)))
     if (!segs.some(a => Math.abs(a.p - s.p) <= S.tol) && !hits.some(h => Math.abs(h.p - s.p) <= S.tol)) hits.push(s);
   // declutter: finished zones only near price (≤ 150 b.), at most the 3 nearest
   if (st.res) { const px = st.res.last; hits.splice(0, hits.length, ...hits.filter(h => Math.abs(h.p - px) <= 150).sort((a, b) => Math.abs(a.p - px) - Math.abs(b.p - px)).slice(0, 3)); }
-  const hash = JSON.stringify(segs.map(s => [s.p, s.side, fzLabel(s)])) + JSON.stringify(hits.map(s => [s.p, s.res, s.flip || 0])) + JSON.stringify(sn && sn.out ? sn.out.lines.map(l => [l.nq, l.role]) : []) + vis('sent') + JSON.stringify(st.res ? st.res.levels.filter(l => l.fast).map(l => l.price) : []) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus + '|' + S.merge + '|' + fzW();
+  const hash = JSON.stringify(segs.map(s => [s.p, s.side, fzLabel(s)])) + JSON.stringify(hits.map(s => [s.p, s.res, s.flip || 0, s.t1])) + JSON.stringify(sn && sn.out ? sn.out.lines.map(l => [l.nq, l.role]) : []) + vis('sent') + JSON.stringify(st.res ? st.res.levels.filter(l => l.fast).map(l => l.price) : []) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus + '|' + S.merge + '|' + fzW();
   if (hash === fz.hash) return; fz.hash = hash;
   try { series.setMarkers([]); } catch(e){}
   fz.series.forEach(x => { try { chart.removeSeries(x); } catch(e){} }); fz.series = [];
@@ -1535,6 +1536,12 @@ function drawFocus(out){
       fzZone(out, c, c.side === 'short' ? '#f05a6e' : '#5ee0c8', 0.16);
       fz.axis.push(series.createPriceLine({ price: c.p, color: '#a4a9b0', lineWidth: 1, lineStyle: 0, lineVisible: false,
         axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: c.label }));
+    } else if (S.majorOnly !== false) {
+      // ★ main wall hit within the last 2 h: same colour as when active, label says when it was hit
+      const h = c.hit || c.segs[0];
+      fzZone(out, c, c.side === 'short' ? '#f05a6e' : '#5ee0c8', 0.16);
+      fz.axis.push(series.createPriceLine({ price: c.p, color: '#a4a9b0', lineWidth: 1, lineStyle: 0, lineVisible: false,
+        axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: `${c.label} · zasaženo ${A.hhmm(h.t1)}` }));
     } else {
       // finished zone: grey, faint band, short label "SUP · ✔ 10:39 → ✘ 10:43" (full detail stays in Levely / Deník)
       const h = c.hit || c.segs[0], col = '#6b7079', typ = fzOpt(h).type;
