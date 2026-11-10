@@ -312,7 +312,7 @@ body.focus .meta{display:none!important}
 </head>
 <body>
 <header>
-  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10h</small></div>
+  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10i</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="planBtn" class="hbtn" hidden aria-label="Plán dne">✦</button>
@@ -1507,6 +1507,16 @@ function fzZone(out, s, col, alpha){
   e.setData(pts.map(o => ({ time:o.time, value:lo })));
   fz.series.push(z, e);
 }
+// net drift (QuantData style, data server): customer net premium in OTM calls vs puts over the last ~15 min
+//  +1 = call heavy (buyers pressing up), −1 = put heavy, 0 = flat / no server
+function driftSig(){
+  const d = st.drift; if (!d || d.length < 6) return 0;
+  const a = d[d.length - 1], b = d[Math.max(0, d.length - 16)];
+  const net = (a[2] - b[2]) - (a[3] - b[3]), scale = 0.03 * (Math.abs(a[2]) + Math.abs(a[3]) + 1);
+  return net > scale ? 1 : net < -scale ? -1 : 0;
+}
+setInterval(() => { if (S.server && !st.demo && S.majorOnly !== false && document.visibilityState === 'visible')
+  srv('/options/customer?pct=0.03').then(D => { st.drift = D && D.drift; fz.hash = ''; }).catch(() => {}); }, 60000);
 // ★ main QQQ walls → zones, computed fresh every time from the GEXbot majors and today's bars (no per-device state),
 // so PC and phone always show the same: zone on the price side of the wall, "zasaženo" = last touch today
 function fzMajors(r){
@@ -1519,25 +1529,34 @@ function fzMajors(r){
     return { side: above ? 'short' : 'long', p: m.price, lo, hi, q: m.qqq, t0: 0, full: true, hit,
       range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `★ ${above ? 'RESISTANCE' : 'SUPPORT'} · QQQ ${m.qqq}` };
   });
-  // + the strongest short-dated wall per side (0DTE / 1DTE wall with base score ≥ 6, e.g. 10.11: 1DTE CW 1 + 0DTE CW 3 +
-  //   OI PW + ON VAH at QQQ 681 = the day's high, one strike above ★ CW 680). Base score ignores data-server extras.
-  const k = r.info.ratio, out = mz.slice();
+  // + a short-dated wall only where it is a likely high / low of the day (10.11: 1DTE CW 1 + 0DTE CW 3 + OI PW + ON VAH at
+  //   QQQ 681 = the day's high, one strike above ★ CW 680; exit there on absorption + NDX net drift flipping put heavy):
+  //   0DTE / 1DTE wall, base score ≥ 6 (no data-server extras), not traded through today (still beyond today's high / low),
+  //   and at least one of: near the edge of today's expected move (open ± EM) or net drift leaning against the move into it.
+  //   Net drift pushing through it (call heavy into resistance / put heavy into support) removes it.
+  const k = r.info.ratio, out = mz.slice(), ds = driftSig();
+  const dHi = bb.length ? Math.max(...bb.map(b => b.h)) : r.last, dLo = bb.length ? Math.min(...bb.map(b => b.l)) : r.last;
+  const emv = r.info.em, edge = side => emv && Number.isFinite(emv.anchor) ? emv.anchor + (side === 'short' ? 1 : -1) * emv.em : null;
   for (const side of ['short', 'long']) {
+    const above = side === 'short', ed = edge(side), against = above ? ds < 0 : ds > 0, through = above ? ds > 0 : ds < 0;
+    if (through) continue;
     const c = (r.levels || []).filter(l => (l.base != null ? l.base : l.score) >= 6 && l.tags.some(t => /^(0DTE|1DTE) (CW|PW)/.test(t))
-      && (side === 'short' ? l.price > r.last : l.price < r.last) && Math.abs(l.price - r.last) <= em * 1.25
+      && (above ? l.price > r.last : l.price < r.last) && Math.abs(l.price - r.last) <= em * 1.25
+      && (above ? l.price >= dHi - W : l.price <= dLo + W)
+      && ((ed != null && Math.abs(l.price - ed) <= 0.35 * emv.em) || against)
       && !mz.some(z => Math.abs(z.p - l.price) <= 2 * W)).sort((a, b) => (b.base || b.score) - (a.base || a.score))[0];
     if (!c) continue;
-    const above = side === 'short', lo = above ? c.price - W : c.price, hi = above ? c.price : c.price + W;
+    const lo = above ? c.price - W : c.price, hi = above ? c.price : c.price + W;
     let hit = null; for (let i = bb.length - 1; i >= 0; i--) if (bb[i].h >= lo && bb[i].l <= hi) { hit = bb[i].t; break; }
     const tg = c.tags.find(t => /^(0DTE|1DTE) (CW|PW)/.test(t));
     out.push({ side, p: c.price, lo, hi, q: k ? Math.round(c.price / k) : null, t0: 0, full: true, hit, minor: true,
-      range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `◆ ${above ? 'RESISTANCE' : 'SUPPORT'} · ${tg}${k ? ' · QQQ ' + Math.round(c.price / k) : ''}` });
+      range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `◆ ${above ? 'HOD?' : 'LOD?'} · ${tg}${k ? ' · QQQ ' + Math.round(c.price / k) : ''}${against ? ' · drift ✓' : ''}` });
   }
   return out.sort((a, b) => b.p - a.p);
 }
 function drawMajors(out){
   const zs = S.focus ? fzMajors(st.res) : [];
-  const hash = 'M' + JSON.stringify(zs.map(z => [z.p, z.side, z.hit])) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus + '|' + fzW();
+  const hash = 'M' + JSON.stringify(zs.map(z => [z.p, z.side, z.hit, z.label])) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus + '|' + fzW();
   if (hash === fz.hash) return; fz.hash = hash;
   try { series.setMarkers([]); } catch(e){}
   fz.series.forEach(x => { try { chart.removeSeries(x); } catch(e){} }); fz.series = [];
