@@ -311,7 +311,7 @@ body.focus .meta{display:none!important}
 </head>
 <body>
 <header>
-  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10c</small></div>
+  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10d</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="planBtn" class="hbtn" hidden aria-label="Plán dne">✦</button>
@@ -1369,13 +1369,13 @@ function focusUpdate(r){
       if (!ex.t1) { ex.p = m.price; continue; }
       // ★ wall already hit today: arm it again once price is well away on the right side (a retest is a new trade)
       const away = side === 'long' ? r.last - (m.price + fzW()) : (m.price - fzW()) - r.last;
-      if (ex.end !== 'hit' || away < 3 * fzW() || Math.abs(m.price - r.last) > em * 1.5) continue;
+      if (ex.end !== 'hit' || away < 3 * fzW() || Math.abs(m.price - r.last) > em * 2.5) continue;
       const l = r.levels.find(x => Math.abs(x.price - m.price) <= S.tol);
       fz.segs.push({ side, p:m.price, q:m.qqq, major:true, t0:lastT, score:l ? l.score : ex.score, tags:ex.tags.slice(0, 4), why:ex.why || [] });
       continue;
     }
     if (side === 'short' ? m.price <= r.last + fzW() : m.price >= r.last - fzW()) continue;   // already inside / through it
-    if (Math.abs(m.price - r.last) > em * 1.5) continue;
+    if (Math.abs(m.price - r.last) > em * 2.5) continue;   // main walls stay on the chart further out than ranked zones
     fz.segs.filter(s => s.major && !s.t1 && s.side === side).forEach(s => { s.t1 = lastT; s.end = 'replaced'; });   // the ★ moved to another strike
     const l = r.levels.find(x => Math.abs(x.price - m.price) <= S.tol);
     fz.segs.push({ side, p:m.price, q:m.qqq, major:true, t0:firstT0(side, m.price), score:l ? l.score : 0,
