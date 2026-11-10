@@ -456,6 +456,7 @@ body.focus .meta{display:none!important}
     <div class="f"><label>Silná zóna (b.)</label><input id="sMS" type="number" step="1"></div>
   </div>
   <h4>PUSH NA TELEFON (ntfy)</h4>
+  <label class="cb"><input id="sMajorOnly" type="checkbox"> Jen hlavní QQQ wally (★) – na straně, kde je ★ zóna, skrýt ostatní zóny a ↻ otočené zóny</label>
   <label class="cb"><input id="sPushTv" type="checkbox"> Posílat zóny pro TradingView do telefonu (ntfy, při každé nové zóně – podržením zkopíruješ a vložíš do indikátoru Algo Zones)</label>
   <label class="cb"><input id="sPush" type="checkbox"> Poslat upozornění na telefon, když se cena přiblíží k Focus zóně a když ji zasáhne (i se zavřeným terminálem)</label>
   <div class="pushbox">
@@ -1363,8 +1364,16 @@ function focusUpdate(r){
   for (const m of (r.info.majors || [])) {
     if (!Number.isFinite(m.price) || m.stale) continue;
     const side = m.type === 'CW' ? 'short' : 'long';
-    const ex = fz.segs.find(s => s.major && s.side === side && s.q === m.qqq);
-    if (ex) { if (!ex.t1) ex.p = m.price; continue; }
+    const ex = fz.segs.filter(s => s.major && s.side === side && s.q === m.qqq).pop();
+    if (ex) {
+      if (!ex.t1) { ex.p = m.price; continue; }
+      // ★ wall already hit today: arm it again once price is well away on the right side (a retest is a new trade)
+      const away = side === 'long' ? r.last - (m.price + fzW()) : (m.price - fzW()) - r.last;
+      if (ex.end !== 'hit' || away < 3 * fzW() || Math.abs(m.price - r.last) > em * 1.5) continue;
+      const l = r.levels.find(x => Math.abs(x.price - m.price) <= S.tol);
+      fz.segs.push({ side, p:m.price, q:m.qqq, major:true, t0:lastT, score:l ? l.score : ex.score, tags:ex.tags.slice(0, 4), why:ex.why || [] });
+      continue;
+    }
     if (side === 'short' ? m.price <= r.last + fzW() : m.price >= r.last - fzW()) continue;   // already inside / through it
     if (Math.abs(m.price - r.last) > em * 1.5) continue;
     fz.segs.filter(s => s.major && !s.t1 && s.side === side).forEach(s => { s.t1 = lastT; s.end = 'replaced'; });   // the ★ moved to another strike
@@ -1437,6 +1446,12 @@ function fzLabel(s){
   if (o.g) t.push(o.g > 0 ? 'G+' : 'G−');
   return `${s.flipOf ? '↻ ' : ''}${s.major ? '★ ' : ''}${t.map(x => '(' + x + ')').join(' ')}${t.length ? ' | ' : ''}${o.type} - ${o.hor}`;
 }
+// which zones are shown: by default only the ★ main QQQ wall on a side that has one (mentor: "670 is the wall"),
+// ranked zones only fill a side without a ★, flipped (↻) zones are hidden
+function fzShow(list){
+  if (S.majorOnly === false) return list;
+  return list.filter(s => !s.flipOf && (s.major || !fz.segs.some(x => x.major && !x.t1 && x.side === s.side)));
+}
 // zone width: auto = 0.4 QQQ in NQ points (≈ 16 b.) – 6.11 front-runs were 16 b. (★CW 665) and 9.5 b. (★PW 655); manual value in ⚙ wins
 const fzW = () => { const k = st.res && st.res.info && st.res.info.ratio; return Math.max(S.touch || 3, S.zoneSet && +S.zone > 0 ? +S.zone : k ? Math.round(0.4 * k * 4) / 4 : 16); };
 const fzRange = s => { if (s.band) return s.band; const W = fzW(); return s.side === 'short' ? [s.p - W, s.p] : [s.p, s.p + W]; };
@@ -1491,10 +1506,10 @@ function fzZone(out, s, col, alpha){
   fz.series.push(z, e);
 }
 function drawFocus(out){
-  const segs = S.focus ? fz.segs.filter(s => !s.t1) : [];
+  const segs = S.focus ? fzShow(fz.segs.filter(s => !s.t1)) : [];
   // levels already hit today stay on the chart (dimmed, with the outcome) until the session ends
   const hits = [];
-  if (S.focus) for (const s of fz.segs.filter(s => s.end === 'hit' && !s.flipped))
+  if (S.focus) for (const s of fzShow(fz.segs.filter(s => s.end === 'hit' && !s.flipped)).filter(s => S.majorOnly === false || s.major))
     if (!segs.some(a => Math.abs(a.p - s.p) <= S.tol) && !hits.some(h => Math.abs(h.p - s.p) <= S.tol)) hits.push(s);
   // declutter: finished zones only near price (≤ 150 b.), at most the 3 nearest
   if (st.res) { const px = st.res.last; hits.splice(0, hits.length, ...hits.filter(h => Math.abs(h.p - px) <= 150).sort((a, b) => Math.abs(a.p - px) - Math.abs(b.p - px)).slice(0, 3)); }
@@ -1537,7 +1552,7 @@ function focusCards(r){
   return gate + sentCard() + focusCards0(r);
 }
 function focusCards0(r){
-  const act = fz.segs.filter(s => !s.t1).sort((a, b) => b.p - a.p);
+  const act = fzShow(fz.segs.filter(s => !s.t1)).sort((a, b) => b.p - a.p);
   if (!act.length) {
     const g = st.data.gex || {}, why = !(g.zero || g.full) ? ` · GEXbot data se nenačetla (${esc($('upd').textContent || '')})` : gexStale() ? ' · GEXbot data jsou starší než 15 min' : '';
     return `<div class="fzc"><span class="m">◎ Žádná zóna s dost silnou konfluencí v dosahu${why}.</span>${fz.segs.length ? '<button class="tv" onclick="fzCopy()">📋 TV</button>' : ''}</div>`;
@@ -1554,7 +1569,9 @@ function checkFocusAlerts(){
   // Plán dne CRITICAL (size ZERO): zone alerts stay informative only – no sound, no "trade it" wording
   const noTrade = st.gate && st.gate.label === 'CRITICAL' && !st.replay;
   const ping = () => { if (!noTrade) beep(); };
+  const shown = new Set(fzShow(fz.segs));
   for (const s of fz.segs) {
+    if (!shown.has(s)) continue;
     const k = `${s.side}:${s.p}:${s.t0}`;
     if (!s.t1 && Math.abs(s.p - r.last) <= S.alertDist && !fz.alerted[k + ':near']) {
       fz.alerted[k + ':near'] = 1;
@@ -2553,10 +2570,10 @@ async function pushTv(){
   } catch(e){}
 }
 setInterval(pushTv, 60000);
-function pushUI(){ $('sPushTv').checked = !!S.pushTv; $('sPush').checked = !!S.push; $('sTopic').value = pushTopic(); $('sNear').value = S.pushNear || 15; }
+function pushUI(){ $('sMajorOnly').checked = S.majorOnly !== false; $('sPushTv').checked = !!S.pushTv; $('sPush').checked = !!S.push; $('sTopic').value = pushTopic(); $('sNear').value = S.pushNear || 15; }
 async function pushPublish(force){
   if (!S.push || !S.worker || st.demo || st.replay || !st.res) return;
-  const z = fz.segs.filter(s => !s.t1).map(s => ({ side:s.side, p:s.p, score:s.score, tags:s.tags.slice(0, 4) }));
+  const z = fzShow(fz.segs.filter(s => !s.t1)).map(s => ({ side:s.side, p:s.p, score:s.score, tags:s.tags.slice(0, 4) }));
   const nt = st.gate && st.gate.label === 'CRITICAL' ? 1 : 0;
   const key = JSON.stringify([z, Math.round(st.basis || 0), S.pushNear || 15, st.res.today, nt]);
   if (!force && key === st.pushKey && Date.now() - (st.pushAt || 0) < 10 * 60e3) return;
@@ -2565,6 +2582,7 @@ async function pushPublish(force){
     st.pushKey = key; st.pushAt = Date.now();
   } catch(e){}
 }
+$('sMajorOnly').onchange = () => { S.majorOnly = $('sMajorOnly').checked; save(); fz.hash = ''; render(); };
 $('sPushTv').onchange = () => { S.pushTv = $('sPushTv').checked; S.pushTvKey = ''; save(); pushTv(); };
 $('sPush').onchange = async () => { S.push = $('sPush').checked; save(); if (S.push) await pushAdopt(); st.pushKey = ''; pushPublish(true); };
 $('sNear').onchange = () => { S.pushNear = Math.max(3, +$('sNear').value || 15); save(); st.pushKey = ''; pushPublish(true); };
