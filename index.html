@@ -311,7 +311,7 @@ body.focus .meta{display:none!important}
 </head>
 <body>
 <header>
-  <div class="brand">ALGO<span>LEVELS</span></div>
+  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10c</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="planBtn" class="hbtn" hidden aria-label="Plán dne">✦</button>
@@ -456,7 +456,7 @@ body.focus .meta{display:none!important}
     <div class="f"><label>Silná zóna (b.)</label><input id="sMS" type="number" step="1"></div>
   </div>
   <h4>PUSH NA TELEFON (ntfy)</h4>
-  <label class="cb"><input id="sMajorOnly" type="checkbox"> Jen hlavní QQQ wally (★) – na straně, kde je ★ zóna, skrýt ostatní zóny a ↻ otočené zóny</label>
+  <label class="cb"><input id="sMajorOnly" type="checkbox"> Focus jen hlavní QQQ wally (★) – žádné další zóny ani čáry</label>
   <label class="cb"><input id="sPushTv" type="checkbox"> Posílat zóny pro TradingView do telefonu (ntfy, při každé nové zóně – podržením zkopíruješ a vložíš do indikátoru Algo Zones)</label>
   <label class="cb"><input id="sPush" type="checkbox"> Poslat upozornění na telefon, když se cena přiblíží k Focus zóně a když ji zasáhne (i se zavřeným terminálem)</label>
   <div class="pushbox">
@@ -1447,10 +1447,10 @@ function fzLabel(s){
   return `${s.flipOf ? '↻ ' : ''}${s.major ? '★ ' : ''}${t.map(x => '(' + x + ')').join(' ')}${t.length ? ' | ' : ''}${o.type} - ${o.hor}`;
 }
 // which zones are shown: by default only the ★ main QQQ wall on a side that has one (mentor: "670 is the wall"),
-// ranked zones only fill a side without a ★, flipped (↻) zones are hidden
+// nothing else (no ranked zones, no ↻ flips, no extra lines in Focus)
 function fzShow(list){
   if (S.majorOnly === false) return list;
-  return list.filter(s => !s.flipOf && (s.major || !fz.segs.some(x => x.major && !x.t1 && x.side === s.side)));
+  return list.filter(s => s.major && !s.flipOf);
 }
 // zone width: auto = 0.4 QQQ in NQ points (≈ 16 b.) – 6.11 front-runs were 16 b. (★CW 665) and 9.5 b. (★PW 655); manual value in ⚙ wins
 const fzW = () => { const k = st.res && st.res.info && st.res.info.ratio; return Math.max(S.touch || 3, S.zoneSet && +S.zone > 0 ? +S.zone : k ? Math.round(0.4 * k * 4) / 4 : 16); };
@@ -1523,11 +1523,11 @@ function drawFocus(out){
     a.setData([{ time:out[0].time, value:out[0].close }, { time:out[out.length - 1].time, value:out[out.length - 1].close }]); fz.series.push(a); }
   // one clean line per side across the whole chart, label on the line, exact price on the axis
   // ⚡ flip level inside a composite LVN: price can move fast through it once it commits
-  if (S.focus && st.res) for (const l of st.res.levels.filter(l => l.fast && Math.abs(l.dist) < 400 && !segs.some(s => Math.abs(s.p - l.price) <= S.tol)))
+  if (S.focus && st.res && S.majorOnly === false) for (const l of st.res.levels.filter(l => l.fast && Math.abs(l.dist) < 400 && !segs.some(s => Math.abs(s.p - l.price) <= S.tol)))
     fz.axis.push(series.createPriceLine({ price: l.price, color: '#f0a020', lineWidth: 1, lineStyle: 2, lineVisible: true, axisLabelVisible: true,
       axisLabelColor: '#f0a020', axisLabelTextColor: '#07080a', title: '⚡ FLIP v LVN · rychlý pohyb' }));
   // sentiment levels (QQQ all-expiry pivot + POIs → NQ), mentor-style labels
-  if (S.focus && vis('sent') && sn && sn.out && !st.replay) for (const l of sn.out.lines) if (l.nq && ![...segs, ...hits].some(s => Math.abs(s.p - l.nq) <= S.tol))
+  if (S.focus && S.majorOnly === false && vis('sent') && sn && sn.out && !st.replay) for (const l of sn.out.lines) if (l.nq && ![...segs, ...hits].some(s => Math.abs(s.p - l.nq) <= S.tol))
     fz.axis.push(series.createPriceLine({ price:l.nq, color:l.color, lineWidth:2, lineStyle:0, lineVisible:true, axisLabelVisible:true,
       axisLabelColor:l.color, axisLabelTextColor:'#07080a', title:`${l.role} · QQQ ${l.q}` }));
   for (const c of fzClusters([...segs, ...hits])) {
