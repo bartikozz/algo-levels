@@ -273,10 +273,12 @@
     return groups.map(k => {
       const best = k.items.reduce((a, b) => (rank(b) > rank(a) ? b : a));
       const score = k.items.reduce((sum, x) => sum + x.w, 0);
+      const base = k.items.reduce((sum, x) => sum + (x.ext ? 0 : x.w), 0);   // without data-server extras → same on every device
       const tags = [...k.items].sort((a, b) => b.w - a.w).map(x => x.tag);
       return {
         price: Math.round(best.p * 4) / 4,
         score: Math.round(score * 10) / 10,
+        base: Math.round(base * 10) / 10,
         tags: [...new Set(tags)],
         n: k.items.length,
         srcs: [...new Set(k.items.map(x => x.src))],
@@ -364,6 +366,7 @@
           l.stack = { wall: isCall ? 'call' : 'put', on: h ? 'HVN' : 'ledge', src: (h || g).src, p: (h || g).p };
           l.tags.unshift(`⛰ ${isCall ? 'CW' : 'PW'} + ${h ? 'HVN' : 'ledge'} ${(h || g).src}`);
           l.score = Math.round((l.score + 2) * 10) / 10;
+          if (l.base != null) l.base = Math.round((l.base + 2) * 10) / 10;
           if (!l.srcs.includes('vp')) l.srcs.push('vp');
         }
       }
@@ -382,7 +385,7 @@
     const today = tdate(bars[bars.length - 1].t);
     const { cands, info } = buildCandidates({ ...data, last, today }, S);
     // extra candidates from the data server (options chain levels: walls by expiry, IV peaks, γ flip, ceiling/floor)
-    if (Array.isArray(data.extra)) for (const x of data.extra) if (Number.isFinite(x.p) && x.p > 0) cands.push({ p: x.p, tag: x.tag, w: x.w, src: x.src || 'opt' });
+    if (Array.isArray(data.extra)) for (const x of data.extra) if (Number.isFinite(x.p) && x.p > 0) cands.push({ p: x.p, tag: x.tag, w: x.w, src: x.src || 'opt', ext: true });
     const lo = last * (1 - S.range / 100), hi = last * (1 + S.range / 100);
     const todayBars = bars.filter(b => tdate(b.t) === today);
     const rth = todayBars.filter(b => isRTH(b.t));

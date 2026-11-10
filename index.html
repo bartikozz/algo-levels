@@ -312,7 +312,7 @@ body.focus .meta{display:none!important}
 </head>
 <body>
 <header>
-  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10g</small></div>
+  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10h</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="planBtn" class="hbtn" hidden aria-label="Plán dne">✦</button>
@@ -1513,12 +1513,27 @@ function fzMajors(r){
   if (!r || !r.info) return [];
   const W = fzW(), em = r.info.em ? r.info.em.em : 300;
   const bb = (st.data.bars || []).filter(b => A.tdate(b.t) === r.today && A.isRTH(b.t));
-  return (r.info.majors || []).filter(m => Number.isFinite(m.price) && Math.abs(m.price - r.last) <= em * 2.5).map(m => {
+  const mz = (r.info.majors || []).filter(m => Number.isFinite(m.price) && Math.abs(m.price - r.last) <= em * 2.5).map(m => {
     const above = m.price > r.last, lo = above ? m.price - W : m.price, hi = above ? m.price : m.price + W;
     let hit = null; for (let i = bb.length - 1; i >= 0; i--) if (bb[i].h >= lo && bb[i].l <= hi) { hit = bb[i].t; break; }
     return { side: above ? 'short' : 'long', p: m.price, lo, hi, q: m.qqq, t0: 0, full: true, hit,
       range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `★ ${above ? 'RESISTANCE' : 'SUPPORT'} · QQQ ${m.qqq}` };
-  }).sort((a, b) => b.p - a.p);
+  });
+  // + the strongest short-dated wall per side (0DTE / 1DTE wall with base score ≥ 6, e.g. 10.11: 1DTE CW 1 + 0DTE CW 3 +
+  //   OI PW + ON VAH at QQQ 681 = the day's high, one strike above ★ CW 680). Base score ignores data-server extras.
+  const k = r.info.ratio, out = mz.slice();
+  for (const side of ['short', 'long']) {
+    const c = (r.levels || []).filter(l => (l.base != null ? l.base : l.score) >= 6 && l.tags.some(t => /^(0DTE|1DTE) (CW|PW)/.test(t))
+      && (side === 'short' ? l.price > r.last : l.price < r.last) && Math.abs(l.price - r.last) <= em * 1.25
+      && !mz.some(z => Math.abs(z.p - l.price) <= 2 * W)).sort((a, b) => (b.base || b.score) - (a.base || a.score))[0];
+    if (!c) continue;
+    const above = side === 'short', lo = above ? c.price - W : c.price, hi = above ? c.price : c.price + W;
+    let hit = null; for (let i = bb.length - 1; i >= 0; i--) if (bb[i].h >= lo && bb[i].l <= hi) { hit = bb[i].t; break; }
+    const tg = c.tags.find(t => /^(0DTE|1DTE) (CW|PW)/.test(t));
+    out.push({ side, p: c.price, lo, hi, q: k ? Math.round(c.price / k) : null, t0: 0, full: true, hit, minor: true,
+      range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `◆ ${above ? 'RESISTANCE' : 'SUPPORT'} · ${tg}${k ? ' · QQQ ' + Math.round(c.price / k) : ''}` });
+  }
+  return out.sort((a, b) => b.p - a.p);
 }
 function drawMajors(out){
   const zs = S.focus ? fzMajors(st.res) : [];
@@ -1531,8 +1546,8 @@ function drawMajors(out){
     a.setData([{ time:out[0].time, value:out[0].close }, { time:out[out.length - 1].time, value:out[out.length - 1].close }]); fz.series.push(a); }
   for (const z of zs) {
     const col = z.side === 'short' ? '#f05a6e' : '#5ee0c8';
-    fzZone(out, z, col, 0.16);
-    fz.axis.push(series.createPriceLine({ price: z.p, color: col + '88', lineWidth: 1, lineStyle: 0, lineVisible: true,
+    fzZone(out, z, col, z.minor ? 0.09 : 0.16);
+    fz.axis.push(series.createPriceLine({ price: z.p, color: col + (z.minor ? '55' : '88'), lineWidth: 1, lineStyle: z.minor ? 2 : 0, lineVisible: true,
       axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: z.label + (z.hit ? ` · zasaženo ${A.hhmm(z.hit)}` : '') }));
   }
 }
@@ -1620,7 +1635,7 @@ function checkFocusAlerts(){
     // ★ walls: alert once per wall per day when price comes near and when it enters the zone
     const day = r.today;
     for (const z of fzMajors(r)) {
-      const k = `M:${day}:${z.q}`, inZ = r.last >= z.lo && r.last <= z.hi, near = Math.abs(z.p - r.last) <= S.alertDist;
+      const k = `M:${day}:${z.label}`, inZ = r.last >= z.lo && r.last <= z.hi, near = Math.abs(z.p - r.last) <= S.alertDist;
       if (near && !inZ && !fz.alerted[k + ':near']) { fz.alerted[k + ':near'] = 1;
         const msg = noTrade ? `◎ ${z.label} blízko (cena ${fmtP(r.last)}) – NO TRADE dnes` : `◎ ${z.label} ${z.range} – cena ${fmtP(r.last)}`;
         toast(msg, !noTrade); ping(); }
