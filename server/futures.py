@@ -200,14 +200,21 @@ class Tape:
         tmp = self.state_file + '.tmp'
         with open(tmp, 'w') as f:
             json.dump(st, f)
+            f.flush(); os.fsync(f.fileno())   # never leave an empty state file after a crash / power cut
         os.replace(tmp, self.state_file)
 
     def load(self):
         if not self.state_file or not os.path.exists(self.state_file):
             return False
-        with open(self.state_file) as f:
-            st = json.load(f)
-        if st.get('sess') != session_start(time.time()):
+        try:
+            with open(self.state_file) as f:
+                st = json.load(f)
+        except (ValueError, OSError):
+            # a damaged state file must never stop the server: set it aside and start the session fresh
+            try: os.replace(self.state_file, self.state_file + '.bad')
+            except OSError: pass
+            return False
+        if not isinstance(st, dict) or st.get('sess') != session_start(time.time()):
             return False
         with self.lock:
             self.cvd = st['cvd']; self.cvd_pts = deque(st['cvd_pts'], maxlen=6000)

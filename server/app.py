@@ -455,16 +455,23 @@ def register_loop():
 
 @app.on_event('startup')
 def start():
-    tape.load()
-    try:
-        oflow.load()
-    except Exception:
-        pass
+    # restoring saved state is best-effort: a damaged file must never keep the server from starting
+    for load in (tape.load, oflow.load):
+        try:
+            load()
+        except Exception:
+            pass
     day = datetime.now(ET).strftime('%Y-%m-%d')
     fn = os.path.join(DATA_DIR, f'surface-{day}.jsonl')
     if os.path.exists(fn):
+        hist = []
         with open(fn) as f:
-            state['hist'] = [json.loads(l) for l in f if l.strip()]
+            for l in f:
+                try:
+                    if l.strip(): hist.append(json.loads(l))
+                except ValueError:
+                    pass   # a half-written last line after a crash
+        state['hist'] = hist
     if DEMO:
         threading.Thread(target=demo_trades, daemon=True).start()
     elif os.environ.get('DATABENTO_API_KEY'):
