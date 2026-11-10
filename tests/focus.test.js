@@ -67,3 +67,17 @@ console.log('versions ok');
   assert.strictEqual(A.compute(d2, S).info.majors.find(m => m.type === 'CW').qqq, b2 + 10);
   console.log('growing wall ok');
 }
+
+// ── premarket text in the mentor's words (10.11 post) from the locked levels
+{
+  global.fK = x => Number.isFinite(x) ? (Math.abs(x - Math.round(x)) < 1e-9 ? String(Math.round(x)) : String(x)) : '—';
+  global.MACRO_DATES = [['2026-11-10', 'CPI']]; global.FOMC = []; global.YYY = { et: () => ({ date:'2026-11-10', h:9, mi:15 }) };
+  eval(grab('todayEvent') + ';' + grab('pmlParas') + ';global.pmlParas = pmlParas;');
+  const lv = { date:'2026-11-10', qqq:{ P:670, above:true, hug:true, rLo:667, rHi:675, trig:672, d1:665, road:660, u1:680 }, spx:{ P:7500, above:false, hug:true, next:7475, reclaim:null, magnet:null } };
+  const [q, x] = pmlParas(lv, { k:null, bear:true });
+  for (const want of ['CPI je dnes venku', 'kolem 670, to bude fungovat jako pivot', 'Aktuální range je 667–675', 'Průraz 672 nahoru je dobrý pro pokračování výš (675, pak 680)', 'pokud padne 670, bylo by to špatné pro kupce', 'cestu k 660 a níž'])
+    assert.ok(q.includes(want), `QQQ text missing "${want}": ${q}`);
+  for (const want of ['SPX je na 7500 (dlouhodobý pivot)', 'pokud budeme pokračovat níž se stejným sentimentem, další zastávka 7475'])
+    assert.ok(x.includes(want), `SPX text missing "${want}": ${x}`);
+  console.log('premarket text ok');
+}

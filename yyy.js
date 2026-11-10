@@ -344,11 +344,15 @@
   //               resistance 660; SPX 7370 → focus 7350 (big customer put position), lose it → 7300
   //  POIs       = next heavy strikes beyond the bracket (QQQ any strike, e.g. 653 / 650; SPX on its POI grid)
   //  status     = above / below the pivot, held ≥ 10 min = reclaimed / lost, else testing; prior session failed reclaim
-  //  mentor style (9.11: QQQ 662 → "trading above 660 = pivot", 663 / 658 watch, 655 → 650s; SPX 7441 → 7450 reclaim →
-  //  7490 big +GEX, 7400 pivot): the pivot is the heavy round strike price trades ABOVE (just below spot) – unless price
-  //  already traded above the strike overhead today and lost it, then that one is the pivot (bearish). inner = the nearest
-  //  heavy strikes off the round grid (663 / 658), magnet = biggest positive GEX above spot, outer levels only within ±1 %.
-  function keyLevels(g, spot, band, idx, round, flow, poiGrid, bars) {
+  //  mentor style (6.11: QQQ 658 → pivot 655 · 9.11: "trading above 660 = pivot", 663 / 658 watch, 655 → 650s ·
+  //  10.11: "trading around 670 = pivot, current range 667–675, breaking 672 up = continuation, if 670 goes = bad for
+  //  buyers"; SPX 7441 → pivot 7400, reclaim 7450 → 7490 big +GEX · SPX 7497 → "at 7500 (long term pivot), next stop
+  //  7475"): the pivot is the heavy round strike price trades ABOVE, or the one it sits right on (≤ 0.1 % below it).
+  //  A premarket spike through a level does not move the pivot (10.11 CPI spike above 675 → pivot stays 670).
+  //  plan = the mentor's structure: range low = nearest heavy strike under the pivot (667), range high = nearest heavy
+  //  round strike above (675), trigger = heavy strike between price and the range high (672), then the road lower
+  //  (655 → 650s) / higher. inner = nearest heavy off-grid strikes (663 / 658), magnet = biggest +GEX above spot.
+  function keyLevels(g, spot, band, idx, round, flow, poiGrid, bars, planGrid) {
     if (!g || !Array.isArray(g.strikes) || !spot) return null;
     const rows = g.strikes.map(r => ({ k: +r[0], v: +r[idx] || 0 })).filter(r => Number.isFinite(r.k) && Math.abs(r.k / spot - 1) <= band * 3);
     if (!rows.length) return null;
@@ -362,10 +366,8 @@
     let cand = near.filter(r => r.w >= 0.25 * mxN && onG(r.k, rnd));
     if (cand.length < 2) cand = near.filter(r => r.w >= 0.25 * mxN);
     const above = cand.filter(r => r.k >= spot).sort((a, b) => a.k - b.k)[0], below = cand.filter(r => r.k < spot).sort((a, b) => b.k - a.k)[0];
-    let dayHi = null;
-    if (bars && bars.length) { const d = et(bars[bars.length - 1].t).date; const td = bars.filter(b => et(b.t).date === d); if (td.length) dayHi = Math.max(...td.map(b => b.h)); }
-    const lost = above && dayHi != null && dayHi > above.k + rnd * 0.1;
-    const pivot = above && below ? (lost ? above : below) : (above || below);
+    const hug = above && (above.k - spot) / spot <= 0.001;            // price sitting right under a heavy round strike
+    const pivot = above && below ? (hug ? above : below) : (above || below);
     const other = above && below ? (pivot === below ? above : below) : null;
     const mx = Math.max(...rows.map(r => r.w)) || 1, pg = poiGrid || 0;
     const heavy = rows.filter(r => r.w >= 0.25 * mx && r.k !== pivot.k && (!other || r.k !== other.k) && (!pg || onG(r.k, pg)));
@@ -383,9 +385,32 @@
     const iUp = inr.filter(r => r.k > spot && r.k < (up[0] != null ? up[0] : Infinity)).sort((a, b) => a.k - b.k)[0];
     const iDn = inr.filter(r => r.k < spot && r.k > (dn[0] != null ? dn[0] : -Infinity) && r.k !== pivot.k).sort((a, b) => b.k - a.k)[0];
     const mag = rows.filter(r => r.k > spot && r.v > 0 && Math.abs(r.k / spot - 1) <= 0.012).sort((a, b) => b.v - a.v)[0];
-    return { pivot: pivot.k, pivotNet: pivot.v, pivotFlow: pivot.f, other: other ? other.k : null, up, dn, lost: !!lost,
-      inner: [iUp ? iUp.k : null, iDn ? iDn.k : null], magnet: mag ? mag.k : null,
+    // ── the mentor's plan
+    // range low / trigger are judged against the strikes right around price (±0.8 %), like the inner levels – a big wall
+    // further away must not hide them (9.11: 670 dwarfed 663 / 658)
+    const P = pivot.k, pg2 = planGrid || 1;
+    const hvA = tight.filter(r => r.w >= 0.25 * mxT && onG(r.k, pg2)).concat(near.filter(r => r.w >= 0.25 * mxN && onG(r.k, pg2) && Math.abs(r.k / spot - 1) > 0.008));
+    const lowEdge = Math.min(P, spot), highEdge = Math.max(P, spot);
+    const rLo = (hvA.filter(r => r.k < lowEdge).sort((a, b) => b.k - a.k)[0] || {}).k ?? (dn[0] ?? null);
+    const rHiR = cand.filter(r => r.k > highEdge && onG(r.k, rnd)).sort((a, b) => a.k - b.k)[0];
+    const rHi = rHiR ? rHiR.k : ((hvA.filter(r => r.k > highEdge).sort((a, b) => a.k - b.k)[0] || {}).k ?? (up[0] ?? null));
+    const trR = hvA.filter(r => r.k > spot && r.k !== P && (rHi == null || r.k < rHi)).sort((a, b) => a.k - b.k)[0];
+    const heavyAll = rows.filter(r => r.w >= 0.25 * mx);
+    const d1R = rLo != null ? heavyAll.filter(r => r.k < rLo && onG(r.k, rnd) && Math.abs(r.k / spot - 1) <= 0.025).sort((a, b) => b.k - a.k)[0] : null;
+    const u1R = rHi != null ? heavyAll.filter(r => r.k > rHi && onG(r.k, rnd) && Math.abs(r.k / spot - 1) <= 0.025).sort((a, b) => a.k - b.k)[0] : null;
+    const road = d1R ? Math.floor((d1R.k - 1e-6) / (rnd * 2)) * rnd * 2 : null;   // 655 → "650s"
+    const plan = { P, above: spot >= P, hug: Math.abs(spot / P - 1) <= 0.003, rLo, rHi, trig: trR ? trR.k : null,
+      d1: d1R ? d1R.k : null, road, u1: u1R ? u1R.k : null };
+    return { pivot: pivot.k, pivotNet: pivot.v, pivotFlow: pivot.f, other: other ? other.k : null, up, dn,
+      inner: [iUp ? iUp.k : null, iDn ? iDn.k : null], magnet: mag ? mag.k : null, plan,
       zero: Number.isFinite(g.zero_gamma) ? g.zero_gamma : null };
+  }
+  // the levels a scalp runs between right now (10.11: price 673 inside 672–675 → "672 → 675 ; 675 → 672")
+  function scalpBox(levels, px) {
+    const L = [...new Set(levels.filter(Number.isFinite))].sort((a, b) => a - b);
+    let lo = null, hi = null;
+    for (const k of L) { if (k <= px) lo = k; else if (hi == null) hi = k; }
+    return lo != null && hi != null ? { lo, hi } : null;
   }
   // VIX: where dealer gamma changes sign around spot (mentor: "positive gamma up to 30") + trigger just below spot ("breaking 27")
   function vixMap(g, spot, idx) {
@@ -428,7 +453,7 @@
     const add = (v, why) => { out.score += v; out.drivers.push([why, v]); };
     // QQQ — all-expiry gamma (OI) + new positioning
     const qb = x.qqq && x.qqq.bars;
-    const qL = keyLevels(x.qqq && x.qqq.full, x.qqq && x.qqq.spot, 0.012, 2, 5, x.qqq && x.qqq.flow, 0, qb) || keyLevels(x.qqq && x.qqq.zero, x.qqq && x.qqq.spot, 0.012, 1, 5, x.qqq && x.qqq.flow, 0, qb);
+    const qL = keyLevels(x.qqq && x.qqq.full, x.qqq && x.qqq.spot, 0.012, 2, 5, x.qqq && x.qqq.flow, 0, qb, 1) || keyLevels(x.qqq && x.qqq.zero, x.qqq && x.qqq.spot, 0.012, 1, 5, x.qqq && x.qqq.flow, 0, qb, 1);
     if (qL) {
       const s = sideOf(x.qqq.bars, qL.pivot, x.qqq.spot), o = qL.other != null ? sideOf(x.qqq.bars, qL.other, x.qqq.spot) : null;
       out.assets.QQQ = { ...qL, ...s, otherFail: o && o.prevFail };
@@ -439,8 +464,8 @@
     }
     // SPX — 0DTE + all-expiry profile, round 50 bracket, POIs on the 50 grid
     const sb = x.spx && x.spx.bars;
-    const sL = keyLevels(x.spx && x.spx.zero, x.spx && x.spx.spot, 0.008, 1, 50, x.spx && x.spx.flow, 50, sb) || keyLevels(x.spx && x.spx.full, x.spx && x.spx.spot, 0.008, 2, 50, x.spx && x.spx.flow, 50, sb)
-      || keyLevels(x.spx && x.spx.full, x.spx && x.spx.spot, 0.012, 2, 25, x.spx && x.spx.flow, 25, sb);
+    const sL = keyLevels(x.spx && x.spx.zero, x.spx && x.spx.spot, 0.008, 1, 50, x.spx && x.spx.flow, 50, sb, 25) || keyLevels(x.spx && x.spx.full, x.spx && x.spx.spot, 0.008, 2, 50, x.spx && x.spx.flow, 50, sb, 25)
+      || keyLevels(x.spx && x.spx.full, x.spx && x.spx.spot, 0.012, 2, 25, x.spx && x.spx.flow, 25, sb, 25);
     if (sL) {
       const s = sideOf(x.spx.bars, sL.pivot, x.spx.spot);
       out.assets.SPX = { ...sL, ...s };
@@ -473,12 +498,12 @@
     }
     // short read (tooltip / Focus card)
     const t = [], SPX = out.assets.SPX, V = out.assets.VIX;
-    if (Q) t.push(`QQQ ${Q.side > 0 ? 'nad' : 'pod'} ${Q.pivot} = pivot${Q.lost ? ' (dnes ztracený)' : ''}. Hlídám ${Q.inner.filter(k => k != null).join(' a ') || '—'}. Nahoru ${Q.up.join(' / ') || '—'}, dolů ${Q.dn.join(' / ') || '—'}${Q.dn.length ? `, ztráta ${Q.dn[Q.dn.length - 1]} otevře cestu níž` : ''}.`);
+    if (Q) { const p = Q.plan || {}; t.push(`QQQ ${Q.side > 0 ? (p.hug ? 'kolem' : 'nad') : 'pod'} ${Q.pivot} = pivot.${p.rLo != null && p.rHi != null ? ` Range ${p.rLo}–${p.rHi}.` : ''}${p.trig != null ? ` Průraz ${p.trig} nahoru = pokračování.` : ''} Pokud padne ${Q.pivot}, špatné pro kupce${p.d1 != null ? `; pod ${p.d1} cesta k ${p.road}` : ''}.`); }
     if (SPX) t.push(`SPX pivot ${SPX.pivot} (${SPX.side > 0 ? 'drží' : 'pod'})${SPX.other != null && SPX.other > SPX.pivot ? `, reclaim ${SPX.other}` : ''}${SPX.magnet ? ` → ${SPX.magnet} (největší +GEX)` : SPX.up[0] ? ` → ${SPX.up[0]}` : ''}${SPX.side > 0 && SPX.dn[0] ? `; ztráta pivotu → ${SPX.dn[0]}` : ''}.`);
     if (V) t.push(`VIX ${V.regime > 0 ? `pozitivní gamma${V.edge ? ' do ' + V.edge : ''}, průraz pod ${V.trigger} = pullback/odraz indexů` : `negativní gamma${V.edge ? ' nad ' + V.edge : ''} – VIX může vystřelit`}.`);
     out.text = t;
     return out;
   }
 
-  root.YYY = { et, isRTH, bars5, eig, pca, regime, garch, sigmaGrid, dayType, tpo9, singlePrints, cvdDiv, macro, synth, keyLevels, vixMap, sentiment };
+  root.YYY = { et, isRTH, bars5, eig, pca, regime, garch, sigmaGrid, dayType, tpo9, singlePrints, cvdDiv, macro, synth, keyLevels, scalpBox, vixMap, sentiment };
 })(typeof window !== 'undefined' ? window : globalThis);

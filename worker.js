@@ -556,6 +556,25 @@ export default {
         return json((await env.SNAP.get('srv:url', 'json')) || { url: null }, 200, cors);
       }
 
+      // ── premarket levels of the day (mentor's structure), one record shared by every device: /pre?date=, /pre/set?date=&lv={…}
+      //    first write of the day wins (the levels stay fixed for the session), &force=1 overwrites (manual re-lock)
+      if (parts[0] === 'pre') {
+        if (!env.SNAP) return json({ error: 'KV binding SNAP missing' }, 500, cors);
+        const d = url.searchParams.get('date') || '';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return json({ error: 'bad date' }, 400, cors);
+        const key = `pre:${d}`;
+        if (parts[1] === 'set') {
+          let lv = null; try { lv = JSON.parse(url.searchParams.get('lv') || 'null'); } catch (e) {}
+          if (!lv || typeof lv !== 'object' || lv.date !== d || JSON.stringify(lv).length > 4000) return json({ error: 'bad levels' }, 400, cors);
+          const cur = await env.SNAP.get(key, 'json');
+          if (cur && url.searchParams.get('force') !== '1') return json({ ok: false, kept: cur }, 200, cors);
+          const rec = { lv, at: Date.now() };
+          await env.SNAP.put(key, JSON.stringify(rec), { expirationTtl: 60 * 86400 });
+          return json({ ok: true, ...rec }, 200, cors);
+        }
+        return json((await env.SNAP.get(key, 'json')) || {}, 200, cors);
+      }
+
       // ── phone push (ntfy) for Focus zones: /focus/set?z=[…]&b=basis&topic=…&near=…&touch=…, /focus/test?topic=…
       if (parts[0] === 'focus') {
         if (!env.SNAP) return json({ error: 'KV binding SNAP missing' }, 500, cors);

@@ -15,12 +15,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="yyy.js?v=11.10k"></script>
-<script src="levels.js?v=11.10k"></script>
-<script src="bias.js?v=11.10k"></script>
-<script src="analysis.js?v=11.10k"></script>
-<script src="backtest.js?v=11.10k"></script>
-<script src="pro.js?v=11.10k"></script>
+<script src="yyy.js?v=11.10l"></script>
+<script src="levels.js?v=11.10l"></script>
+<script src="bias.js?v=11.10l"></script>
+<script src="analysis.js?v=11.10l"></script>
+<script src="backtest.js?v=11.10l"></script>
+<script src="pro.js?v=11.10l"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -103,6 +103,16 @@ header{flex-wrap:wrap}
 body:not([data-tab="chart"]) .pg-chart{display:none!important}
 body:not([data-tab="levels"]) .pg-levels{display:none!important}
 .sheet.inline{position:static;inset:auto;display:none;background:none;z-index:auto}
+.pml-top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:8px}
+.pml-head{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.pml-head b{color:var(--text);font-weight:600}
+.pml-chart{height:min(62dvh,640px);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.pml-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px;margin-top:10px;font-family:var(--mono);font-size:12px}
+.pml-list .it{border:1px solid var(--line);border-radius:6px;padding:7px 9px;display:flex;flex-direction:column;gap:2px}
+.pml-list .it b{font-size:13px}
+.pml-list .it span{color:var(--muted);font-size:11px}
+.pml-list .it.piv{border-color:#ef5350}
+.pml-list .sc{grid-column:1/-1;border:1px solid #c9a66b;border-radius:6px;padding:8px 10px;color:#c9a66b}
 .sheet.inline.show{display:block}
 .sheet.inline .box{max-width:1500px;margin:0 auto;max-height:none;border:0;border-radius:0;background:transparent;padding-top:14px}
 .sheet.inline .box>h3:first-child{display:none}
@@ -312,9 +322,10 @@ body.focus .meta{display:none!important}
 </head>
 <body>
 <header>
-  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10k</small></div>
+  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10l</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
+  <button id="pmlBtn" class="hbtn" hidden aria-label="Premarket levely">▬</button>
   <button id="planBtn" class="hbtn" hidden aria-label="Plán dne">✦</button>
   <button id="biasBtn" class="hbtn" aria-label="Bias" style="font-size:12px;font-weight:700">B</button>
   <button id="proBtn" class="hbtn" aria-label="PRO data" style="color:#5ee0c8">◆</button>
@@ -328,6 +339,7 @@ body.focus .meta{display:none!important}
     <button data-tab="levels"><i>≡</i>Levely</button>
     <button data-tab="pro"><i style="color:#5ee0c8">◆</i>Options &amp; Flow</button>
     <button data-tab="pre"><i style="color:#ef5350">◆</i>Premarket</button>
+    <button data-tab="pml"><i style="color:#ef5350">▬</i>PM Levely</button>
     <button data-tab="plan"><i style="color:#c9a66b">✦</i>Plán dne</button>
     <button data-tab="bias"><i>B</i>Bias</button>
     <button data-tab="ana"><i>⊞</i>Analýza</button>
@@ -373,6 +385,14 @@ body.focus .meta{display:none!important}
   <div id="preBody"><p class="hint">Načítám…</p></div>
   <div class="btns"><button id="preReload">Obnovit</button><button id="preCopy">Kopírovat report</button><button id="preClose">Zavřít</button></div>
 </div></div>
+<div id="pml" class="sheet"><div class="box">
+  <h3>PREMARKET LEVELY</h3>
+  <div class="pml-top"><div class="sfil" id="pmlMode"><button data-m="QQQ" class="on">QQQ</button><button data-m="NQ">NQ</button><button data-m="SPX">SPX</button></div><div id="pmlHead" class="pml-head"></div></div>
+  <div id="pmlChart" class="pml-chart"></div>
+  <div id="pmlList" class="pml-list"></div>
+  <div class="btns"><button id="pmlLock">Zamknout znovu podle teď</button><button id="pmlCopy">Kopírovat levely</button><button id="pmlClose">Zavřít</button></div>
+  <p class="hint">Levely z premarket analýzy podle mentorovy logiky: PIVOT = silný kulatý strike, nad kterým se cena obchoduje (nebo na kterém sedí), RANGE = nejbližší silné striky pod pivotem a nad cenou, TRIGGER = průraz nahoru pro pokračování, DOLŮ / NAHORU = další zastávky. Zamykají se jednou denně v 9:00 ET (15:00 u nás) a jsou stejné na všech zařízeních; po open se už nemění.</p>
+</div></div>
 <div id="plan" class="sheet"><div class="box">
   <h3>PLÁN DNE</h3>
   <div id="planBody"><p class="hint">Načítám vrstvy…</p></div>
@@ -411,7 +431,7 @@ body.focus .meta{display:none!important}
 </div></div>
 <div id="pro" class="sheet"><div class="box">
   <h3>◆ PRO · OPTIONS &amp; FLOW <span id="pMeta" class="hint" style="font-family:var(--mono);letter-spacing:0;margin-left:8px"></span></h3>
-  <div class="sfil" id="pTab"><button data-t="levels" class="on">Options Levels</button><button data-t="strikes">Strike Profile</button><button data-t="matrix">Heatmap by Expiry</button><button data-t="vol">Volatility</button><button data-t="land">MM Landscape</button><button data-t="surf">Surface</button><button data-t="flow">Flow</button><button data-t="oflow">Options Flow</button></div>
+  <div class="sfil" id="pTab"><button data-t="levels" class="on">Options Levels</button><button data-t="strikes">Strike Profile</button><button data-t="matrix">Heatmap by Expiry</button><button data-t="vol">Volatility</button><button data-t="land">MM Landscape</button><button data-t="surf">Surface</button><button data-t="bks">Breakdown By Strike</button><button data-t="iv3d">IV Surface 3D</button><button data-t="flow">Flow</button><button data-t="oflow">Options Flow</button></div>
   <div class="sfil" id="pSub"></div>
   <canvas id="cvPro" class="anacv" style="height:66dvh"></canvas>
   <p class="hint" id="pNote"></p>
@@ -1269,7 +1289,7 @@ function fzLoad(date){
   fz.date = date; fz.alerted = {};
   try { fz.segs = JSON.parse(localStorage.getItem('algoLevels.focus.' + date) || '[]'); } catch(e){ fz.segs = []; }
 }
-window.AL = { get st(){ return st; }, get fz(){ return fz; } };   // console debugging
+window.AL = { get st(){ return st; }, get fz(){ return fz; }, get sn(){ return sn; }, get pml(){ return pml; } };   // console debugging
 function fzSave(){ if (st.replay) return; try { localStorage.setItem('algoLevels.focus.' + fz.date, JSON.stringify(fz.segs)); } catch(e){} try { pushPublish(false); } catch(e){} try { pushTv(); } catch(e){} }
 // level tag → journal kind (so the zone can carry its measured reaction rate)
 function tagKind(t){
@@ -2079,6 +2099,8 @@ setTimeout(() => { if (S.server) resolveServer(true).then(srvConnect); }, 1500);
 // ───────── PRO sheet
 const pr = { tab:'levels', sub:{ strikes:'0D', matrix:'gex_oi', vol:null, land:'all', strikesMetric:'gex_oi' }, timer:null };
 const PRO_SUB = {
+  bks: [['0d','0DTE'],['all','Všechny expirace']],
+  iv3d: [['0.05','±5 %'],['0.03','±3 %'],['0.08','±8 %']],
   strikes: [['0D','0DTE'],['1D','1DTE'],['W','≤ týden'],['M','≤ 45 dní'],['ALL','vše']],
   matrix: [['gex_oi','GEX (OI)'],['gex_vol','GEX (vol)'],['dex_oi','Delta'],['cex_oi','Charm'],['vex_oi','Vanna'],['oi','OI'],['vol','Volume']],
   land: [['all','≤ 45 dní + 0DTE']],
@@ -2090,6 +2112,7 @@ async function proShow(){
   const sub = PRO_SUB[t];
   $('pSub').innerHTML = sub ? sub.map(([k, n]) => `<button data-s="${k}" class="${(pr.sub[t] || sub[0][0]) === k ? 'on' : ''}">${n}</button>`).join('') : '';
   const cv = $('cvPro'), note = m => $('pNote').textContent = m;
+  cv.style.touchAction = t === 'iv3d' ? 'none' : '';
   $('pTape').hidden = t !== 'oflow'; $('ofWrap').hidden = t !== 'oflow'; $('cvPro').style.display = t === 'oflow' ? 'none' : ''; $('pKey').hidden = t !== 'levels'; $('pKey')._h = '';
   if (!S.server) { note('Nastav adresu datového serveru v ⚙ → Data server.'); Pro.levelsChart(cv, [], [], {}); return; }
   try {
@@ -2137,6 +2160,17 @@ async function proShow(){
       const spot = path.length ? path[path.length - 1].c : (st.res && st.res.last) || (lastRow && lastRow.spot ? lastRow.spot * (lastRow.k || k) : 0);
       Analysis.drawHeat(cv, rows, path, { lo:spot * 0.988, hi:spot * 1.012, t0, t1, label:A.hhmm, levels:[] });
       note(`0DTE GEX (OI) po strikech v čase z options serveru (každých ${30} s) + cena NQ. ${rows.length} snímků dnes.`);
+    } else if (t === 'bks') {
+      const z = (pr.sub.bks || '0d') === '0d';
+      const D = await srv('/options/customer?pct=0.03' + (z ? '&only0d=1' : ''));
+      pr.bks = D; bksDraw();
+      const tot = (D.pos || []).reduce((a, r) => [a[0] + r[1], a[1] + r[2]], [0, 0]);
+      note(`Čistá pozice zákazníků po strikech od open (koupeno − prodáno, v kontraktech, strana podle NBBO) – ${z ? 'jen dnešní expirace (0DTE)' : 'všechny expirace'}. Zelená = cally, červená = puty, modrá = net. Záporné puty = zákazníci puty prodali (dealeři je drží long). Celkem calls ${tot[0] >= 0 ? '+' : ''}${Math.round(tot[0]).toLocaleString('en-US')}, puts ${tot[1] >= 0 ? '+' : ''}${Math.round(tot[1]).toLocaleString('en-US')}. Čárkovaně premarket levely.`);
+    } else if (t === 'iv3d') {
+      const pct = +(pr.sub.iv3d || 0.05);
+      pr.iv3d = await ivSurfData(pct, 30); iv3dDraw();
+      const G = pr.iv3d, sk = G.skew;
+      note(`IV QQQ napříč striky (±${Math.round(pct * 100)} %) a expiracemi do 30 dní (${G.dte.length} expirací), barva = výše IV. Bílá čára = ATM. Levé křídlo (puty pod cenou) nad pravým = poptávka po ochraně proti poklesu${sk ? ` – nejbližší expirace IV −3 % ${(sk.put * 100).toFixed(1)} % vs +3 % ${(sk.call * 100).toFixed(1)} % (skew ${((sk.put - sk.call) * 100).toFixed(1)} b.)` : ''}.`);
     } else if (t === 'oflow') {
       const f = pr.sub.oflow || 'all', q = f === 'big' ? '&min_prem=100000' : f === '0d' ? '&only0d=1' : f === 'sweep' ? '&kind=SWEEP' : '';
       const [D, Cu] = await Promise.all([srv('/options/flow?n=150' + q), srv('/options/customer?pct=0.03' + (f === '0d' ? '&only0d=1' : '')).catch(() => null)]);
@@ -2156,6 +2190,60 @@ async function proShow(){
 $('proBtn').onclick = () => { $('pro').classList.add('show'); proShow(); clearInterval(pr.timer); pr.timer = setInterval(() => { if ($('pro').classList.contains('show') && (pr.tab === 'oflow' || Date.now() - (pr.last || 0) > 14000)) { pr.last = Date.now(); proShow(); } }, 5000); };
 $('pClose').onclick = () => { $('pro').classList.remove('show'); clearInterval(pr.timer); };
 $('pro').onclick = e => { if (e.target.id === 'pro') { $('pro').classList.remove('show'); clearInterval(pr.timer); } };
+// ── Breakdown By Strike (hover = exact numbers) and the 3D IV surface (drag = rotate)
+function pmlRefLevels(){ const lv = pmlCurrent(); const q = lv && lv.qqq; if (!q) return [];
+  return [[q.P, 'PIVOT'], [q.rHi, 'RANGE ↑'], [q.trig, 'TRIGGER'], [q.rLo, 'RANGE ↓'], [q.d1, 'DOLŮ'], [q.u1, 'NAHORU']].filter(x => Number.isFinite(x[0])).map(([v, l]) => ({ q:v, label:`${l} ${v}`, col: l === 'PIVOT' ? '#ef5350' : '#c9a66b' })); }
+function bksDraw(){
+  const cv = $('cvPro'); if (pr.tab !== 'bks' || !pr.bks) return;
+  Pro.breakdown(cv, pr.bks, { k: pr.bks.k || (st.res && st.res.info && st.res.info.ratio), hover: pr.bksHover, levels: pmlRefLevels(), title: (pr.sub.bks || '0d') === '0d' ? '0DTE' : 'všechny expirace', pct: 0.025 });
+}
+function iv3dDraw(){ if (pr.tab === 'iv3d' && pr.iv3d) Pro.surface3d($('cvPro'), pr.iv3d, { rot: pr.rot, title: `IV povrch QQQ · ${new Date(pr.iv3d.at).toLocaleTimeString('cs-CZ', { hour:'2-digit', minute:'2-digit' })}` }); }
+pr.rot = { yaw:-0.75, pitch:0.55, zoom:1 };
+(() => {
+  const cv = $('cvPro'); let drag = null;
+  cv.addEventListener('pointerdown', e => { if (pr.tab !== 'iv3d') return; drag = { x:e.clientX, y:e.clientY, yaw:pr.rot.yaw, pitch:pr.rot.pitch }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', e => {
+    if (pr.tab === 'iv3d' && drag) { pr.rot.yaw = drag.yaw + (e.clientX - drag.x) * 0.008; pr.rot.pitch = Math.max(0.05, Math.min(1.45, drag.pitch + (e.clientY - drag.y) * 0.006)); iv3dDraw(); return; }
+    if (pr.tab !== 'bks') return;
+    const r = cv.getBoundingClientRect(), y = e.clientY - r.top, hit = (cv._rows || []).find(q => y >= q.y0 && y <= q.y1);
+    const K = hit ? hit.r.K : null; if (K !== pr.bksHover) { pr.bksHover = K; bksDraw(); }
+    if (!hit) return hideTip();
+    const k = pr.bks.k || (st.res && st.res.info && st.res.info.ratio), sg = v => (v > 0 ? '+' : '') + Math.round(v).toLocaleString('en-US');
+    $('tip').innerHTML = `<div class="h"><b>Strike ${hit.r.K}${k ? ' · NQ ' + Math.round(hit.r.K * k).toLocaleString('en-US') : ''}</b></div><p>Calls <b class="${hit.r.c >= 0 ? 'up' : 'dn'}">${sg(hit.r.c)}</b><br>Puts <b class="${hit.r.p >= 0 ? 'up' : 'dn'}">${sg(hit.r.p)}</b><br>Net <b>${sg(hit.r.n)}</b></p>`;
+    $('tip').hidden = false; $('tip').style.left = Math.min(innerWidth - 220, e.clientX + 14) + 'px'; $('tip').style.top = Math.min(innerHeight - 130, e.clientY + 14) + 'px';
+  });
+  const up = () => { drag = null; };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  cv.addEventListener('mouseleave', () => { if (pr.tab === 'bks' && pr.bksHover != null) { pr.bksHover = null; bksDraw(); } hideTip(); });
+  cv.addEventListener('wheel', e => { if (pr.tab !== 'iv3d') return; e.preventDefault(); pr.rot.zoom = Math.max(0.5, Math.min(2.5, pr.rot.zoom * (e.deltaY < 0 ? 1.08 : 0.93))); iv3dDraw(); }, { passive:false });
+  cv.addEventListener('dblclick', () => { if (pr.tab !== 'iv3d') return; pr.rot = { yaw:-0.75, pitch:0.55, zoom:1 }; iv3dDraw(); });
+  window.addEventListener('resize', () => { if (!$('pro').classList.contains('show')) return; if (pr.tab === 'iv3d') iv3dDraw(); if (pr.tab === 'bks') bksDraw(); });
+})();
+// IV grid strike × expiry from the server's per-expiry smiles (QQQ chain): every expiry ≤ 7 days, then every ~3rd
+async function ivSurfData(pct, days){
+  if (pr.iv3d && pr.iv3d.pct === pct && Date.now() - pr.iv3d.at < 90e3) return pr.iv3d;
+  const s0 = await srv('/options/smile'), now = Date.now(), S0 = s0.spot;
+  const dteOf = e => (Date.parse(e + 'T21:00:00Z') - now) / 86400e3;      // 16:00 ET close (≈ 21:00 UTC)
+  let ex = (s0.expiries || []).map(e => ({ e, d:dteOf(e) })).filter(x => x.d > 0.01 && x.d <= days);
+  ex = ex.filter((x, i) => x.d <= 7 || i % 3 === 0 || i === ex.length - 1).slice(0, 18);
+  const sm = await Promise.all(ex.map(x => x.e === s0.exp ? Promise.resolve(s0) : srv('/options/smile?exp=' + x.e).catch(() => null)));
+  const N = 41, lo = S0 * (1 - pct), hi = S0 * (1 + pct), K = Array.from({ length:N }, (_, j) => lo + (hi - lo) * j / (N - 1));
+  const rows = [];
+  ex.forEach((x, i) => {
+    const raw = ((sm[i] && sm[i].smile) || []).filter(p => p.iv > 0.02 && p.iv < 3 && p.strike >= lo * 0.97 && p.strike <= hi * 1.03).sort((a, b) => a.strike - b.strike);
+    if (raw.length < 6) return;
+    const iv = raw.map((p, j) => { const w = raw.slice(Math.max(0, j - 1), j + 2).map(q => q.iv).sort((a, b) => a - b); return w[w.length >> 1]; });   // median of 3: no single-print spikes
+    const v = K.map(k => { if (k < raw[0].strike || k > raw[raw.length - 1].strike) return null;
+      let j = raw.findIndex(p => p.strike >= k); if (j <= 0) return iv[0]; const f = (k - raw[j - 1].strike) / (raw[j].strike - raw[j - 1].strike || 1); return iv[j - 1] + (iv[j] - iv[j - 1]) * f; });
+    const ok = v.filter(z => z != null).length; if (ok < N * 0.6) return;
+    for (let j = 0; j < N; j++) if (v[j] == null) { let a = j; while (a >= 0 && v[a] == null) a--; let b = j; while (b < N && v[b] == null) b++; v[j] = a >= 0 ? v[a] : v[b]; }
+    rows.push({ e:x.e, d:Math.max(0, x.d), v });
+  });
+  rows.sort((a, b) => a.d - b.d);
+  const near = rows.find(r => r.d >= 0.5) || rows[0], at = p => near ? near.v[Math.round((p - lo) / (hi - lo) * (N - 1))] : null;
+  return { at:Date.now(), pct, strikes:K, dte:rows.map(r => r.d), iv:rows.map(r => r.v), exps:rows.map(r => r.e), spot:S0, k:(st.res && st.res.info && st.res.info.ratio) || (st.srv.levels && st.srv.levels.k) || null,
+    skew: near && pct >= 0.03 ? { put:at(S0 * 0.97), call:at(S0 * 1.03), exp:near.e } : null };
+}
 $('pTab').onclick = e => { const b = e.target.closest('button'); if (!b) return; pr.tab = b.dataset.t; proShow(); };
 $('pSub').onclick = e => { const b = e.target.closest('button'); if (!b) return; pr.sub[pr.tab] = b.dataset.s; proShow(); };
 
@@ -3168,7 +3256,9 @@ function sentCompute(){
   });
   const k = st.res && st.res.info && st.res.info.ratio;
   o.k = k; o.lines.forEach(l => { l.nq = k ? Math.round(l.q * k * 4) / 4 : null; });
-  sn.out = o; return o;
+  sn.out = o;
+  try { sn.lv = pmlBuild(o); pmlAuto(); } catch(e){}
+  return o;
 }
 function sentCard(){
   const o = sn && sn.out; if (!o || !o.drivers.length) return '';
@@ -3299,46 +3389,38 @@ function preReport(){
   const nq = q => k ? ` (NQ ${fmtP(Math.round(q * k * 4) / 4)})` : '';
   const P = [];
   let RG = null; try { RG = preRegime(); } catch(e){}
-  // QQQ: where we are (pivot), what's above / below, path in the direction of the lean
-  if (Q) {
-    const res = Q.up[0], sup = Q.dn;
-    let t = Q.otherFail === 'reclaim' && Q.other > Q.pivot ? `Včera QQQ nedokázalo reclaimnout ${fK(Q.other)}, ${fK(Q.other)} je dnes resistance. `
-      : Q.prevFail === 'reclaim' ? `Včera QQQ nedokázalo reclaimnout ${fK(Q.pivot)}. ` : '';
-    const inn = (Q.inner || []).filter(x => x != null);
-    if (Q.side > 0) {
-      // mentor style: "QQQ is now trading above 660, that is gonna act as a pivot. 663 and 658 … losing 655 opens the road to 650s"
-      t += `QQQ se obchoduje nad ${fK(Q.pivot)}${nq(Q.pivot)}, to bude dnes pivot.`;
-      if (inn.length) t += ` Hlídám ${inn.map(x => fK(x) + nq(x)).join(' a ')}.`;
-      if (res != null) t += ` Nahoru ${fK(res)}${nq(res)}${Q.up[1] ? `, pak ${fK(Q.up[1])}` : ''}.`;
-      if (sup.length) t += ` Pokud chceme níž, mám ${fK(sup[0])}${nq(sup[0])}, jeho ztráta otevře cestu na ${sup[1] != null ? fK(sup[1]) + nq(sup[1]) : 'níž'}.`;
-    } else {
-      t += `QQQ je pod pivotem ${fK(Q.pivot)}${nq(Q.pivot)} – reclaim je klíčový pro upside${res != null ? ` (další ${fK(res)})` : ''}.`;
-      if (sup.length) t += ` Downside POI ${sup.map(fK).join(' / ')}, prolomení ${fK(sup.at(-1))}${nq(sup.at(-1))} by bylo dobré pro sellers.`;
-    }
-    if (Q.pivotFlow > 0) t += ` Na ${fK(Q.pivot)} přibylo ${Math.round(Q.pivotFlow).toLocaleString('en-US')} kontraktů nového OI.`;
-    P.push(t);
-  }
-  // SPX + VIX
-  if (X) {
-    let t = X.side > 0 ? `SPX: pivot ${fK(X.pivot)}.${X.other != null && X.other > X.pivot ? ` Konsolidujeme pod ${fK(X.other)}, reclaim → ${fK(X.magnet && X.magnet > X.other ? X.magnet : (X.up[1] != null ? X.up[1] : X.other))}${X.magnet && X.magnet > X.other ? ' (velký pozitivní GEX)' : ''}.` : X.magnet ? ` Magnet nahoře ${fK(X.magnet)} (největší +GEX).` : ''}${X.dn[0] != null ? ` Ztráta ${fK(X.pivot)} → ${fK(X.dn[0])}.` : ''}`
-      : `SPX je pod ${fK(X.pivot)} – agresivní reclaim je klíčový pro další upside${X.up[0] != null ? ` (další problém ${fK(X.up[0])})` : ''}${X.dn[0] != null ? `, jinak ${fK(X.dn[0])}` : ''}.`;
-    if (X.pivotFlow > 0) t += ` Na ${fK(X.pivot)} je velká nová pozice (+${Math.round(X.pivotFlow).toLocaleString('en-US')} OI).`;
-    if (V) {
-      const vtxt = `VIX ${f2(V.last)}${V.est === 'opce' ? ' (odhad z VIX opcí, zavření ' + f2(vixSpot().close) + ')' : V.est === 'close' ? ' (včerejší zavření)' : ''}`;
-      t += V.regime > 0 ? ` ${vtxt}, pozitivní gamma${V.edge ? ` až do ${fK(V.edge)}` : ''} – růst VIX je tlumený; průraz ${fK(V.trigger)} dolů by byl dobrý pro potenciální pullback${bear ? ' po výprodeji' : ''}.`
-        : ` ${vtxt} v negativní gammě${V.edge ? ` nad ${fK(V.edge)}` : ''} – VIX může vystřelit a táhnout SPX dolů, hlavně pokud ztratíme ${fK(X.pivot)}.`;
-    }
+  // QQQ + SPX in the mentor's words, from the day's (locked) premarket levels
+  const lv = pmlCurrent() || sn.lv;
+  if (lv) pmlParas(lv, { k, bear }).forEach(t => P.push(t));
+  if (X && V) {
+    const vtxt = `VIX ${f2(V.last)}${V.est === 'opce' ? ' (odhad z VIX opcí, zavření ' + f2(vixSpot().close) + ')' : V.est === 'close' ? ' (včerejší zavření)' : ''}`;
+    let t = V.regime > 0 ? `${vtxt}, pozitivní gamma${V.edge ? ` až do ${fK(V.edge)}` : ''} – růst VIX je tlumený; průraz ${fK(V.trigger)} dolů by byl dobrý pro potenciální pullback${bear ? ' po výprodeji' : ''}.`
+      : `${vtxt} v negativní gammě${V.edge ? ` nad ${fK(V.edge)}` : ''} – VIX může vystřelit a táhnout SPX dolů, hlavně pokud ztratíme ${fK(X.pivot)}.`;
     const dq = pre.daily.QQQ, ds = pre.daily.SPX;
     if (dq && ds && ds.d1 - dq.d1 > 0.003) t += ' Silné SPX (širší trh) je teď to jediné, co drží tech nad vodou.';
     else if (dq && ds && dq.d1 - ds.d1 > 0.003) t += ' Tech táhne trh – QQQ silnější než SPX.';
     P.push(t);
   }
+  // volatility the way he reads it: IV cheaper / dearer than yesterday, but how much downside protection is bought
+  try {
+    const c = cboeStats(), n = c.srv || {}, H = c.hist || {}, pv = H.prev || {}, vy = cb.y['^VIX'], vx = vixSpot();
+    const parts = [];
+    if (n.spx_atm && pv.spx_atm) { const d = n.spx_atm - pv.spx_atm; parts.push(`IV ${d < -0.003 ? 'trochu zlevňuje' : d > 0.003 ? 'zdražuje' : 'je proti včerejšku beze změny'} (SPX 1M ATM ${(n.spx_atm * 100).toFixed(1)} % vs ${(pv.spx_atm * 100).toFixed(1)} % včera)`); }
+    const prot = H.pct ? Math.max(H.pct.spx_skew ?? 0, H.pct.spx_conv ?? 0) : 0;
+    const vPrev = vy && vy.length > 1 ? vy[vy.length - 2].c : null;
+    if (prot >= 0.8) parts.push(`${parts.length ? 'ale ' : ''}vidíme hodně ochrany proti poklesu (skew / convexity ${Math.round(prot * 100)}. percentil)${vx && vx.v ? `, i když VIX je ${vPrev && vx.v < vPrev ? 'zpátky na' : 'na'} ${vx.v.toFixed(1)}` : ''}`);
+    else if (H.pct && H.pct.spx_skew != null) parts.push(`${parts.length ? 'a ' : ''}ochrana proti poklesu je normální (skew ${Math.round(H.pct.spx_skew * 100)}. percentil)`);
+    if (parts.length) P.push(parts.join(', ').replace(/^./, m => m.toUpperCase()) + '.');
+  } catch(e){}
   // sectors + scenario
   const sec = sn.sec || {}, names = Object.keys(sec).filter(x => Number.isFinite(sec[x].d1));
   if (names.length >= 5) {
     const srt = [...names].sort((a, b) => sec[b].d1 - sec[a].d1), lead = srt.slice(0, 2), lag = srt.slice(-2).reverse();
     const pc = x => `${x} ${sec[x].d1 > 0 ? '+' : ''}${(sec[x].d1 * 100).toFixed(1)} %`;
-    let t = `Sektory: nejlíp ${lead.map(pc).join(', ')}, nejhůř ${lag.map(pc).join(', ')}.`;
+    const upN = names.filter(x => sec[x].d1 > 0).length, d5 = Math.min((pre.daily.QQQ || {}).d5 ?? 0, (pre.daily.SPX || {}).d5 ?? 0);
+    let t = upN === names.length ? `Všechny sektory byly včera v plusu.${d5 < -0.015 ? ' Dead cat bounce? Uvidíme, ale z tohohle dipu bych zatím nebyl moc optimistický – pořád tu vidím prostor dolů.' : ''} `
+      : upN === 0 ? 'Všechny sektory byly včera v minusu. ' : '';
+    t += `Sektory: nejlíp ${lead.map(pc).join(', ')}, nejhůř ${lag.map(pc).join(', ')}.`;
     const techWeak = sec.XLK && sec.XLK.d5 < -0.02, semisWeak = sec.SMH && sec.SMH.d1 < 0, energyWeak = sec.XLE && sec.XLE.d1 < -0.01;
     if (techWeak || (semisWeak && energyWeak)) t += ` Tech má teď problém${energyWeak ? ` kvůli energii (XLE ${(sec.XLE.d1 * 100).toFixed(1)} %)` : ''}${semisWeak ? `${energyWeak ? ' a' : ' kvůli'} polovodičům (SMH ${(sec.SMH.d1 * 100).toFixed(1)} %)` : ''}${sec.XLK ? `, XLK ${(sec.XLK.d5 * 100).toFixed(1)} % za 5 dní` : ''}.`;
     if (S.preNote) t += ' ' + S.preNote.trim();
@@ -3350,6 +3432,11 @@ function preReport(){
     P.push(t);
   }
   try { const v = cboeText(); if (v) P.push(v); } catch(e){}
+  try {
+    const n = (cboeStats().srv) || {}, L = pmlCurrent() || sn.lv;
+    if (L && L.qqq && L.spx && n.spx_gex != null && n.spx_gex < 0) P.push(`Hlavně pokud ztratíme oba pivoty (QQQ ${fK(L.qqq.P)} a SPX ${fK(L.spx.P)}), negativní gamma pohyb jen zrychlí.`);
+    const sc = L && pmlScalp(L); if (sc) P.push(`Scalping: ${fK(sc.lo)} → ${fK(sc.hi)} ; ${fK(sc.hi)} → ${fK(sc.lo)}${k ? ` (NQ ${fmtP(Math.round(sc.lo * k * 4) / 4)} ↔ ${fmtP(Math.round(sc.hi * k * 4) / 4)})` : ''}.`);
+  } catch(e){}
   if (RG) { P.unshift(RG.t); if (RG.flags.length >= 2) P.push('Pullback se může nabízet, ale očekávání si nebereme za jistotu – necháme net drift a orderflow ukázat skutečný směr.'); }
   return { date:preDate(), lean:so.lean, score:so.score, P, at:Date.now(), src:sn.src, regime:RG && RG.lvl };
 }
@@ -3383,7 +3470,8 @@ function preRender(){
     <div class="pl-in">Vlastní poznámka do reportu (např. valuace NDX): <input id="preNote" style="width:min(520px,100%)" value="${esc(S.preNote || '')}" placeholder="Tech je levný – NDX forward P/E 19× (5Y min)"></div>`;
   if (!view) {
     h += '<div class="pl-grid">';
-    h += `<div class="pl-card" style="grid-column:1/-1"><h5>QQQ · PIVOT / POI <span>${sn.out.assets.QQQ ? 'pivot ' + fK(sn.out.assets.QQQ.pivot) : ''}</span></h5><div id="preChart" style="height:300px"></div></div>`;
+    const lvx = pmlCurrent() || sn.lv;
+    h += `<div class="pl-card" style="grid-column:1/-1"><h5>QQQ · PREMARKET LEVELY <span>${lvx && lvx.qqq ? 'pivot ' + fK(lvx.qqq.P) + (lvx.qqq.rLo != null && lvx.qqq.rHi != null ? ' · range ' + fK(lvx.qqq.rLo) + '–' + fK(lvx.qqq.rHi) : '') : ''} · velký graf v záložce PM Levely</span></h5><div id="preChart" style="height:300px"></div></div>`;
     try { h += cboeCard(); } catch(e){}
     const sz = sn.g.spxZero, vf = sn.g.vixFull, spxSpot = (sn.yf.spx && sn.yf.spx.length ? sn.yf.spx.at(-1).c : sz && sz.spot), vixSpot = (sn.yf.vix && sn.yf.vix.length ? sn.yf.vix.at(-1).c : vf && vf.spot);
     h += preBars(sz && sz.strikes, spxSpot, 0.012, 'SPX · GAMMA PO STRIKECH (0DTE)', v => Pro.fmtM(v));
@@ -3409,9 +3497,11 @@ function preChart(){
     priceFormat:{ type:'price', precision:2, minMove:0.01 } });
   const qb = (st.data.qqqBars || []).slice(-600);
   const seen = new Set(); s.setData(qb.filter(b => { const t = A.et(b.t).disp; if (seen.has(t)) return false; seen.add(t); return true; }).map(b => ({ time:A.et(b.t).disp, open:b.o, high:b.h, low:b.l, close:b.c })));
-  const lp = (sn.out ? sn.out.lines : []).map(l => l.q);
+  // same levels as the PM Levely tab (the day's locked premarket structure)
+  const lv = pmlCurrent() || sn.lv, LL = lv ? pmlLevels(lv, 'QQQ') : [], last = qb.length ? qb[qb.length - 1].c : null;
+  const lp = LL.map(o => o.q).filter(v => last && Math.abs(v / last - 1) < 0.02);
   if (lp.length) s.applyOptions({ autoscaleInfoProvider: orig => { const r = orig(); if (!r) return r; r.priceRange.minValue = Math.min(r.priceRange.minValue, ...lp) - 0.3; r.priceRange.maxValue = Math.max(r.priceRange.maxValue, ...lp) + 0.3; return r; } });
-  for (const l of (sn.out ? sn.out.lines : [])) s.createPriceLine({ price:l.q, color:l.color, lineWidth:2, lineStyle:0, axisLabelVisible:true, title:l.role.split(' · ')[0] });
+  for (const o of LL) s.createPriceLine({ price:o.q, color: o.road ? '#8a8f97' : '#ef5350', lineWidth:2, lineStyle: o.road ? 2 : 0, axisLabelVisible:true, title:o.role });
   pre.chart.timeScale().fitContent();
 }
 async function openPre(force){
@@ -3420,6 +3510,169 @@ async function openPre(force){
   if (!sn.out) $('preBody').innerHTML = '<p class="hint">Načítám QQQ / SPX / VIX gammu a sektory…</p>';
   try { await Promise.all([loadSent(force), preLoadDaily(), cboeLoad(force)]); preRender(); } catch(e) { $('preBody').innerHTML = `<p class="hint">Chyba: ${esc(e.message)}</p>`; }
 }
+
+// ───────── PREMARKET LEVELS (mentor's structure), locked once a day at 09:00 ET and shared by every device via the Worker
+const pml = { rec:null, fetchAt:0, busy:false, chart:null, s:null, bg:null, lines:[], bands:[], mode:'QQQ' };
+function pmlBuild(o){
+  const Q = o.assets.QQQ, X = o.assets.SPX; if (!Q || !Q.plan) return null;
+  const q = Q.plan, x = X && X.plan, r = v => Number.isFinite(v) ? v : null;
+  return { date:preDate(), at:Date.now(), k:o.k ? +o.k.toFixed(4) : null, src:sn.src && sn.src.QQQ,
+    qqq:{ spot:r(Q.last), P:q.P, above:q.above, hug:q.hug, rLo:r(q.rLo), rHi:r(q.rHi), trig:r(q.trig), d1:r(q.d1), road:r(q.road), u1:r(q.u1) },
+    spx: X && x ? { spot:r(X.last), P:X.pivot, above:x.above, hug:x.hug, next:r(x.rLo), reclaim: X.other != null && X.other > X.pivot ? X.other : null, magnet:r(X.magnet) } : null };
+}
+const pmlLocal = d => { try { return JSON.parse(localStorage.getItem('algoLevels.pml.' + d)); } catch(e){ return null; } };
+const pmlLocalSave = rec => { try { if (rec && rec.lv) localStorage.setItem('algoLevels.pml.' + rec.lv.date, JSON.stringify(rec)); } catch(e){} };
+function pmlCurrent(){
+  const d = preDate();
+  if (pml.rec && pml.rec.lv && pml.rec.lv.date === d) return pml.rec.lv;
+  const loc = pmlLocal(d); if (loc && loc.lv) { pml.rec = loc; return loc.lv; }
+  return sn.lv && sn.lv.date === d ? sn.lv : null;
+}
+async function pmlPublish(L, force){ try { return await api(`/pre/set?date=${L.date}&lv=${encodeURIComponent(JSON.stringify(L))}${force ? '&force=1' : ''}`, 6000); } catch(e){ return null; } }
+const pmlTake = (r, fallback) => r && r.ok && r.lv ? { lv:r.lv, at:r.at } : r && r.kept && r.kept.lv ? r.kept : fallback;
+async function pmlLock(lv, force){
+  const e = YYY.et(Date.now() / 1000), m = e.h * 60 + e.mi;
+  const L = { ...lv, at:Date.now(), locked: m < 570 ? 'premarket' : 'po open' };
+  pml.rec = pmlTake(await pmlPublish(L, force), { lv:L, at:Date.now(), local:true });
+  pmlLocalSave(pml.rec); return pml.rec;
+}
+// first look for the shared lock (another device may have done it), then lock from 09:00 ET on the session day
+async function pmlAuto(){
+  const lv = sn.lv; if (!lv || st.demo || !S.worker || pml.busy) return;
+  if (pml.rec && pml.rec.lv && pml.rec.lv.date === lv.date && !pml.rec.local) return;
+  if (Date.now() - pml.fetchAt < 60e3) return;
+  pml.busy = true; pml.fetchAt = Date.now();
+  try {
+    let r = null; try { r = await api(`/pre?date=${lv.date}`, 6000); } catch(e){}
+    if (r && r.lv) { pml.rec = r; pmlLocalSave(r); return; }
+    // a lock made on this device while the Worker could not store it: keep it (never re-lock the same day) and retry sharing it
+    const loc = pmlLocal(lv.date) || (pml.rec && pml.rec.lv && pml.rec.lv.date === lv.date ? pml.rec : null);
+    if (loc && loc.lv) { pml.rec = pmlTake(loc.local ? await pmlPublish(loc.lv, false) : null, loc); pmlLocalSave(pml.rec); return; }
+    const e = YYY.et(Date.now() / 1000), m = e.h * 60 + e.mi;
+    if (e.date === lv.date && m >= 540 && m < 960) await pmlLock(lv, false);
+  } finally { pml.busy = false; if ($('pml').classList.contains('show')) pmlRender(); }
+}
+function todayEvent(d){
+  const ev = [...MACRO_DATES, ...FOMC.map(x => [x, 'FOMC']), ...(S.extraDates || []).map(x => [x.d, x.what])].find(([x]) => x === d);
+  if (!ev) return '';
+  const e = YYY.et(Date.now() / 1000), m = e.h * 60 + e.mi, at = ev[1] === 'FOMC' ? 840 : 510, same = e.date === d;
+  return same && m >= at ? `${ev[1]} je dnes venku` : `Dnes ${ev[1]} (${ev[1] === 'FOMC' ? '14:00' : '8:30'} ET)`;
+}
+// his words, filled with the day's levels (6.11 / 9.11 / 10.11 posts → tests/yyy.test.js)
+function pmlParas(lv, ctx){
+  const out = [], k = ctx.k, nq = v => k ? ` (NQ ${fmtP(Math.round(v * k * 4) / 4)})` : '', F = Number.isFinite, q = lv.qqq, x = lv.spx, ev = todayEvent(lv.date);
+  if (q && F(q.P)) {
+    let t = ev ? ev + '. ' : '';
+    if (q.above) {
+      t += `QQQ se teď obchoduje ${q.hug ? 'kolem' : 'nad'} ${fK(q.P)}${nq(q.P)}, to bude fungovat jako pivot.`;
+      if (F(q.rLo) && F(q.rHi)) t += ` Aktuální range je ${fK(q.rLo)}–${fK(q.rHi)}.`;
+      if (F(q.trig)) t += ` Průraz ${fK(q.trig)}${nq(q.trig)} nahoru je dobrý pro pokračování výš${F(q.rHi) ? ` (${fK(q.rHi)}${F(q.u1) ? `, pak ${fK(q.u1)}` : ''})` : ''}.`;
+      else if (F(q.rHi)) t += ` Průraz ${fK(q.rHi)}${nq(q.rHi)} nahoru je dobrý pro pokračování výš${F(q.u1) ? ` (další ${fK(q.u1)})` : ''}.`;
+      t += ` Ale pokud padne ${fK(q.P)}, bylo by to špatné pro kupce${F(q.rLo) ? ` – dole čeká ${fK(q.rLo)}` : ''}.`;
+      if (F(q.d1)) t += ` Kdybychom chtěli níž, mám na grafu ${fK(q.d1)}${nq(q.d1)} – jeho ztráta by otevřela cestu k ${fK(q.road)} a níž.`;
+    } else {
+      t += `QQQ je pod pivotem ${fK(q.P)}${nq(q.P)} – reclaim ${fK(q.P)} je klíčový pro upside.`;
+      if (F(q.rLo)) t += ` Aktuální range je ${fK(q.rLo)}–${fK(q.P)}, ztráta ${fK(q.rLo)} by byla dobrá pro sellers${F(q.d1) ? ` (další ${fK(q.d1)}${F(q.road) ? `, pak ${fK(q.road)}` : ''})` : ''}.`;
+    }
+    out.push(t);
+  }
+  if (x && F(x.P)) {
+    let t = `${x.hug ? `SPX je na ${fK(x.P)}` : x.above ? `SPX se drží nad ${fK(x.P)}` : `SPX je pod ${fK(x.P)}`} (${x.P % 100 === 0 ? 'dlouhodobý pivot' : 'pivot'}).`;
+    if (x.above || x.hug) t += ` Záleží, jestli se tu udržíme${F(x.next) ? ` – pokud budeme pokračovat níž${ctx.bear ? ' se stejným sentimentem' : ''}, další zastávka ${fK(x.next)}` : ''}.`;
+    else t += ` Agresivní reclaim ${fK(x.P)} je klíčový${F(x.next) ? `, jinak ${fK(x.next)}` : ''}.`;
+    if (F(x.reclaim) && x.reclaim !== x.P) t += ` Pokud reclaimneme ${fK(x.reclaim)}, další je ${fK(F(x.magnet) && x.magnet > x.reclaim ? x.magnet : x.reclaim)}${F(x.magnet) && x.magnet > x.reclaim ? ' (velký pozitivní GEX)' : ''}.`;
+    else if (F(x.magnet) && x.magnet > x.P) t += ` Magnet nahoře ${fK(x.magnet)} (největší pozitivní GEX).`;
+    out.push(t);
+  }
+  return out;
+}
+const pmlQ = lv => { const q = lv && lv.qqq; return q ? [q.d1, q.rLo, q.P, q.trig, q.rHi, q.u1].filter(Number.isFinite) : []; };
+function pmlScalp(lv){ const px = st.data.qqqPx || (lv.qqq && lv.qqq.spot); return px ? YYY.scalpBox(pmlQ(lv), px) : null; }
+function pmlLevels(lv, mode){
+  const F = Number.isFinite, k = (st.res && st.res.info && st.res.info.ratio) || lv.k;
+  if (mode === 'SPX') { const x = lv.spx; if (!x) return [];
+    return [{ v:x.P, role:'PIVOT', t:x.P % 100 === 0 ? 'dlouhodobý pivot – držet = OK' : 'pivot', piv:true }, { v:x.reclaim, role:'RECLAIM', t:'reclaim = cesta výš' },
+      { v:x.magnet, role:'MAGNET', t:'největší pozitivní GEX nad cenou' }, { v:x.next, role:'DALŠÍ ZASTÁVKA', t:'když půjdeme níž' }].filter(o => F(o.v)).map(o => ({ ...o, q:o.v })); }
+  const q = lv.qqq; if (!q) return [];
+  const seen = new Set(), conv = v => mode === 'NQ' && k ? Math.round(v * k * 4) / 4 : v;
+  return [{ q:q.P, role:'PIVOT', t:'když padne = špatné pro kupce', piv:true }, { q:q.rHi, role:'RANGE ↑', t:'horní hrana range' },
+    { q:q.trig, role:'TRIGGER', t:'průraz nahoru = pokračování výš' }, { q:q.rLo, role:'RANGE ↓', t:'spodní hrana range' },
+    { q:q.u1, role:'NAHORU', t:'další nad range' }, { q:q.d1, role:'DOLŮ', t:'ztráta otevře cestu níž' }, { q:q.road, role:`${q.road}+`, t:'cesta níž', road:true }]
+    .filter(o => F(o.q) && !seen.has(o.q) && seen.add(o.q)).map(o => ({ ...o, v:conv(o.q) }));
+}
+function pmlBars(mode){
+  const pick = mode === 'QQQ' ? (st.data.qqqBars || []) : mode === 'NQ' ? (st.data.bars || []).filter(b => b.c > 0) : (sn.yf.spx || []);
+  if (!pick.length) return [];
+  const last = A.et(pick[pick.length - 1].t).date;
+  let bs = pick.filter(b => { const e = A.et(b.t); return e.date === last && e.min >= 240; });
+  if (bs.length < 30) { const prev = [...new Set(pick.map(b => A.et(b.t).date))].filter(d => d < last).pop(); bs = pick.filter(b => { const e = A.et(b.t); return (e.date === prev && e.min >= 240) || (e.date === last && e.min >= 240); }); }
+  const seen = new Set();
+  return bs.filter(b => { const t = A.et(b.t).disp; if (seen.has(t)) return false; seen.add(t); return true; });
+}
+function pmlDraw(){
+  const el = $('pmlChart'); if (!el || !$('pml').classList.contains('show')) return;
+  const lv = pmlCurrent(), mode = pml.mode, bars = pmlBars(mode);
+  if (!pml.chart) {
+    pml.chart = LightweightCharts.createChart(el, { autoSize:true, localization:{ locale:'en-US' },
+      layout:{ background:{ type:'solid', color:'#07080a' }, textColor:'#7b828c', fontFamily:'JetBrains Mono', fontSize:11 },
+      grid:{ vertLines:{ visible:false }, horzLines:{ color:'#0d1014' } }, rightPriceScale:{ borderColor:'#14181e' },
+      timeScale:{ borderColor:'#14181e', timeVisible:true, secondsVisible:false, rightOffset:12 }, crosshair:{ mode:0 } });
+    // pre / post market tint like TradingView's extended hours: a baseline series on a hidden −1…1 scale (+1 = tinted)
+    pml.bg = pml.chart.addBaselineSeries({ priceScaleId:'bg', baseValue:{ type:'price', price:-1 }, lineWidth:1, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false,
+      topLineColor:'rgba(0,0,0,0)', topFillColor1:'rgba(201,140,40,.10)', topFillColor2:'rgba(201,140,40,.10)', bottomLineColor:'rgba(0,0,0,0)', bottomFillColor1:'rgba(0,0,0,0)', bottomFillColor2:'rgba(0,0,0,0)' });
+    pml.chart.priceScale('bg').applyOptions({ scaleMargins:{ top:0, bottom:0 }, visible:false });
+    pml.s = pml.chart.addCandlestickSeries({ upColor:'#e6e8eb', downColor:'#07080a', borderUpColor:'#e6e8eb', borderDownColor:'#e6e8eb', wickUpColor:'#c9ccd2', wickDownColor:'#c9ccd2', borderVisible:true });
+  }
+  const prec = mode === 'NQ' ? 2 : 2, mv = mode === 'NQ' ? 0.25 : 0.01;
+  pml.s.applyOptions({ priceFormat:{ type:'price', precision:prec, minMove:mv } });
+  pml.s.setData(bars.map(b => ({ time:A.et(b.t).disp, open:b.o, high:b.h, low:b.l, close:b.c })));
+  pml.bg.setData(bars.map(b => ({ time:A.et(b.t).disp, value: A.isRTH(b.t) ? -1 : 1 })));
+  pml.lines.forEach(l => { try { pml.s.removePriceLine(l); } catch(e){} }); pml.lines = [];
+  pml.bands.forEach(x => { try { pml.chart.removeSeries(x); } catch(e){} }); pml.bands = [];
+  const L = lv ? pmlLevels(lv, mode) : [], k = (st.res && st.res.info && st.res.info.ratio) || (lv && lv.k);
+  const half = mode === 'SPX' ? 2.5 : mode === 'NQ' && k ? 0.25 * k : 0.25;
+  const t0 = bars.length ? A.et(bars[0].t).disp : 0, t1 = bars.length ? A.et(bars[bars.length - 1].t).disp + 60 * 40 : 0;
+  for (const o of L) {
+    if (!o.piv && !o.road && bars.length) {   // grey band around the level, like his TradingView boxes
+      const z = pml.chart.addBaselineSeries({ baseValue:{ type:'price', price:o.v - half }, lineWidth:1, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false,
+        topLineColor:'rgba(0,0,0,0)', topFillColor1:'rgba(160,165,175,.22)', topFillColor2:'rgba(160,165,175,.22)', bottomLineColor:'rgba(0,0,0,0)', bottomFillColor1:'rgba(0,0,0,0)', bottomFillColor2:'rgba(0,0,0,0)', autoscaleInfoProvider:() => null });
+      z.setData([{ time:t0, value:o.v + half }, { time:t1, value:o.v + half }]); pml.bands.push(z);
+    }
+    pml.lines.push(pml.s.createPriceLine({ price:o.v, color: o.road ? '#8a8f97' : '#ef5350', lineWidth: o.piv ? 2 : 2, lineStyle: o.road ? 2 : 0, axisLabelVisible:true,
+      axisLabelColor: o.road ? '#8a8f97' : '#ef5350', axisLabelTextColor:'#fff', title:o.role }));
+  }
+  const px = bars.length ? bars[bars.length - 1].c : null, near = L.map(o => o.v).filter(v => px && Math.abs(v / px - 1) < 0.02);
+  pml.s.applyOptions({ autoscaleInfoProvider: orig => { const r = orig(); if (!r || !near.length) return r; r.priceRange.minValue = Math.min(r.priceRange.minValue, ...near) - half * 1.5; r.priceRange.maxValue = Math.max(r.priceRange.maxValue, ...near) + half * 1.5; return r; } });
+  if (pml.fitMode !== mode) { pml.chart.timeScale().fitContent(); pml.fitMode = mode; }
+}
+function pmlRender(){
+  const lv = pmlCurrent(), mode = pml.mode;
+  [...$('pmlMode').children].forEach(b => b.classList.toggle('on', b.dataset.m === mode));
+  if (!lv) { $('pmlHead').textContent = S.worker ? 'Čekám na GEX data pro premarket levely…' : 'Nejdřív nastav Worker v ⚙.'; $('pmlList').innerHTML = ''; pmlDraw(); return; }
+  const rec = pml.rec && pml.rec.lv === lv ? pml.rec : null, k = (st.res && st.res.info && st.res.info.ratio) || lv.k;
+  const when = rec ? `zamčeno ${A.hhmm(Math.round((rec.at || lv.at) / 1000))} ET${lv.locked === 'po open' ? ' (po open)' : ''}${rec.local ? ' · jen v tomhle zařízení' : ''}` : 'živě – zamkne se v 9:00 ET (15:00 u nás)';
+  const sc = pmlScalp(lv);
+  $('pmlHead').innerHTML = `<b>${lv.date.slice(5).split('-').reverse().join('.')}</b> · ${when}${lv.src ? ' · ' + esc(lv.src) : ''}`;
+  const L = pmlLevels(lv, mode), fmt = v => mode === 'NQ' ? fmtP(v) : mode === 'SPX' ? fK(v) : fK(v);
+  $('pmlList').innerHTML = (sc && mode !== 'SPX' ? `<div class="sc">Scalping teď: ${fK(sc.lo)} → ${fK(sc.hi)} ; ${fK(sc.hi)} → ${fK(sc.lo)}${k ? ` · NQ ${fmtP(Math.round(sc.lo * k * 4) / 4)} ↔ ${fmtP(Math.round(sc.hi * k * 4) / 4)}` : ''}</div>` : '') +
+    L.map(o => `<div class="it${o.piv ? ' piv' : ''}"><b>${o.role} · ${fmt(o.v)}</b><span>${mode === 'QQQ' && k ? 'NQ ' + fmtP(Math.round(o.q * k * 4) / 4) + ' · ' : mode === 'NQ' ? 'QQQ ' + fK(o.q) + ' · ' : ''}${esc(o.t)}</span></div>`).join('');
+  pmlDraw();
+}
+function pmlCopyText(lv){
+  const q = lv.qqq, x = lv.spx, k = (st.res && st.res.info && st.res.info.ratio) || lv.k, n = v => k ? ` (NQ ${fmtP(Math.round(v * k * 4) / 4)})` : '';
+  const F = Number.isFinite, out = [`Premarket levely ${lv.date}`];
+  if (q) out.push(`QQQ pivot ${fK(q.P)}${n(q.P)}${F(q.rLo) && F(q.rHi) ? ` · range ${fK(q.rLo)}–${fK(q.rHi)}` : ''}${F(q.trig) ? ` · trigger ${fK(q.trig)}${n(q.trig)}` : ''}${F(q.d1) ? ` · dolů ${fK(q.d1)} → ${fK(q.road)}` : ''}${F(q.u1) ? ` · nahoru ${fK(q.u1)}` : ''}`);
+  if (x) out.push(`SPX pivot ${fK(x.P)}${F(x.next) ? ` · další zastávka ${fK(x.next)}` : ''}${F(x.reclaim) ? ` · reclaim ${fK(x.reclaim)}` : ''}${F(x.magnet) ? ` · magnet ${fK(x.magnet)}` : ''}`);
+  const sc = pmlScalp(lv); if (sc) out.push(`scalping ${fK(sc.lo)} -> ${fK(sc.hi)} ; ${fK(sc.hi)} -> ${fK(sc.lo)}`);
+  return out.join('\n');
+}
+$('pmlBtn').onclick = async () => { $('pml').classList.add('show'); pmlRender();
+  try { await Promise.all([loadSent(false), preLoadDaily()]); sentCompute(); pml.fetchAt = 0; await pmlAuto(); } catch(e){} pmlRender(); };
+$('pmlClose').onclick = () => $('pml').classList.remove('show');
+$('pmlMode').onclick = e => { const b = e.target.closest('button[data-m]'); if (!b) return; pml.mode = b.dataset.m; pml.fitMode = null; pmlRender(); };
+$('pmlLock').onclick = async () => { if (!sn.lv) { toast('Zatím nejsou data pro levely'); return; } await pmlLock(sn.lv, true); pmlRender(); toast('Premarket levely zamčené podle teď – platí pro všechna zařízení'); };
+$('pmlCopy').onclick = async () => { const lv = pmlCurrent(); if (!lv) return; const t = pmlCopyText(lv); try { await navigator.clipboard.writeText(t); toast('Levely zkopírované'); } catch(e) { toast(t); } };
+setInterval(() => { if ($('pml').classList.contains('show') && document.visibilityState === 'visible') pmlRender(); }, 30000);
 
 // ───────── system health: one dot in the header (worst state), panel with every data source, its age and the last error
 const ageTxt = s => s == null ? '—' : s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : s < 172800 ? `${(s / 3600).toFixed(1)} h` : `${Math.round(s / 86400)} d`;
@@ -3478,7 +3731,7 @@ $('preCopy').onclick = async () => { const R = preReport(); if (!R) return; cons
 setInterval(() => { if ($('pre').classList.contains('show') && document.visibilityState === 'visible' && !pre.view) openPre(false); }, 120000);
 
 // ───────── browser-style tabs: Graf (clean chart) · Levely · Options & Flow · Bias · Analýza · Deník
-const TAB_SHEETS = { pro:['pro','proBtn','pClose'], pre:['pre','preBtn','preClose'], plan:['plan','planBtn','planClose'], bias:['bias','biasBtn','bClose2'], ana:['ana','anaBtn','aClose'], stats:['stats','statsBtn','sClose'] };
+const TAB_SHEETS = { pro:['pro','proBtn','pClose'], pre:['pre','preBtn','preClose'], pml:['pml','pmlBtn','pmlClose'], plan:['plan','planBtn','planClose'], bias:['bias','biasBtn','bClose2'], ana:['ana','anaBtn','aClose'], stats:['stats','statsBtn','sClose'] };
 Object.values(TAB_SHEETS).forEach(([id]) => $(id).classList.add('inline'));
 function fitChart(){
   if (document.body.dataset.tab !== 'chart') return;

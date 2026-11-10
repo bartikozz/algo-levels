@@ -336,5 +336,116 @@
     }
   }
 
-  root.Pro = { levelsChart, matrix, vol, landscape, flow, optflow, flowStrikes, customer, footprint, fmtM };
+  // ── Breakdown By Strike (Options Depth style): net customer position per strike in contracts (bought − sold since the
+  //    open), calls green / puts red / net blue, QQQ strikes with NQ alongside, price line, premarket levels dashed
+  function breakdown(cv, D, o) {
+    const { c, w, h } = setup(cv);
+    const spot = D && D.spot, k = o.k || (D && D.k);
+    const rows = ((D && D.pos) || []).filter(r => r[1] || r[2]).map(r => ({ K: +r[0], c: +r[1] || 0, p: +r[2] || 0, n: (+r[1] || 0) + (+r[2] || 0) }))
+      .filter(r => !spot || Math.abs(r.K / spot - 1) <= (o.pct || 0.025)).sort((a, b) => b.K - a.K);
+    cv._rows = [];
+    if (!rows.length) return empty(c, w, h, 'Zatím žádné obchody zákazníků v tomhle rozsahu.');
+    const L = 96, R = w - 16, top = 34, bot = h - 26, mid = L + (R - L) / 2;
+    const mx = Math.max(1, ...rows.flatMap(r => [Math.abs(r.c), Math.abs(r.p), Math.abs(r.n)]));
+    const K0 = rows[rows.length - 1].K, K1 = rows[0].K, Y = K => top + (K1 - K) / (K1 - K0 || 1) * (bot - top);
+    const rh = Math.max(4, Math.min(22, (bot - top) / Math.max(1, rows.length) - 2));
+    const X = v => mid + v / mx * ((R - L) / 2 - 6);
+    c.textAlign = 'left'; c.fillStyle = C.txt2;
+    c.fillText(`Breakdown By Strike · net customer position (kontrakty) · ${o.title || '0DTE'}`, 8, 10);
+    [['Calls', `rgb(52,211,90)`], ['Puts', `rgb(244,67,54)`], ['Net', `rgb(66,133,244)`]].forEach(([t, col], i) => { const x = 8 + i * 70; c.fillStyle = col; c.fillRect(x, 20, 10, 8); c.fillStyle = C.txt; c.fillText(t, x + 14, 24); });
+    // x grid
+    const stp = nice(2 * mx); c.textAlign = 'center';
+    for (let v = -Math.floor(mx / stp) * stp; v <= mx; v += stp) { const x = X(v); c.fillStyle = v === 0 ? 'rgba(255,255,255,.25)' : C.grid; c.fillRect(x, top - 4, 1, bot - top + 8); c.fillStyle = C.txt; c.fillText(fmtM(v), x, h - 10); }
+    // premarket levels behind the bars
+    for (const lv of o.levels || []) { if (lv.q < K0 - 0.5 || lv.q > K1 + 0.5) continue; const y = Y(lv.q);
+      c.strokeStyle = lv.col || C.gold; c.globalAlpha = .55; c.setLineDash([5, 4]); c.beginPath(); c.moveTo(L, y); c.lineTo(R, y); c.stroke(); c.setLineDash([]); c.globalAlpha = 1;
+      c.fillStyle = lv.col || C.gold; c.textAlign = 'right'; c.fillText(lv.label, R - 2, y - 7); }
+    const step = Math.max(1, Math.ceil(rows.length / Math.max(1, (bot - top) / 14)));
+    rows.forEach((r, i) => {
+      const y = Y(r.K), hot = o.hover === r.K, bh = Math.max(2, rh * 0.42);
+      if (hot) { c.fillStyle = 'rgba(255,255,255,.06)'; c.fillRect(L, y - rh / 2 - 1, R - L, rh + 2); }
+      const bar = (v, y0, hh, col) => { const x0 = X(0), x1 = X(v); c.fillStyle = col; c.fillRect(Math.min(x0, x1), y0, Math.max(1, Math.abs(x1 - x0)), hh); };
+      bar(r.c, y - bh - 0.5, bh, `rgba(52,211,90,${hot ? 1 : .85})`);
+      bar(r.p, y + 0.5, bh, `rgba(244,67,54,${hot ? 1 : .85})`);
+      bar(r.n, y - 1, 2, `rgba(66,133,244,${hot ? 1 : .9})`);
+      cv._rows.push({ y0: y - rh / 2 - 1, y1: y + rh / 2 + 1, r });
+      if (i % step === 0 || hot || Math.abs(r.n) > mx * 0.6 || r.K % 5 === 0) {
+        c.textAlign = 'right'; c.fillStyle = hot || r.K % 5 === 0 ? C.txt2 : C.txt;
+        c.fillText(`${r.K}${k ? ' · ' + Math.round(r.K * k).toLocaleString('en-US') : ''}`, L - 6, y);
+      }
+    });
+    // price line
+    if (spot && spot >= K0 - 1 && spot <= K1 + 1) {
+      const y = Y(spot); c.strokeStyle = 'rgba(244,67,54,.9)'; c.setLineDash([3, 3]); c.beginPath(); c.moveTo(L, y); c.lineTo(R, y); c.stroke(); c.setLineDash([]);
+      const t = `QQQ ${spot.toFixed(2)}${k ? ' · ' + Math.round(spot * k).toLocaleString('en-US') : ''}`, tw = c.measureText(t).width + 8;
+      c.fillStyle = 'rgb(244,67,54)'; c.fillRect(L - tw - 2, y - 8, tw, 16); c.fillStyle = '#fff'; c.textAlign = 'left'; c.fillText(t, L - tw + 2, y);
+    }
+  }
+
+  // ── IV surface in 3D (strike × days to expiry × implied vol, plasma colours) — painter's algorithm on a 2D canvas,
+  //    rotate by dragging (o.rot = { yaw, pitch, zoom })
+  const PLASMA = [[13,8,135],[75,3,161],[125,3,168],[168,34,150],[203,70,121],[229,107,93],[248,148,65],[253,195,40],[240,249,33]];
+  const plasma = t => { t = Math.max(0, Math.min(1, t)) * (PLASMA.length - 1); const i = Math.min(PLASMA.length - 2, Math.floor(t)), f = t - i, a = PLASMA[i], b = PLASMA[i + 1];
+    return [0, 1, 2].map(j => Math.round(a[j] + (b[j] - a[j]) * f)); };
+  function surface3d(cv, G, o) {
+    const { c, w, h } = setup(cv);
+    if (!G || !G.iv || G.iv.length < 2 || !G.strikes || G.strikes.length < 3) return empty(c, w, h, 'Málo dat pro IV povrch (čekám na IV z options serveru).');
+    const rot = o.rot || { yaw: -0.75, pitch: 0.55, zoom: 1 };
+    const K = G.strikes, Dd = G.dte, V = G.iv, nI = Dd.length, nJ = K.length;
+    const all = V.flat().filter(Number.isFinite).sort((a, b) => a - b);
+    const zLo = Math.max(0, all[Math.floor(all.length * 0.01)] * 0.95), zHi = all[Math.floor(all.length * 0.985)] * 1.03;
+    const dMax = Math.max(...Dd), kLo = K[0], kHi = K[nJ - 1];
+    const nx = x => (x - kLo) / (kHi - kLo) * 2 - 1, ny = d => d / (dMax || 1) * 2 - 1, nz = v => (Math.min(zHi, Math.max(zLo, v)) - zLo) / (zHi - zLo || 1) * 1.25;
+    const cy = Math.cos(rot.yaw), sy = Math.sin(rot.yaw), cp = Math.cos(rot.pitch), sp = Math.sin(rot.pitch);
+    const sc = Math.min(w, h) * 0.30 * (rot.zoom || 1), ox = w / 2, oy = h * 0.60;
+    const P = (x, y, z) => { const X1 = x * cy - y * sy, Y1 = x * sy + y * cy; return { x: ox + X1 * sc, y: oy - (z * cp + Y1 * sp) * sc, d: Y1 * cp - z * sp }; };
+    // back walls + floor grid (drawn first, behind the surface)
+    c.lineWidth = 1;
+    const line = (a, b, col) => { c.strokeStyle = col; c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke(); };
+    const fl = 'rgba(255,255,255,.10)';
+    for (let i = 0; i <= 8; i++) { const t = -1 + i / 4; line(P(t, -1, 0), P(t, 1, 0), fl); line(P(-1, t, 0), P(1, t, 0), fl); }
+    // the two walls facing away from the viewer
+    const wx = P(1, 0, 0).d > P(-1, 0, 0).d ? 1 : -1, wy = P(0, 1, 0).d > P(0, -1, 0).d ? 1 : -1;
+    for (let i = 0; i <= 4; i++) { const z = i / 4 * 1.25; line(P(-1, wy, z), P(1, wy, z), fl); line(P(wx, -1, z), P(wx, 1, z), fl); }
+    for (let i = 0; i <= 4; i++) { const t = -1 + i / 2; line(P(t, wy, 0), P(t, wy, 1.25), fl); line(P(wx, t, 0), P(wx, t, 1.25), fl); }
+    // quads, farthest first
+    const pts = V.map((row, i) => row.map((v, j) => Number.isFinite(v) ? P(nx(K[j]), ny(Dd[i]), nz(v)) : null));
+    const quads = [];
+    for (let i = 0; i < nI - 1; i++) for (let j = 0; j < nJ - 1; j++) {
+      const q = [pts[i][j], pts[i][j + 1], pts[i + 1][j + 1], pts[i + 1][j]]; if (q.some(p => !p)) continue;
+      const v = (V[i][j] + V[i][j + 1] + V[i + 1][j + 1] + V[i + 1][j]) / 4;
+      quads.push({ q, d: (q[0].d + q[1].d + q[2].d + q[3].d) / 4, t: (v - zLo) / (zHi - zLo || 1) });
+    }
+    quads.sort((a, b) => b.d - a.d);
+    for (const Q of quads) {
+      const [r, g, b] = plasma(Q.t);
+      c.fillStyle = `rgb(${r},${g},${b})`; c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 0.6;
+      c.beginPath(); c.moveTo(Q.q[0].x, Q.q[0].y); for (let n = 1; n < 4; n++) c.lineTo(Q.q[n].x, Q.q[n].y); c.closePath(); c.fill(); c.stroke();
+    }
+    // ATM line (spot strike across expiries)
+    if (G.spot && G.spot > kLo && G.spot < kHi) {
+      const j = K.findIndex(x => x >= G.spot), f = j > 0 ? (G.spot - K[j - 1]) / (K[j] - K[j - 1]) : 0;
+      c.strokeStyle = 'rgba(255,255,255,.95)'; c.lineWidth = 1.6; c.beginPath();
+      V.forEach((row, i) => { const v = j > 0 ? row[j - 1] + (row[j] - row[j - 1]) * f : row[0]; if (!Number.isFinite(v)) return; const p = P(nx(G.spot), ny(Dd[i]), nz(v)); i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y); });
+      c.stroke(); c.lineWidth = 1;
+      const lv = V[V.length - 1], va = j > 0 ? lv[j - 1] + (lv[j] - lv[j - 1]) * f : lv[0];
+      if (Number.isFinite(va)) { const p = P(nx(G.spot), ny(Dd[Dd.length - 1]), nz(va)); c.fillStyle = C.white; c.textAlign = 'left'; c.fillText(`ATM ${G.spot.toFixed(2)}`, p.x + 6, p.y - 8); }
+    }
+    // axis labels: strikes along the near floor edge, DTE along the other near edge, IV on the back corner
+    c.fillStyle = C.txt2; c.textAlign = 'center';
+    const ey = -wy, ex = -wx;
+    for (let i = 0; i <= 4; i++) { const kk = kLo + (kHi - kLo) * i / 4, p = P(nx(kk), ey * 1.12, 0); c.fillText(`${kk.toFixed(0)}${G.k ? ' · ' + Math.round(kk * G.k / 10) * 10 : ''}`, p.x, p.y + 8); }
+    for (let i = 0; i <= 4; i++) { const dd = dMax * i / 4, p = P(ex * 1.16, ny(dd), 0); c.fillText(dd < 1 ? '0' : dd.toFixed(0), p.x, p.y + 6); }
+    for (let i = 0; i <= 4; i++) { const v = zLo + (zHi - zLo) * i / 4, p = P(wx, wy, nz(v)); c.textAlign = 'left'; c.fillText((v * 100).toFixed(0) + ' %', p.x + 6, p.y); }
+    const pk = P(0, ey * 1.34, 0), pd = P(ex * 1.62, 0, 0), pz = P(wx, wy, 1.42);
+    c.fillStyle = C.txt; c.textAlign = 'center'; c.fillText('Strike (QQQ · NQ)', pk.x, pk.y + 8); c.fillText('Dny do expirace', pd.x, pd.y + 6); c.fillText('Implied volatility', pz.x, pz.y);
+    // colour bar
+    const bx = w - 26, by0 = 40, by1 = h - 60;
+    for (let y = by0; y < by1; y++) { const [r, g, b] = plasma(1 - (y - by0) / (by1 - by0)); c.fillStyle = `rgb(${r},${g},${b})`; c.fillRect(bx, y, 10, 1); }
+    c.fillStyle = C.txt; c.textAlign = 'right'; c.fillText((zHi * 100).toFixed(0) + ' %', bx - 4, by0 + 4); c.fillText((zLo * 100).toFixed(0) + ' %', bx - 4, by1 - 4);
+    c.textAlign = 'left'; c.fillStyle = C.txt2; c.fillText(o.title || 'IV povrch', 8, 12);
+    c.fillStyle = C.txt; c.fillText('táhni = otočit · kolečko = zoom · dvojklik = výchozí pohled', 8, h - 10);
+  }
+
+  root.Pro = { levelsChart, matrix, vol, landscape, flow, optflow, flowStrikes, customer, breakdown, surface3d, footprint, fmtM };
 })(typeof window !== 'undefined' ? window : globalThis);
