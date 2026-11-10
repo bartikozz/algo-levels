@@ -312,7 +312,7 @@ body.focus .meta{display:none!important}
 </head>
 <body>
 <header>
-  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10i</small></div>
+  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10j</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="planBtn" class="hbtn" hidden aria-label="Plán dne">✦</button>
@@ -1529,28 +1529,37 @@ function fzMajors(r){
     return { side: above ? 'short' : 'long', p: m.price, lo, hi, q: m.qqq, t0: 0, full: true, hit,
       range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `★ ${above ? 'RESISTANCE' : 'SUPPORT'} · QQQ ${m.qqq}` };
   });
-  // + a short-dated wall only where it is a likely high / low of the day (10.11: 1DTE CW 1 + 0DTE CW 3 + OI PW + ON VAH at
-  //   QQQ 681 = the day's high, one strike above ★ CW 680; exit there on absorption + NDX net drift flipping put heavy):
-  //   0DTE / 1DTE wall, base score ≥ 6 (no data-server extras), not traded through today (still beyond today's high / low),
-  //   and at least one of: near the edge of today's expected move (open ± EM) or net drift leaning against the move into it.
-  //   Net drift pushing through it (call heavy into resistance / put heavy into support) removes it.
+  // short-dated walls (0DTE / 1DTE) are confluence, not zones of their own. Mentor: the levels that work are QQQ strikes
+  // ending in 0 or 5, so each 0DTE / 1DTE wall is snapped to the round strike it sits on (±1 strike: 10.11 HOD at
+  // 1DTE CW 1 QQQ 681 → ★ CW 680). On a ★ wall it is added to its label; on another round strike it makes a ◆ zone only
+  // where that strike is a likely high / low of the day: not traded through today, base score ≥ 6 (no data-server extras),
+  // and near the edge of today's expected move or with net drift leaning against the move into it.
+  // Net drift is confluence too: "drift ✓" = flow leaning against the move into the zone, "drift ✗" = flow pushing through.
   const k = r.info.ratio, out = mz.slice(), ds = driftSig();
   const dHi = bb.length ? Math.max(...bb.map(b => b.h)) : r.last, dLo = bb.length ? Math.min(...bb.map(b => b.l)) : r.last;
   const emv = r.info.em, edge = side => emv && Number.isFinite(emv.anchor) ? emv.anchor + (side === 'short' ? 1 : -1) * emv.em : null;
+  const dTag = side => { const ag = side === 'short' ? ds < 0 : ds > 0, th = side === 'short' ? ds > 0 : ds < 0; return ag ? ' · drift ✓' : th ? ' · drift ✗' : ''; };
+  const conf = new Map();   // round QQQ strike → { tags, best level }
+  if (k) for (const l of r.levels || []) {
+    const tg = l.tags.filter(t => /^(0DTE|1DTE) (CW|PW)/.test(t)); if (!tg.length) continue;
+    const q = l.price / k, R = Math.round(q / 5) * 5; if (Math.abs(q - R) > 1.05) continue;
+    const c = conf.get(R) || { tags: new Set(), base: 0 };
+    tg.forEach(t => c.tags.add(t)); c.base = Math.max(c.base, l.base != null ? l.base : l.score); conf.set(R, c);
+  }
+  for (const z of out) { const c = conf.get(z.q); if (c) z.label += ' + ' + [...c.tags].slice(0, 2).join(', '); z.label += dTag(z.side); }
   for (const side of ['short', 'long']) {
-    const above = side === 'short', ed = edge(side), against = above ? ds < 0 : ds > 0, through = above ? ds > 0 : ds < 0;
-    if (through) continue;
-    const c = (r.levels || []).filter(l => (l.base != null ? l.base : l.score) >= 6 && l.tags.some(t => /^(0DTE|1DTE) (CW|PW)/.test(t))
-      && (above ? l.price > r.last : l.price < r.last) && Math.abs(l.price - r.last) <= em * 1.25
-      && (above ? l.price >= dHi - W : l.price <= dLo + W)
-      && ((ed != null && Math.abs(l.price - ed) <= 0.35 * emv.em) || against)
-      && !mz.some(z => Math.abs(z.p - l.price) <= 2 * W)).sort((a, b) => (b.base || b.score) - (a.base || a.score))[0];
-    if (!c) continue;
-    const lo = above ? c.price - W : c.price, hi = above ? c.price : c.price + W;
+    const above = side === 'short', ed = edge(side), ag = above ? ds < 0 : ds > 0, th = above ? ds > 0 : ds < 0;
+    if (th) continue;
+    const best = [...conf.entries()].map(([R, c]) => ({ R, c, p: R * k }))
+      .filter(x => (above ? x.p > r.last : x.p < r.last) && x.c.base >= 6 && Math.abs(x.p - r.last) <= em * 1.25
+        && (above ? x.p >= dHi - W : x.p <= dLo + W) && !mz.some(z => z.q === x.R || Math.abs(z.p - x.p) <= 2 * W)
+        && ((ed != null && Math.abs(x.p - ed) <= 0.35 * emv.em) || ag))
+      .sort((a, b) => b.c.base - a.c.base)[0];
+    if (!best) continue;
+    const p = Math.round(best.p * 4) / 4, lo = above ? p - W : p, hi = above ? p : p + W;
     let hit = null; for (let i = bb.length - 1; i >= 0; i--) if (bb[i].h >= lo && bb[i].l <= hi) { hit = bb[i].t; break; }
-    const tg = c.tags.find(t => /^(0DTE|1DTE) (CW|PW)/.test(t));
-    out.push({ side, p: c.price, lo, hi, q: k ? Math.round(c.price / k) : null, t0: 0, full: true, hit, minor: true,
-      range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `◆ ${above ? 'HOD?' : 'LOD?'} · ${tg}${k ? ' · QQQ ' + Math.round(c.price / k) : ''}${against ? ' · drift ✓' : ''}` });
+    out.push({ side, p, lo, hi, q: best.R, t0: 0, full: true, hit, minor: true,
+      range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `◆ ${above ? 'HOD?' : 'LOD?'} · QQQ ${best.R} + ${[...best.c.tags].slice(0, 2).join(', ')}${dTag(side)}` });
   }
   return out.sort((a, b) => b.p - a.p);
 }
