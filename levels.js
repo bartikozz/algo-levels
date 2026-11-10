@@ -159,9 +159,14 @@
       const q05 = g.qqq ? (g.qqq.strikes || []).filter(x => Math.round(x[0] * 100) % 500 === 0) : [];
       info.majors = [];
       if (q05.length && !S.gexStale) { // no stars from yesterday's data
-        const mw = walls({ strikes: q05 }, 1, 1); // idx 1 = GEX by volume
-        if (mw.pos[0]) info.majors.push({ type: 'CW', qqq: mw.pos[0][0], gex: mw.pos[0][1], price: mw.pos[0][0] * k });
-        if (mw.neg[0]) info.majors.push({ type: 'PW', qqq: mw.neg[0][0], gex: mw.neg[0][1], price: mw.neg[0][0] * k });
+        // the ★ wall is picked on GEX smoothed over ~5 min (now ×2 + GEXbot priors 1 min and 5 min ago), so a strike that
+        // spikes for one poll does not move the zone back and forth, while a wall that keeps growing takes over within
+        // 1–2 min; same input on every device → same wall everywhere
+        const sm = x => { const pr = Array.isArray(x[3]) ? x[3].slice(0, 2).filter(Number.isFinite) : []; return pr.length === 2 ? (2 * x[1] + pr[0] + pr[1]) / 4 : x[1]; };
+        const cur = new Map(q05.map(x => [x[0], x[1]]));
+        const mw = walls({ strikes: q05.map(x => [x[0], sm(x)]) }, 1, 1); // idx 1 = GEX by volume
+        if (mw.pos[0]) info.majors.push({ type: 'CW', qqq: mw.pos[0][0], gex: cur.get(mw.pos[0][0]), price: mw.pos[0][0] * k });
+        if (mw.neg[0]) info.majors.push({ type: 'PW', qqq: mw.neg[0][0], gex: cur.get(mw.neg[0][0]), price: mw.neg[0][0] * k });
         info.majors.forEach(m => { m.weak = 0.5 * k; m.strong = S.majorStrong || 10; m.stale = !!S.gexStale; });
       }
       const star = {};

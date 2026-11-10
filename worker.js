@@ -590,7 +590,7 @@ export default {
           Authorization: `Bearer ${env.GEXBOT_API_KEY}`,
           'User-Agent': 'algo-levels/1.0',
           Accept: 'application/json',
-        }, cors, sub === 'majors' ? 1 : 20); // majors = live price tick; GEXbot recomputes once per second
+        }, cors, sub === 'majors' ? 1 : 10); // majors = live price tick (GEXbot recomputes once per second); strike tables 10 s
       }
 
       // ── FRED (no key: public graph CSV) — Fed liquidity series for the Bias tab

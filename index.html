@@ -15,12 +15,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="yyy.js?v=3"></script>
-<script src="levels.js?v=24"></script>
-<script src="bias.js?v=3"></script>
-<script src="analysis.js?v=1"></script>
-<script src="backtest.js?v=1"></script>
-<script src="pro.js?v=9"></script>
+<script src="yyy.js?v=11.10k"></script>
+<script src="levels.js?v=11.10k"></script>
+<script src="bias.js?v=11.10k"></script>
+<script src="analysis.js?v=11.10k"></script>
+<script src="backtest.js?v=11.10k"></script>
+<script src="pro.js?v=11.10k"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -312,7 +312,7 @@ body.focus .meta{display:none!important}
 </head>
 <body>
 <header>
-  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10j</small></div>
+  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10k</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="planBtn" class="hbtn" hidden aria-label="Plán dne">✦</button>
@@ -569,7 +569,7 @@ function drawZones(){
   const r = st.res, Z = r && r.info && r.info.qqqLevels;
   if (!Z || !Z.length || !S.layers.qqqMain || !vis('qqqZ')) { if (box.innerHTML) { box.innerHTML = ''; box._h = ''; } return; }
   let w = 0; try { w = chart.timeScale().width(); } catch(e){}
-  box.style.width = w + 'px';
+  if (box._w !== w) { box.style.width = w + 'px'; box._w = w; }
   let html = '';
   for (const z of Z) {
     const yc = series.priceToCoordinate(z.price);
@@ -665,17 +665,23 @@ function buildVPComp(){
     P.keyLvn = Q.lvn.filter(z => z.depth > 0.35).sort((x, y) => y.depth - x.depth).slice(0, n > 10 ? 4 : 5).sort((x, y) => x.p - y.p);
     P.days = set.size; return P;
   };
-  const sess = [];
+  const sess = [], prevS = new Map(((st.vpc && st.vpc.sess) || []).map(x => [x.sk, x]));
   // each Globex day split into ETH (18:00 → 09:30 ET overnight) and RTH (09:30 → 16:00) profiles
+  // (finished sessions are reused – only the one still trading is recomputed)
   for (const d of [...new Set(m1.map(b => A.tdate(b.t)))]) {
     const day = m1.filter(b => A.tdate(b.t) === d);
     const eth = day.filter(b => { const m = A.et(b.t).min; return m < 570 || m >= 1080; }), rth = day.filter(b => A.isRTH(b.t));
     for (const [kind, bs] of [['eth', eth], ['rth', rth]]) {
       if (bs.length < 20) continue;
-      const P = A.volumeProfile(bs, 1); if (P) sess.push({ d, kind, t0: bs[0].t, t1: bs[bs.length - 1].t, P });
+      const sk = `${d}:${kind}:${bs.length}:${bs[bs.length - 1].t}:${bs[bs.length - 1].v}`, old = prevS.get(sk);
+      if (old) { sess.push(old); continue; }
+      const P = A.volumeProfile(bs, 1); if (P) sess.push({ d, kind, t0: bs[0].t, t1: bs[bs.length - 1].t, P, sk });
     }
   }
-  st.vpc = { key, d7: comp(7), d30: comp(30), sess };
+  // the 7 / 30 session composites move little intraday: recompute on a new session, new history or every 10 min
+  const ckey = [dates[dates.length - 1], dates.length, h5.length, Math.floor(Date.now() / 600e3)].join('|');
+  const reuse = st.vpc && st.vpc.ckey === ckey;
+  st.vpc = { key, ckey, d7: reuse ? st.vpc.d7 : comp(7), d30: reuse ? st.vpc.d30 : comp(30), sess };
   st.data.vpComp = { d7: st.vpc.d7, d30: st.vpc.d30 };
   return st.vpc;
 }
@@ -749,23 +755,52 @@ function drawVP(){
   if (showC) comp(V.d7, w - Wc - 10, `VP ${V.d7 ? V.d7.days : 7}D`);
   c.textAlign = 'left'; c.textBaseline = 'alphabetic';
 }
-(function loop(){ try { drawLegend(); } catch(e){} try { drawZones(); } catch(e){} try { drawProfile(); } catch(e){} try { drawVP(); } catch(e){} try { drawFP(); } catch(e){} requestAnimationFrame(loop); })();
+// overlays (legend, QQQ zones, GEX / volume profile, footprint) follow the chart at full frame rate only while it is
+// being moved, zoomed or hovered, and right after new data; otherwise 4× a second (was 60× a second all the time,
+// which kept phones busy and made the chart feel late)
+const ov = { at:0, hot:0 };
+const ovKick = () => { ov.at = 0; };
+['pointerdown', 'pointermove', 'wheel', 'touchstart', 'touchmove'].forEach(ev => $('chartWrap').addEventListener(ev, () => { ov.hot = performance.now(); }, { passive:true }));
+try { chart.timeScale().subscribeVisibleLogicalRangeChange(() => { ov.hot = performance.now(); }); } catch(e){}
+window.addEventListener('resize', ovKick);
+(function loop(now){
+  if (now - ov.hot < 1200 || now - ov.at > 250) { ov.at = now;
+    try { drawLegend(); } catch(e){} try { drawZones(); } catch(e){} try { drawProfile(); } catch(e){} try { drawVP(); } catch(e){} try { drawFP(); } catch(e){} }
+  requestAnimationFrame(loop);
+})(0);
 const goNow = () => { try { chart.timeScale().scrollToRealTime(); } catch(e){} };
 chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
   try { $('now').hidden = chart.timeScale().scrollPosition() > -3; } catch(e){}
 });
 
 // ───────── data
-async function api(path){
+// every request has a timeout: one hung request used to keep st.busy / liveBusy set, so later refreshes were skipped
+// and the levels silently stopped updating
+async function fetchJSON(url, ms, name){
+  const c = new AbortController(), tm = setTimeout(() => c.abort(), ms);
+  try {
+    const r = await fetch(url, { cache:'no-store', signal:c.signal });
+    if (r.status === 401) throw new Error(name === 'srv' ? 'server: špatný token' : 'Špatný token – zkontroluj velká/malá písmena v ⚙');
+    if (!r.ok) throw new Error(`${name === 'srv' ? 'server ' : ''}${url.replace(/^https?:\/\/[^/]+/, '').split('?')[0]} → ${r.status}`);
+    return await r.json();
+  } catch(e) { throw e && e.name === 'AbortError' ? new Error(`${url.replace(/^https?:\/\/[^/]+/, '').split('?')[0]} → timeout ${ms / 1000} s`) : e; }
+  finally { clearTimeout(tm); }
+}
+async function api(path, ms){
   const base = S.worker.trim().replace(/\/$/,'');
   const sep = path.includes('?') ? '&' : '?';
-  const r = await fetch(base + path + (S.token ? sep + 't=' + encodeURIComponent(S.token) : ''), {cache:'no-store'});
-  if (r.status === 401) throw new Error('Špatný token – zkontroluj velká/malá písmena v ⚙');
-  if (!r.ok) throw new Error(`${path.split('?')[0]} → ${r.status}`);
-  return r.json();
+  return fetchJSON(base + path + (S.token ? sep + 't=' + encodeURIComponent(S.token) : ''), ms || 12000, 'api');
 }
 // ───────── bars = Yahoo history (delayed) + live 1m candles built from GEXbot spot
-async function loadBars(){ st.yf = A.parseYF(await api('/yf/NQ%3DF?interval=1m&range=5d')).filter(b => b.t % 60 === 0); mergeBars(); }
+const mergeByT = (old, add, keepSec) => { const m = new Map((old || []).map(b => [b.t, b])); for (const b of add) m.set(b.t, b);
+  const a = [...m.values()].sort((x, y) => x.t - y.t), cut = a.length ? a[a.length - 1].t - keepSec : 0; return a.filter(b => b.t >= cut); };
+async function loadBars(full){
+  const inc = !full && st.yf && st.yf.length > 500 && Date.now() - (st.yfFullAt || 0) < 15 * 60e3;
+  const b = A.parseYF(await api(`/yf/NQ%3DF?interval=1m&range=${inc ? '1d' : '5d'}`)).filter(b => b.t % 60 === 0);
+  if (!b.length) throw new Error('Yahoo NQ bez dat');
+  if (inc) st.yf = mergeByT(st.yf, b, 6 * 86400); else { st.yf = b; st.yfFullAt = Date.now(); }
+  mergeBars();
+}
 const median = a => { const x = [...a].sort((p, q) => p - q), n = x.length; return n ? (n % 2 ? x[(n - 1) / 2] : (x[n / 2 - 1] + x[n / 2]) / 2) : NaN; };
 function mergeBars(){
   const yf = st.yf || [];
@@ -814,7 +849,7 @@ async function liveTick(){
   if (st.demo || !S.worker || st.liveBusy || document.visibilityState !== 'visible' || srvFresh()) return;
   st.liveBusy = true;
   try {
-    const m = await api('/gex/NQ_NDX/classic/gex_zero/majors');
+    const m = await api('/gex/NQ_NDX/classic/gex_zero/majors', 4000);
     const ts = Number.isFinite(m.timestamp) ? m.timestamp : Date.now() / 1000;
     const px = m.spot;   // raw GEXbot NQ_NDX spot; the measured basis to real NQ is added in mergeBars
     if (!Number.isFinite(px)) throw new Error('majors bez spot');
@@ -823,7 +858,8 @@ async function liveTick(){
     st.liveSrc = 'live'; st.liveMs = 1000;
     if (ts === st.lastTs) { showSrc(); return; } // GEXbot recomputes once per second — nothing new
     st.lastTs = ts;
-    if (gexStale() && !st.gexKick) { st.gexKick = true; loadGex().then(() => { st.gexKick = false; computeNow(); render(); }).catch(() => { st.gexKick = false; }); }
+    // live price is fresh but the strike tables are not (e.g. right after the open): re-poll them, at most every 10 s
+    if (gexStale() && !st.gexKick && Date.now() - (st.gexAt || 0) > 10000) { st.gexKick = true; loadGex().then(() => { st.gexKick = false; computeNow(); render(); }).catch(() => { st.gexKick = false; }); }
     const k = Math.floor(ts / 60) * 60;
     const b = st.live.get(k);
     if (b) { b.h = Math.max(b.h, px); b.l = Math.min(b.l, px); b.c = px; }
@@ -879,7 +915,8 @@ function computeNow0(){
   }
   if (st.res) st.res.regime0 = st.res.regime;   // GEXbot 0DTE net gamma sign – what the header badge shows (same on every device)
   if (st.res && srvLevelsFresh()) { const L = st.srv.levels; st.res.regime = L.regime === 'positive' ? 1 : -1; st.res.srv = L; }
-  try { focusUpdate(st.res); } catch(e){}
+  if (S.majorOnly !== false && st.res) { if (fz.date !== st.res.today) fzLoad(st.res.today); }
+  else try { focusUpdate(st.res); } catch(e){}
 }
 
 function showSrc(err){
@@ -894,9 +931,12 @@ function showSrc(err){
   }
   else { el.textContent = 'Yahoo ~10 min'; el.className = 'badge'; if (err) el.title = err; }
 }
-async function loadQqqPx(){
-  const b = A.parseYF(await api('/yf/QQQ?interval=1m&range=2d'));
-  if (b.length) { st.data.qqqPx = b[b.length - 1].c; st.data.qqqBars = b; mergeBars(); }
+async function loadQqqPx(full){
+  const inc = !full && st.data.qqqBars && st.data.qqqBars.length > 200 && Date.now() - (st.qqqFullAt || 0) < 15 * 60e3;
+  const b = A.parseYF(await api(`/yf/QQQ?interval=1m&range=${inc ? '1d' : '2d'}`));
+  if (!b.length) return;
+  if (inc) st.data.qqqBars = mergeByT(st.data.qqqBars, b, 3 * 86400); else { st.data.qqqBars = b; st.qqqFullAt = Date.now(); }
+  st.data.qqqPx = st.data.qqqBars[st.data.qqqBars.length - 1].c; mergeBars();
 }
 async function loadDaily(){
   const want = S.volIndex || 'VXN';
@@ -908,19 +948,23 @@ async function loadDaily(){
   ]);
   st.data.daily = A.parseYF(d); st.data.vix = A.parseYF(v);
 }
-async function loadGex(){
-  const L = S.layers, jobs = {};
-  if (L.gex0 || L.maxchg) jobs.zero = api('/gex/NQ_NDX/classic/gex_zero');
-  if (L.gex1) jobs.one = api('/gex/NQ_NDX/classic/gex_one');
-  if (L.gexFull) jobs.full = api('/gex/NQ_NDX/classic/gex_full');
-  if (L.qqq || L.qqqMain || L.gexProf) jobs.qqq = api('/gex/QQQ/classic/gex_zero'); // 0DTE only
-  if (L.maxchg) jobs.mx = api('/gex/NQ_NDX/classic/gex_zero/maxchange');
+// only = subset of responses to poll (the fast 15 s loop polls the two the ★ walls / regime come from)
+async function loadGex(only){
+  const L = S.layers, jobs = {}, want = k => !only || only.includes(k);
+  if ((L.gex0 || L.maxchg) && want('zero')) jobs.zero = api('/gex/NQ_NDX/classic/gex_zero');
+  if (L.gex1 && want('one')) jobs.one = api('/gex/NQ_NDX/classic/gex_one');
+  if (L.gexFull && want('full')) jobs.full = api('/gex/NQ_NDX/classic/gex_full');
+  if ((L.qqq || L.qqqMain || L.gexProf) && want('qqq')) jobs.qqq = api('/gex/QQQ/classic/gex_zero'); // 0DTE only
+  if (L.maxchg && want('mx')) jobs.mx = api('/gex/NQ_NDX/classic/gex_zero/maxchange');
   const keys = Object.keys(jobs);
   const res = await Promise.allSettled(keys.map(k => jobs[k]));
-  const g = {}, errs = [];
-  const old = st.data.gex || {};
-  res.forEach((r,i) => r.status === 'fulfilled' ? (g[keys[i]] = r.value) : (errs.push(r.reason.message), old[keys[i]] && (g[keys[i]] = old[keys[i]])));   // a failed poll (e.g. rate limit) keeps the last good data
-  st.data.gex = g;
+  const old = st.data.gex || {}, g = only ? { ...old } : {}, errs = [];
+  // a failed poll (e.g. rate limit) keeps the last good data; an answer older than what we have is ignored
+  res.forEach((r, i) => { const k = keys[i];
+    if (r.status !== 'fulfilled') { errs.push(r.reason.message); if (old[k]) g[k] = old[k]; return; }
+    const v = r.value, o = old[k];
+    g[k] = o && Number.isFinite(o.timestamp) && Number.isFinite(v && v.timestamp) && v.timestamp < o.timestamp ? o : v; });
+  st.data.gex = g; st.gexAt = Date.now();
   return errs;
 }
 
@@ -944,10 +988,11 @@ async function refresh(full){
     let errs = [];
     if (!st.demo) {
       if (!S.worker) { renderEmpty(); return; }
-      const jobs = [loadBars(), loadQqqPx().catch(() => {})];
-      if (true) jobs.push(loadGex().then(e => { errs = e; }));
+      const jobs = [loadBars(full).catch(e => errs.push(e.message)), loadQqqPx(full).catch(e => errs.push('QQQ: ' + e.message)),
+        loadGex().then(e => errs.push(...e)).catch(e => errs.push(e.message))];
       if (full || st.tick % 20 === 0 || !st.data.daily.length || !st.data.vix.length) jobs.push(loadDaily().catch(e => errs.push(e.message)));
       await Promise.all(jobs);
+      if (!st.data.bars.length) throw new Error(errs[0] || 'žádné svíčky');
       await loadVPHist().catch(() => {});
       if (S.showPrev) await loadPrev().catch(() => {});
     }
@@ -1003,15 +1048,21 @@ function render(){
   const sd = srvDisplayBars(); if (sd && sd.length) { out.length = 0; out.push(...sd); }
   const ts = chart.timeScale();
   const atEdge = !fitted || ts.scrollPosition() > -3; // follow the newest bar unless the user scrolled back
-  series.setData(out); st.outT = out.map(o => o.time);
+  // full setData (7000 bars) only when anything but the newest candle changed – the 5 s recompute used to redraw everything
+  let ok = out.length + '|' + TF() + '|' + (out.length ? out[0].time : 0);
+  for (let i = Math.max(0, out.length - 40); i < out.length - 1; i++) { const o = out[i]; ok += '|' + o.time + ',' + o.open + ',' + o.high + ',' + o.low + ',' + o.close; }
+  const volOn = S.layers.volHist !== false && vis('vol');
+  if (ok !== st.outKey || volOn !== st.volOn) {
+    series.setData(out); st.outT = out.map(o => o.time); st.outKey = ok; st.volOn = volOn;
+    if (volOn) {
+      const vd = []; let pv = -Infinity;
+      const vb = new Map();
+      for (const x of b.slice(-7000)) { const t = D(x.t); if (t < pv) continue; pv = t; const a = vb.get(t); if (a) { a.v += x.v || 0; a.c = x.c; } else vb.set(t, { v:x.v || 0, o:x.o, c:x.c }); }
+      for (const [t, a] of vb) vd.push(a.v > 0 ? { time:t, value:a.v, color: a.c >= a.o ? 'rgba(94,224,200,.28)' : 'rgba(255,95,162,.28)' } : { time:t });
+      volSeries.setData(vd);
+    } else volSeries.setData([]);
+  } else if (out.length) { try { series.update(out[out.length - 1]); } catch(e) { series.setData(out); } }
   try { cvdSeries.setData(cvdData(out)); } catch(e){}
-  if (S.layers.volHist !== false && vis('vol')) {
-    const vd = []; let pv = -Infinity;
-    const vb = new Map();
-    for (const x of b.slice(-7000)) { const t = D(x.t); if (t < pv) continue; pv = t; const a = vb.get(t); if (a) { a.v += x.v || 0; a.c = x.c; } else vb.set(t, { v:x.v || 0, o:x.o, c:x.c }); }
-    for (const [t, a] of vb) vd.push(a.v > 0 ? { time:t, value:a.v, color: a.c >= a.o ? 'rgba(94,224,200,.28)' : 'rgba(255,95,162,.28)' } : { time:t });
-    volSeries.setData(vd);
-  } else volSeries.setData([]);
   if (!fitted && out.length) { const n = { 60:240, 300:144, 900:72 }[TF()] || 240; ts.setVisibleLogicalRange({ from:out.length - n, to:out.length + 8 }); fitted = true; }
   else if (atEdge) ts.scrollToRealTime();
 
@@ -1038,10 +1089,15 @@ function render(){
   }
   // EM levels in the style of the TradingView "EM Levels" indicator:
   // segments from the RTH open, ±1 solid, ±½ dotted, ±1.5 dashed, Ref grey
+  const E = r.info.em, emOn = !!(E && out.length && Number.isFinite(E.t0) && vis('em'));
+  const emKey = emOn ? [E.anchor, E.em, E.t0, TF()].join('|') : 'off';
+  if (emOn && emKey === st.emKey && st.emSeries && st.emSeries.length) {
+    const t0 = D(E.t0), t1 = Math.max(out[out.length - 1].time, t0 + 60);
+    st.emSeries.forEach(ls => { try { const v = ls._v; ls.setData([{ time: t0, value: v }, { time: t1, value: v }]); } catch(e){} });
+  } else {
   (st.emSeries || []).forEach(x => { try { chart.removeSeries(x); } catch(e){} });
-  st.emSeries = [];
-  const E = r.info.em;
-  if (E && out.length && Number.isFinite(E.t0) && vis('em')) {
+  st.emSeries = []; st.emKey = emKey;
+  if (emOn) {
     const t0 = D(E.t0), t1 = Math.max(out[out.length - 1].time, t0 + 60);
     const defs = [
       [1.5, '+1.5 EM', '#e6e8eb', 2], [1, '+1 EM', '#e6e8eb', 0], [0.5, '+½ EM', '#e6e8eb', 1],
@@ -1052,9 +1108,10 @@ function render(){
       const pr = Math.round((E.anchor + m * E.em) * 4) / 4;
       const ls = chart.addLineSeries({ color, lineWidth: 1, lineStyle: style, title,
         priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, autoscaleInfoProvider: () => null });
-      ls.setData([{ time: t0, value: pr }, { time: t1, value: pr }]);
+      ls.setData([{ time: t0, value: pr }, { time: t1, value: pr }]); ls._v = pr;
       st.emSeries.push(ls);
     }
+  }
   }
 
   // major QQQ walls (0/5 strikes): thick gold line + weak/strong zone edges
@@ -1085,12 +1142,12 @@ function render(){
   $('mSig').textContent = i.sigma ? `${i.sigma.pts.toFixed(0)} b.` : '—';
   $('mPoc').textContent = i.vp ? fmtP(i.vp.poc) : '—';
   $('mRatio').textContent = i.ratio ? i.ratio.toFixed(3) + (i.ratioN ? ` (avg ${i.ratioN})` : '') : '—';
-  $('majors').innerHTML = S.focus ? focusCards(r) : (i.majors || []).map(m => {
+  setHTML('majors', S.focus ? focusCards(r) : (i.majors || []).map(m => {
     const z = majorZone(m, r.last), d = m.price - r.last;
     const zt = (m.stale ? 'vč. objem · ' : '') + (z === 'strong' ? 'V SILNÉ ZÓNĚ' : z === 'weak' ? 've slabé zóně' : `${d > 0 ? '+' : ''}${d.toFixed(0)} b.`);
     return `<div class="mj ${m.type.toLowerCase()} ${m.stale ? '' : z}"><span class="t">★ ${m.type === 'CW' ? 'CALL WALL' : 'PUT WALL'}</span>
       <b>QQQ ${m.qqq}</b><span>→ ${fmtP(m.price)}</span><span class="z">${zt}</span></div>`;
-  }).join('');
+  }).join(''));
 
   // list
   let lv = r.levels;
@@ -1137,14 +1194,16 @@ function render(){
       </div>`;
     }
   }
-  $('list').innerHTML = html;
+  setHTML('list', html);
+  try { ovKick(); } catch(e){}
 }
+function setHTML(id, h){ const el = $(id); if (el && el._h !== h) { el.innerHTML = h; el._h = h; } }
 
 function renderEmpty(err){
   $('list').innerHTML = `<div class="empty">${err ? 'Chyba: ' + esc(err) + '<br><br>' : ''}
     Nastav URL Workeru a token v ⚙, nebo si nejdřív prohlédni demo.<br>
     <button id="eSet">Otevřít nastavení</button> <button id="eDemo">Demo data</button></div>`;
-  $('eSet').onclick = openSettings; $('eDemo').onclick = startDemo;
+  $('eSet').onclick = openSettings; $('eDemo').onclick = startDemo; $('list')._h = null;
 }
 
 // ───────── alerts
@@ -1523,8 +1582,11 @@ function fzMajors(r){
   if (!r || !r.info) return [];
   const W = fzW(), em = r.info.em ? r.info.em.em : 300;
   const bb = (st.data.bars || []).filter(b => A.tdate(b.t) === r.today && A.isRTH(b.t));
+  const all = st.data.bars || [];
+  const fromBelow = p => { for (let i = all.length - 1; i >= Math.max(0, all.length - 2000); i--) { const b = all[i];
+    if (b.h < p - W) return true; if (b.l > p + W) return false; } return r.last < p; };
   const mz = (r.info.majors || []).filter(m => Number.isFinite(m.price) && Math.abs(m.price - r.last) <= em * 2.5).map(m => {
-    const above = m.price > r.last, lo = above ? m.price - W : m.price, hi = above ? m.price : m.price + W;
+    const above = fromBelow(m.price), lo = above ? m.price - W : m.price, hi = above ? m.price : m.price + W;
     let hit = null; for (let i = bb.length - 1; i >= 0; i--) if (bb[i].h >= lo && bb[i].l <= hi) { hit = bb[i].t; break; }
     return { side: above ? 'short' : 'long', p: m.price, lo, hi, q: m.qqq, t0: 0, full: true, hit,
       range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `★ ${above ? 'RESISTANCE' : 'SUPPORT'} · QQQ ${m.qqq}` };
@@ -1637,7 +1699,7 @@ function focusCards(r){
 function focusCards0(r){
   if (S.majorOnly !== false) {
     const zs = fzMajors(r);
-    if (!zs.length) return `<div class="fzc"><span class="m">◎ Žádný hlavní QQQ wall v dosahu.</span></div>`;
+    if (!zs.length) return `<div class="fzc"><span class="m">◎ ${gexStale() || !(r.info.majors || []).length ? 'Hlavní QQQ wally se počítají z dnešního 0DTE GEX (GEXbot) – zóny se ukážou po open 15:30.' : 'Žádný hlavní QQQ wall v dosahu.'}</span></div>`;
     return zs.map(z => { const d = z.p - r.last;
       return `<div class="fzc ${z.side} ${Math.abs(d) <= S.alertDist ? 'near' : ''}"><span class="sd">${esc(z.label)}</span><b>${z.range}</b><span class="m">${d > 0 ? '+' : ''}${d.toFixed(0)} b.${z.hit ? ' · zasaženo ' + A.hhmm(z.hit) : ''}</span></div>`; }).join('')
       .replace(/<\/div>$/, '<button class="tv" onclick="fzCopy()" title="Zkopírovat dnešní zóny pro TradingView">📋 TV</button></div>');
@@ -1918,12 +1980,8 @@ const srvLevelsFresh = () => !!(S.server && st.srv.levels && Date.now() - st.srv
 async function srv(path){
   if (!SB()) await resolveServer(true);
   if (!SB()) throw new Error('server nedostupný (PC vypnutý nebo tunel neběží)');
-  let r;
-  try { r = await fetch(SB() + path + (path.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(srvTok()), { cache:'no-store' }); }
-  catch(e) { if (S.server === 'auto') { st.srvBase = null; } throw e; }
-  if (r.status === 401) throw new Error('server: špatný token');
-  if (!r.ok) throw new Error(`server ${path.split('?')[0]} → ${r.status}`);
-  return r.json();
+  try { return await fetchJSON(SB() + path + (path.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(srvTok()), 8000, 'srv'); }
+  catch(e) { if (S.server === 'auto' && !/→ \d/.test(e.message)) { st.srvBase = null; } throw e; }
 }
 const dispKey = () => (S.barSrc && S.barSrc !== '1m') ? S.barSrc : '60s';
 function mergeSrvBars(arr, upd){
@@ -1931,7 +1989,8 @@ function mergeSrvBars(arr, upd){
   return [...m.values()].sort((a, b) => a.t - b.t).slice(-3000);
 }
 async function srvPoll(){
-  if (!S.server || st.demo) return;
+  if (!S.server || st.demo || st.srv.polling) return;
+  st.srv.polling = true;
   try {
     const [b60, d] = await Promise.all([srv('/bars?key=60s&n=900'), dispKey() !== '60s' ? srv(`/bars?key=${dispKey()}&n=1500`) : null]);
     st.srv.b60 = b60.bars; st.srv.session = b60.session; st.srv.ok = true; st.srv.at = Date.now();
@@ -1941,6 +2000,7 @@ async function srvPoll(){
     mergeBars();
     $('barSrc').hidden = !srvFresh(); tfUI();
   } catch(e) { st.srv.ok = false; st.srv.err = e.message; $('barSrc').hidden = true; }
+  finally { st.srv.polling = false; }
 }
 async function srvLevels(){
   if (!S.server || st.demo) return;
@@ -2380,8 +2440,32 @@ $('list').addEventListener('click', e => {
 // ───────── go
 if (S.worker) refresh(true); else renderEmpty();
 setInterval(() => { if (!st.demo && document.visibilityState === 'visible') refresh(false); }, 30000);
+// ★ walls and the gamma regime come from QQQ / NQ 0DTE GEX: poll those two every 15 s (was 30 s with the full refresh)
+async function refreshGex(){
+  if (st.demo || !S.worker || st.busy || st.gexBusy || document.visibilityState !== 'visible' || Date.now() - (st.gexAt || 0) < 12000) return;
+  st.gexBusy = true;
+  try { const errs = await loadGex(['zero', 'qqq']); if (st.data.bars.length) { computeNow(); render(); checkAlerts(); } if (errs.length) setLive('err', 'částečně: ' + errs.join(', ')); }
+  catch(e){} finally { st.gexBusy = false; }
+}
+setInterval(refreshGex, 5000);
 showSrc();
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { goNow(); if (!st.demo) refresh(true); } });
+// new deploy check: GitHub Pages lets the browser keep the old page for up to 10 min. Every 3 min (and when the tab comes
+// back) compare the deployed version with the running one: coming back → reload straight away, while watching → a toast
+const APP_VER = ((document.querySelector('.brand small') || {}).textContent || '').trim();
+async function verCheck(onReturn){
+  if (!APP_VER || st.replay || location.protocol === 'file:') return;
+  try {
+    const r = await fetch(location.pathname + '?vchk=' + Date.now(), { cache:'no-store' }); if (!r.ok) return;
+    const m = (await r.text()).match(/<small[^>]*>(v[\d.]+[a-z]?)<\/small>/);
+    if (!m || m[1] === APP_VER) return;
+    if (onReturn) { location.reload(); return; }
+    if (!st.verToast) { st.verToast = true; toast(`↻ Nová verze ${m[1]} – klikni na verzi u loga`, true);
+      const el = document.querySelector('.brand small'); el.textContent = `${APP_VER} → ${m[1]} ↻`; el.style.opacity = '1'; el.style.color = '#c9a66b'; el.style.cursor = 'pointer'; el.title = 'Načíst novou verzi'; el.onclick = () => location.reload(); }
+  } catch(e){}
+}
+setInterval(() => { if (document.visibilityState === 'visible') verCheck(false); }, 180000);
+// back from another tab / app: catch up right away (incremental, a full reload only if the data is older than 15 min)
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { goNow(); verCheck(true); if (!st.demo) { refresh(Date.now() - (st.yfFullAt || 0) > 15 * 60e3); if (S.server) srvPoll(); } } });
 $('now').onclick = goNow;
 // ───────── TradingView-style zoom / scroll buttons (also keys + − ← → and 0 to reset)
 function chartNav(a){
