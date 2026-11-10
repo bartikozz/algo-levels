@@ -875,6 +875,7 @@ function computeNow0(){
     st.prevView = st.prev;
     st.res = A.compute(st.data, S);
   }
+  if (st.res) st.res.regime0 = st.res.regime;   // GEXbot 0DTE net gamma sign – what the header badge shows (same on every device)
   if (st.res && srvLevelsFresh()) { const L = st.srv.levels; st.res.regime = L.regime === 'positive' ? 1 : -1; st.res.srv = L; }
   try { focusUpdate(st.res); } catch(e){}
 }
@@ -1071,8 +1072,10 @@ function render(){
   // header + meta
   $('px').textContent = fmtP(r.last);
   const rg = $('regime');
-  rg.className = 'badge ' + (r.regime > 0 ? 'pos' : r.regime < 0 ? 'neg' : '');
-  rg.textContent = r.regime > 0 ? '+γ · fade' : r.regime < 0 ? '−γ · trend' : 'γ —';
+  const g0 = r.regime0 != null ? r.regime0 : r.regime;
+  rg.className = 'badge ' + (g0 > 0 ? 'pos' : g0 < 0 ? 'neg' : '');
+  rg.textContent = g0 > 0 ? '+γ · fade' : g0 < 0 ? '−γ · trend' : 'γ —';
+  rg.title = '0DTE net gamma (GEXbot)' + (r.srv ? ` · 0–21 DTE server: ${r.regime > 0 ? '+γ' : '−γ'}` : '');
   const i = r.info;
   $('mEm').textContent = i.em
     ? `±${i.em.em.toFixed(0)} · Ref ${fmtP(i.em.anchor)} (${st.volSym || 'VXN'} ${i.em.vix.toFixed(2)}${S.emStraddle === false ? '' : ' ×0.8'}${st.volSym && st.volSym !== (S.volIndex || 'VXN') ? ' ⚠ náhradní' : ''}, RTH open ${i.em.date.slice(5).split('-').reverse().join('.')}${i.em.fromPrev ? ' – platí do 9:30' : ''})`

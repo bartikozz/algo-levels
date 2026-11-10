@@ -469,8 +469,7 @@
       out.lines.push({ q: Q.pivot, role: Q.side < 0 && sc < 0 ? 'PIVOT · SHORT pod ním' : Q.side > 0 && sc > 0 ? 'PIVOT · LONG nad ním' : 'PIVOT', color: '#ef5350' });
       Q.up.forEach((k, i) => out.lines.push({ q: k, role: i === 0 ? 'RESISTANCE' : 'UPSIDE POI', color: '#ef5350' }));
       Q.dn.forEach((k, i) => out.lines.push({ q: k, role: i === Q.dn.length - 1 ? 'SUPPORT · break = sellers' : 'SUPPORT', color: '#66bb6a' }));
-      if (Q.inner[0] != null) out.lines.push({ q: Q.inner[0], role: 'LEVEL', color: '#9aa3b2' });
-      if (Q.inner[1] != null) out.lines.push({ q: Q.inner[1], role: 'LEVEL', color: '#9aa3b2' });
+      // inner levels (663 / 658 style) stay in the Premarket text only, not as chart lines
     }
     // short read (tooltip / Focus card)
     const t = [], SPX = out.assets.SPX, V = out.assets.VIX;
