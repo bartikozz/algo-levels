@@ -311,7 +311,7 @@ body.focus .meta{display:none!important}
 </head>
 <body>
 <header>
-  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10e</small></div>
+  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10f</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="planBtn" class="hbtn" hidden aria-label="Plán dne">✦</button>
@@ -1495,7 +1495,7 @@ function fzClusters(list){
 function fzZone(out, s, col, alpha){
   if (!out.length) return;
   const W = fzW(), lo = s.lo != null ? s.lo : s.side === 'short' ? s.p - W : s.p, hi = s.hi != null ? s.hi : s.side === 'short' ? s.p : s.p + W;
-  const t0 = D(s.t0), pts = out.filter(o => o.time >= t0);
+  const t0 = D(s.t0), pts = s.full ? out : out.filter(o => o.time >= t0);
   if (!pts.length) return;
   const z = chart.addBaselineSeries({ baseValue:{ type:'price', price:lo }, lineWidth:1, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false,
     topLineColor:hexA(col, Math.min(1, alpha * 4)), topFillColor1:hexA(col, alpha), topFillColor2:hexA(col, alpha),
@@ -1532,15 +1532,16 @@ function drawFocus(out){
     fz.axis.push(series.createPriceLine({ price:l.nq, color:l.color, lineWidth:2, lineStyle:0, lineVisible:true, axisLabelVisible:true,
       axisLabelColor:l.color, axisLabelTextColor:'#07080a', title:`${l.role} · QQQ ${l.q}` }));
   for (const c of fzClusters([...segs, ...hits])) {
+    if (S.majorOnly !== false) c.full = true;   // ★ main wall: band across the whole chart, not just from when it was armed
     if (c.active) {
       fzZone(out, c, c.side === 'short' ? '#f05a6e' : '#5ee0c8', 0.16);
-      fz.axis.push(series.createPriceLine({ price: c.p, color: '#a4a9b0', lineWidth: 1, lineStyle: 0, lineVisible: false,
+      fz.axis.push(series.createPriceLine({ price: c.p, color: c.side === 'short' ? '#f05a6e88' : '#5ee0c888', lineWidth: 1, lineStyle: 0, lineVisible: S.majorOnly !== false,
         axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: c.label }));
     } else if (S.majorOnly !== false) {
       // ★ main wall hit within the last 2 h: same colour as when active, label says when it was hit
       const h = c.hit || c.segs[0];
       fzZone(out, c, c.side === 'short' ? '#f05a6e' : '#5ee0c8', 0.16);
-      fz.axis.push(series.createPriceLine({ price: c.p, color: '#a4a9b0', lineWidth: 1, lineStyle: 0, lineVisible: false,
+      fz.axis.push(series.createPriceLine({ price: c.p, color: c.side === 'short' ? '#f05a6e88' : '#5ee0c888', lineWidth: 1, lineStyle: 0, lineVisible: S.majorOnly !== false,
         axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: `${c.label} · zasaženo ${A.hhmm(h.t1)}` }));
     } else {
       // finished zone: grey, faint band, short label "SUP · ✔ 10:39 → ✘ 10:43" (full detail stays in Levely / Deník)
