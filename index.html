@@ -76,7 +76,8 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .rpbar[hidden]{display:none} .rpbar button{font-size:11px;padding:3px 7px;border:1px solid var(--line2);border-radius:5px;color:var(--text)} .rpbar button.on{border-color:var(--gold);color:var(--gold)}
 .focbtn{position:absolute;left:8px;top:8px;z-index:3;font-size:11px;padding:5px 9px;border:1px solid var(--line2);border-radius:6px;background:rgba(7,8,10,.8);color:var(--muted);letter-spacing:.06em}
 .focbtn.on{color:#5ee0c8;border-color:rgba(94,224,200,.55)}
-.rpbtn{left:auto;right:72px} body.replay .rpbtn{display:none}
+.rpbtn{left:auto;right:72px}
+.cardbtn{left:auto;right:170px} body.nocards #majors{display:none} body.replay .rpbtn{display:none}
 .fzc .tv{margin-left:auto;font:inherit;font-size:10px;padding:3px 7px;border:1px solid var(--line2);border-radius:5px;background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap}
 .fzc{display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--line2);border-radius:6px;background:var(--panel);flex:1;min-width:260px}
 .fzc .sd{font-weight:800;letter-spacing:.08em;font-size:11px} .fzc.short{border-color:rgba(94,224,200,.45)} .fzc.short .sd{color:#5ee0c8}
@@ -311,7 +312,7 @@ body.focus .meta{display:none!important}
 </head>
 <body>
 <header>
-  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10f</small></div>
+  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10g</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="planBtn" class="hbtn" hidden aria-label="Plán dne">✦</button>
@@ -344,7 +345,7 @@ body.focus .meta{display:none!important}
   <span id="biasBadge" class="badge" style="cursor:pointer" hidden>Bias —</span>
 </div>
 <div id="majors" class="majors pg-chart"></div>
-<div id="chartWrap" class="pg-chart" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><canvas id="vpc"></canvas><canvas id="fpc"></canvas><div id="tfSel" class="tfsel"><button data-tf="1">1m</button><button data-tf="5">5m</button><button data-tf="15">15m</button></div><select id="barSrc" class="barsrc" hidden></select><div id="zones" class="zones"></div><div id="zbar" class="zbar"><button data-z="out" title="Oddálit (−)">−</button><button data-z="in" title="Přiblížit (+)">+</button><span class="sp"></span><button data-z="left" title="Posunout doleva">‹</button><button data-z="right" title="Posunout doprava">›</button><span class="sp"></span><button data-z="reset" title="Zpět na výchozí pohled">↺</button></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button><button id="rpBtn" class="focbtn rpbtn" title="Přehrát den (i dnešní rozehraný)">▶ REPLAY</button><div id="legend" class="legend"></div><div id="rpBar" class="rpbar" hidden></div></div>
+<div id="chartWrap" class="pg-chart" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><canvas id="vpc"></canvas><canvas id="fpc"></canvas><div id="tfSel" class="tfsel"><button data-tf="1">1m</button><button data-tf="5">5m</button><button data-tf="15">15m</button></div><select id="barSrc" class="barsrc" hidden></select><div id="zones" class="zones"></div><div id="zbar" class="zbar"><button data-z="out" title="Oddálit (−)">−</button><button data-z="in" title="Přiblížit (+)">+</button><span class="sp"></span><button data-z="left" title="Posunout doleva">‹</button><button data-z="right" title="Posunout doprava">›</button><span class="sp"></span><button data-z="reset" title="Zpět na výchozí pohled">↺</button></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button><button id="cardBtn" class="focbtn cardbtn" title="Skrýt / ukázat karty nad grafem">▤ KARTY</button><button id="rpBtn" class="focbtn rpbtn" title="Přehrát den (i dnešní rozehraný)">▶ REPLAY</button><div id="legend" class="legend"></div><div id="rpBar" class="rpbar" hidden></div></div>
 <div id="grip" class="grip" role="separator" aria-label="Velikost grafu"><span></span></div>
 <div id="keyLv" class="keylv pg-levels"></div>
 <div class="tabs pg-levels">
@@ -1458,6 +1459,7 @@ const fzRange = s => { if (s.band) return s.band; const W = fzW(); return s.side
 const fzRangeTxt = s => { const [a, b] = fzRange(s); return `${fmtP(a)} – ${fmtP(b)}`; };
 // today's zones for TradingView: one line per zone "lo-hi R|S label" → paste into pine/algo_zones_paste.pine
 function fzTvText(){
+  if (S.majorOnly !== false) return fzMajors(st.res).map(z => `${fz.date || ''} ${z.lo.toFixed(2)}-${z.hi.toFixed(2)} ${z.side === 'short' ? 'R' : 'S'} ${z.label}`.trim()).join('\n');
   const list = fz.segs.filter(s => s.end !== 'replaced');
   return fzClusters(list).sort((a, b) => b.p - a.p).map(c => {
     const h = c.hit, res = !c.active && h ? (h.res === 'reacted' ? ' reakce' : h.res === 'broken' ? ' proraz' : ' zasah') + ' ' + A.hhmm(h.t1) + (h.flip ? ' proraz ' + A.hhmm(h.flip) : '') : '';
@@ -1505,7 +1507,37 @@ function fzZone(out, s, col, alpha){
   e.setData(pts.map(o => ({ time:o.time, value:lo })));
   fz.series.push(z, e);
 }
+// ★ main QQQ walls → zones, computed fresh every time from the GEXbot majors and today's bars (no per-device state),
+// so PC and phone always show the same: zone on the price side of the wall, "zasaženo" = last touch today
+function fzMajors(r){
+  if (!r || !r.info) return [];
+  const W = fzW(), em = r.info.em ? r.info.em.em : 300;
+  const bb = (st.data.bars || []).filter(b => A.tdate(b.t) === r.today && A.isRTH(b.t));
+  return (r.info.majors || []).filter(m => Number.isFinite(m.price) && Math.abs(m.price - r.last) <= em * 2.5).map(m => {
+    const above = m.price > r.last, lo = above ? m.price - W : m.price, hi = above ? m.price : m.price + W;
+    let hit = null; for (let i = bb.length - 1; i >= 0; i--) if (bb[i].h >= lo && bb[i].l <= hi) { hit = bb[i].t; break; }
+    return { side: above ? 'short' : 'long', p: m.price, lo, hi, q: m.qqq, t0: 0, full: true, hit,
+      range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `★ ${above ? 'RESISTANCE' : 'SUPPORT'} · QQQ ${m.qqq}` };
+  }).sort((a, b) => b.p - a.p);
+}
+function drawMajors(out){
+  const zs = S.focus ? fzMajors(st.res) : [];
+  const hash = 'M' + JSON.stringify(zs.map(z => [z.p, z.side, z.hit])) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus + '|' + fzW();
+  if (hash === fz.hash) return; fz.hash = hash;
+  try { series.setMarkers([]); } catch(e){}
+  fz.series.forEach(x => { try { chart.removeSeries(x); } catch(e){} }); fz.series = [];
+  (fz.axis || []).forEach(l => { try { series.removePriceLine(l); } catch(e){} }); fz.axis = [];
+  if (S.focus && out.length) { const a = chart.addLineSeries({ color:'rgba(0,0,0,0)', lineWidth:1, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false, autoscaleInfoProvider:() => zs.length ? { priceRange:{ minValue:Math.min(...zs.map(x => x.lo)), maxValue:Math.max(...zs.map(x => x.hi)) } } : null });
+    a.setData([{ time:out[0].time, value:out[0].close }, { time:out[out.length - 1].time, value:out[out.length - 1].close }]); fz.series.push(a); }
+  for (const z of zs) {
+    const col = z.side === 'short' ? '#f05a6e' : '#5ee0c8';
+    fzZone(out, z, col, 0.16);
+    fz.axis.push(series.createPriceLine({ price: z.p, color: col + '88', lineWidth: 1, lineStyle: 0, lineVisible: true,
+      axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: z.label + (z.hit ? ` · zasaženo ${A.hhmm(z.hit)}` : '') }));
+  }
+}
 function drawFocus(out){
+  if (S.majorOnly !== false) return drawMajors(out);
   const segs = S.focus ? fzShow(fz.segs.filter(s => !s.t1)) : [];
   // levels already hit today stay on the chart (dimmed, with the outcome) until the session ends
   const hits = [];
@@ -1560,6 +1592,13 @@ function focusCards(r){
   return gate + sentCard() + focusCards0(r);
 }
 function focusCards0(r){
+  if (S.majorOnly !== false) {
+    const zs = fzMajors(r);
+    if (!zs.length) return `<div class="fzc"><span class="m">◎ Žádný hlavní QQQ wall v dosahu.</span></div>`;
+    return zs.map(z => { const d = z.p - r.last;
+      return `<div class="fzc ${z.side} ${Math.abs(d) <= S.alertDist ? 'near' : ''}"><span class="sd">${esc(z.label)}</span><b>${z.range}</b><span class="m">${d > 0 ? '+' : ''}${d.toFixed(0)} b.${z.hit ? ' · zasaženo ' + A.hhmm(z.hit) : ''}</span></div>`; }).join('')
+      .replace(/<\/div>$/, '<button class="tv" onclick="fzCopy()" title="Zkopírovat dnešní zóny pro TradingView">📋 TV</button></div>');
+  }
   const act = fzShow(fz.segs.filter(s => !s.t1)).sort((a, b) => b.p - a.p);
   if (!act.length) {
     const g = st.data.gex || {}, why = !(g.zero || g.full) ? ` · GEXbot data se nenačetla (${esc($('upd').textContent || '')})` : gexStale() ? ' · GEXbot data jsou starší než 15 min' : '';
@@ -1577,6 +1616,22 @@ function checkFocusAlerts(){
   // Plán dne CRITICAL (size ZERO): zone alerts stay informative only – no sound, no "trade it" wording
   const noTrade = st.gate && st.gate.label === 'CRITICAL' && !st.replay;
   const ping = () => { if (!noTrade) beep(); };
+  if (S.majorOnly !== false) {
+    // ★ walls: alert once per wall per day when price comes near and when it enters the zone
+    const day = r.today;
+    for (const z of fzMajors(r)) {
+      const k = `M:${day}:${z.q}`, inZ = r.last >= z.lo && r.last <= z.hi, near = Math.abs(z.p - r.last) <= S.alertDist;
+      if (near && !inZ && !fz.alerted[k + ':near']) { fz.alerted[k + ':near'] = 1;
+        const msg = noTrade ? `◎ ${z.label} blízko (cena ${fmtP(r.last)}) – NO TRADE dnes` : `◎ ${z.label} ${z.range} – cena ${fmtP(r.last)}`;
+        toast(msg, !noTrade); ping(); }
+      if (inZ && !fz.alerted[k + ':hit']) { fz.alerted[k + ':hit'] = 1;
+        const msg = noTrade ? `◎ ${z.label} zasažen – NO TRADE dnes, jen sleduj` : `◎ ${z.label} zasažen – sleduj footprint na ${z.side === 'short' ? 'short' : 'long'}`;
+        toast(msg, !noTrade); ping();
+        try { if ('Notification' in window && Notification.permission === 'granted') new Notification('Zóna zasažena', { body:msg }); } catch(e){} }
+      if (!inZ && Math.abs(z.p - r.last) > 3 * fzW()) { delete fz.alerted[k + ':near']; delete fz.alerted[k + ':hit']; }   // re-arm for a retest
+    }
+    return;
+  }
   const shown = new Set(fzShow(fz.segs));
   for (const s of fz.segs) {
     if (!shown.has(s)) continue;
@@ -1597,6 +1652,8 @@ function checkFocusAlerts(){
 }
 $('focBtn').onclick = () => { S.focus = !S.focus; save(); document.body.classList.toggle('focus', !!S.focus); setTimeout(fitChart, 0); $('focBtn').classList.toggle('on', S.focus); fz.hash = ''; ['vpc', 'gexp'].forEach(id => { const c = $(id); if (c) c._k = ''; }); render(); drawLegend(); };
 $('focBtn').classList.toggle('on', !!S.focus);
+document.body.classList.toggle('nocards', !!S.noCards); $('cardBtn').classList.toggle('on', !S.noCards);
+$('cardBtn').onclick = () => { S.noCards = !S.noCards; save(); document.body.classList.toggle('nocards', S.noCards); $('cardBtn').classList.toggle('on', !S.noCards); setTimeout(fitChart, 0); };
 window.__focus = { fz, tick: () => { computeNow(); render(); checkAlerts(); } };
 
 
@@ -2581,7 +2638,8 @@ setInterval(pushTv, 60000);
 function pushUI(){ $('sMajorOnly').checked = S.majorOnly !== false; $('sPushTv').checked = !!S.pushTv; $('sPush').checked = !!S.push; $('sTopic').value = pushTopic(); $('sNear').value = S.pushNear || 15; }
 async function pushPublish(force){
   if (!S.push || !S.worker || st.demo || st.replay || !st.res) return;
-  const z = fzShow(fz.segs.filter(s => !s.t1)).map(s => ({ side:s.side, p:s.p, score:s.score, tags:s.tags.slice(0, 4) }));
+  const z = S.majorOnly !== false ? fzMajors(st.res).map(m => ({ side:m.side, p:m.p, score:0, tags:[m.label] }))
+    : fzShow(fz.segs.filter(s => !s.t1)).map(s => ({ side:s.side, p:s.p, score:s.score, tags:s.tags.slice(0, 4) }));
   const nt = st.gate && st.gate.label === 'CRITICAL' ? 1 : 0;
   const key = JSON.stringify([z, Math.round(st.basis || 0), S.pushNear || 15, st.res.today, nt]);
   if (!force && key === st.pushKey && Date.now() - (st.pushAt || 0) < 10 * 60e3) return;
