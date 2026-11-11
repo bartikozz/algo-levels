@@ -48,12 +48,12 @@
   document.addEventListener('DOMContentLoaded', function(){ GD.setTheme(GD.theme); });
 })();
 </script>
-<script src="yyy.js?v=12.0a"></script>
-<script src="levels.js?v=12.0a"></script>
-<script src="bias.js?v=12.0a"></script>
-<script src="analysis.js?v=12.0a"></script>
-<script src="backtest.js?v=12.0a"></script>
-<script src="pro.js?v=12.0a"></script>
+<script src="yyy.js?v=12.0b"></script>
+<script src="levels.js?v=12.0b"></script>
+<script src="bias.js?v=12.0b"></script>
+<script src="analysis.js?v=12.0b"></script>
+<script src="backtest.js?v=12.0b"></script>
+<script src="pro.js?v=12.0b"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -474,7 +474,7 @@ html[data-theme^="glass"] .keylv:empty{display:none}
 </head>
 <body>
 <header>
-  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.0a</small></div>
+  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.0b</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="pmlBtn" class="hbtn" hidden aria-label="Premarket levely">▬</button>
@@ -2163,8 +2163,16 @@ const srvLevelsFresh = () => !!(S.server && st.srv.levels && Date.now() - st.srv
 async function srv(path){
   if (!SB()) await resolveServer(true);
   if (!SB()) throw new Error('server nedostupný – ' + (st.srvWhy || 'PC vypnutý nebo tunel neběží'));
-  try { return await fetchJSON(SB() + path + (path.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(srvTok()), 8000, 'srv'); }
-  catch(e) { if (S.server === 'auto' && !/→ \d/.test(e.message)) { st.srvBase = null; } throw e; }
+  const get = () => fetchJSON(SB() + path + (path.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(srvTok()), 8000, 'srv');
+  try { return await get(); }
+  catch(e) {
+    if (S.server !== 'auto' || /→ \d|token|timeout/.test(e.message)) throw e;
+    // network error (Safari "Load failed"): the PC tunnel was restarted and has a new address → ask the Worker again and retry once
+    const old = st.srvBase; st.srvBase = null; await resolveServer(true);
+    if (!SB()) throw new Error('server nedostupný – ' + (st.srvWhy || e.message));
+    if (SB() === old) { try { return await get(); } catch(e2) { st.srvBase = null; throw new Error('spojení s PC přes tunel selhalo (' + e2.message + ')'); } }
+    return await get();
+  }
 }
 const dispKey = () => (S.barSrc && S.barSrc !== '1m') ? S.barSrc : '60s';
 function mergeSrvBars(arr, upd){
