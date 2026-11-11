@@ -48,12 +48,12 @@
   document.addEventListener('DOMContentLoaded', function(){ GD.setTheme(GD.theme); });
 })();
 </script>
-<script src="yyy.js?v=12.0c"></script>
-<script src="levels.js?v=12.0c"></script>
-<script src="bias.js?v=12.0c"></script>
-<script src="analysis.js?v=12.0c"></script>
-<script src="backtest.js?v=12.0c"></script>
-<script src="pro.js?v=12.0c"></script>
+<script src="yyy.js?v=12.0d"></script>
+<script src="levels.js?v=12.0d"></script>
+<script src="bias.js?v=12.0d"></script>
+<script src="analysis.js?v=12.0d"></script>
+<script src="backtest.js?v=12.0d"></script>
+<script src="pro.js?v=12.0d"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -474,7 +474,7 @@ html[data-theme^="glass"] .keylv:empty{display:none}
 </head>
 <body>
 <header>
-  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.0c</small></div>
+  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.0d</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="pmlBtn" class="hbtn" hidden aria-label="Premarket levely">▬</button>
@@ -680,7 +680,7 @@ const S = load();
   if (!S.fixGexLayers1) { S.layers = { ...S.layers, gex0:true, gex1:true, gexFull:true, qqq:true, qqqMain:true }; S.fixGexLayers1 = true; ch = true; }
   if (/^https?:\/\/(127\.0\.0\.1|localhost):8090$/.test(S.server || '')) { S.server = 'auto'; ch = true; }
   // a saved quick-tunnel address dies with every PC restart (new random name) → always discover the current one through the Worker
-  if (/^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/?$/i.test(S.server || '')) { S.server = 'auto'; ch = true; }   // phone can't use 127.0.0.1; auto = PC direct, phone via tunnel
+  if (/^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/?$/i.test(S.server || '') || /^https?:\/\/auto\/?$/i.test(S.server || '')) { S.server = 'auto'; ch = true; }   // 'https://auto' = an old save bug   // phone can't use 127.0.0.1; auto = PC direct, phone via tunnel
   if (ch) { save(); history.replaceState(null, '', location.pathname + location.hash); }
 } catch(e){} })();
 S.showPrev = false; // previous-session GEX levels are not shown (clean view)
@@ -2436,7 +2436,7 @@ $('bSave').onclick = () => {
   if (w && !/^https?:\/\//i.test(w)) w = 'https://' + w;
   w = w.replace(/^https?:\/\/[^/]+/i, m => m.toLowerCase());  // scheme + host are case-insensitive
   S.worker = w; S.token = $('sToken').value.trim();
-  let sv = $('sServer').value.trim().replace(/\/+$/, ''); if (sv && !/^https?:\/\//i.test(sv)) sv = 'https://' + sv; if (/\.trycloudflare\.com$/i.test(sv)) sv = 'auto';
+  let sv = $('sServer').value.trim().replace(/\/+$/, ''); if (/^(https?:\/\/)?auto$/i.test(sv)) sv = 'auto'; else if (sv && !/^https?:\/\//i.test(sv)) sv = 'https://' + sv; if (/\.trycloudflare\.com$/i.test(sv)) sv = 'auto';
   if (sv !== S.server) { S.server = sv; resolveServer(true).then(srvConnect); }
   S.srvToken = $('sSrvToken').value.trim();
   S.tol = num('sTol',S.tol); S.minScore = num('sMin',S.minScore); S.range = num('sRange',S.range);
