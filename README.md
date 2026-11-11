@@ -1,4 +1,4 @@
-# Algo Levels — NQ confluence terminál (GEXbot)
+# GammaDesk (dříve Algo Levels) — NQ confluence terminál (GEXbot)
 
 Tři soubory:
 

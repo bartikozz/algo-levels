@@ -4,23 +4,56 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#07080a">
-<title>Algo Levels</title>
+<title>GammaDesk</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Algo Levels">
+<meta name="apple-mobile-web-app-title" content="GammaDesk">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="yyy.js?v=11.10l"></script>
-<script src="levels.js?v=11.10l"></script>
-<script src="bias.js?v=11.10l"></script>
-<script src="analysis.js?v=11.10l"></script>
-<script src="backtest.js?v=11.10l"></script>
-<script src="pro.js?v=11.10l"></script>
+<script>
+/* GammaDesk themes: glass (dark, default) · glass-light · classic. Applied before first paint; charts follow via a createChart hook. */
+(function(){
+  var T = 'glass'; try { T = localStorage.getItem('gammadesk.theme') || 'glass'; } catch(e){}
+  if (!/^(glass|glass-light|classic)$/.test(T)) T = 'glass';
+  document.documentElement.setAttribute('data-theme', T);
+  var GD = window.GD = { theme:T, charts:new Set() };
+  GD.chartOpts = function(){
+    if (GD.theme === 'classic') return { layout:{ background:{ type:'solid', color:'#07080a' }, textColor:'#7b828c' },
+      grid:{ horzLines:{ color:'#0d1014' } }, rightPriceScale:{ borderColor:'#14181e' }, timeScale:{ borderColor:'#14181e' } };
+    return { layout:{ background:{ type:'solid', color:'rgba(0,0,0,0)' }, textColor:'#8b93a7' },
+      grid:{ horzLines:{ color:'rgba(255,255,255,0.045)' } }, rightPriceScale:{ borderColor:'rgba(255,255,255,0.07)' }, timeScale:{ borderColor:'rgba(255,255,255,0.07)' } };
+  };
+  GD.setTheme = function(t){
+    GD.theme = t; document.documentElement.setAttribute('data-theme', t);
+    try { localStorage.setItem('gammadesk.theme', t); } catch(e){}
+    var m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'glass-light' ? '#e9edf5' : t === 'classic' ? '#07080a' : '#080b14';
+    GD.charts.forEach(function(c){ try { c.applyOptions(GD.chartOpts()); } catch(e){} });
+    document.querySelectorAll('[data-theme-pick]').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-theme-pick') === t); });
+  };
+  if (window.LightweightCharts) {
+    var L = window.LightweightCharts, orig = L.createChart;   // the library object is frozen → wrap it in a copy
+    window.LightweightCharts = Object.assign({}, L);
+    window.LightweightCharts.createChart = function(el, o){
+      var c = orig.apply(L, arguments);
+      try { c.applyOptions(GD.chartOpts()); GD.charts.add(c); var rm = c.remove.bind(c); c.remove = function(){ GD.charts.delete(c); return rm(); }; } catch(e){}
+      return c;
+    };
+  }
+  document.addEventListener('click', function(e){ var b = e.target.closest && e.target.closest('[data-theme-pick]'); if (b) GD.setTheme(b.getAttribute('data-theme-pick')); });
+  document.addEventListener('DOMContentLoaded', function(){ GD.setTheme(GD.theme); });
+})();
+</script>
+<script src="yyy.js?v=12.0"></script>
+<script src="levels.js?v=12.0"></script>
+<script src="bias.js?v=12.0"></script>
+<script src="analysis.js?v=12.0"></script>
+<script src="backtest.js?v=12.0"></script>
+<script src="pro.js?v=12.0"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -318,11 +351,130 @@ body.focus .meta{display:none!important}
   transition:transform .25s;z-index:30;max-width:92vw;visibility:hidden}
 #toast.major{border-color:var(--gold);background:#1d1709;color:#f3d9a4;font-weight:700}
 #toast.show{transform:translateX(-50%) translateY(0);visibility:visible}
+/* ═════════ GammaDesk themes ═════════
+   classic = the original flat look (rules above untouched)
+   glass / glass-light = translucent iOS-style panels over an ambient backdrop; same layout, same logic */
+.gd-mark{font-style:normal;display:inline-grid;place-items:center;width:22px;height:22px;margin-right:9px;border-radius:7px;font:700 13px var(--sans);letter-spacing:0;color:#fff;
+  background:linear-gradient(135deg,#6d8bff,#9b6bff 55%,#3fd5c0);box-shadow:0 2px 10px rgba(109,139,255,.35);vertical-align:middle}
+.brand{display:flex;align-items:center}
+.seg{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--line2);border-radius:11px;margin-bottom:6px;flex-wrap:wrap}
+.seg button{font-size:12px;padding:6px 12px;border-radius:8px;color:var(--muted)}
+.seg button.on{background:var(--panel2);color:var(--text)}
+
+html[data-theme^="glass"]{
+  --bg:#080b14; --panel:rgba(22,27,42,.55); --panel2:rgba(40,47,68,.6); --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.11);
+  --text:#eef1f7; --muted:#8b93a7; --dim:#4b5366; --gold:#d9b77a; --accent:#7c8cff;
+  --glass:rgba(20,25,40,.52); --glass2:rgba(30,36,56,.62); --gblur:saturate(170%) blur(22px);
+  --gshadow:0 1px 0 rgba(255,255,255,.06) inset,0 10px 30px rgba(0,0,0,.35);
+  --chartbg:rgba(13,17,30,.5); --r:14px;
+}
+html[data-theme="glass-light"]{
+  --bg:#e9edf5; --panel:rgba(255,255,255,.62); --panel2:rgba(255,255,255,.85); --line:rgba(20,30,60,.08); --line2:rgba(20,30,60,.14);
+  --text:#121725; --muted:#5c6579; --dim:#9aa3b5; --gold:#a8792c; --accent:#4f5df0;
+  --short:#d8344c; --long:#13926f; --call:#1f87a0; --put:#a1479a; --zg:#b8860b;
+  --glass:rgba(255,255,255,.55); --glass2:rgba(255,255,255,.75);
+  --gshadow:0 1px 0 rgba(255,255,255,.8) inset,0 8px 28px rgba(30,40,80,.12);
+  --chartbg:rgba(10,13,22,.9);
+}
+html[data-theme^="glass"]{background:var(--bg)}
+html[data-theme^="glass"] body{background:transparent;font-family:var(--sans);font-feature-settings:"tnum" 1,"cv11" 1}
+html[data-theme^="glass"] body::before{content:'';position:fixed;inset:-10%;z-index:-1;pointer-events:none;
+  background:radial-gradient(40% 35% at 12% 8%,rgba(98,112,255,.22),transparent 70%),radial-gradient(35% 30% at 92% 18%,rgba(63,213,192,.13),transparent 70%),
+    radial-gradient(45% 40% at 70% 95%,rgba(155,107,255,.16),transparent 70%),radial-gradient(30% 30% at 5% 85%,rgba(217,183,122,.08),transparent 70%)}
+html[data-theme="glass-light"] body::before{background:radial-gradient(40% 35% at 12% 8%,rgba(98,112,255,.20),transparent 70%),radial-gradient(35% 30% at 92% 18%,rgba(63,213,192,.18),transparent 70%),
+    radial-gradient(45% 40% at 70% 95%,rgba(155,107,255,.16),transparent 70%),radial-gradient(30% 30% at 5% 85%,rgba(240,170,90,.14),transparent 70%)}
+/* numbers stay monospaced */
+html[data-theme^="glass"] :is(#px,.badge,table,.keylv,.otape,.stab,.row .p,.row .sc,.chip,.mj b,.fzc b,.pl-row b,.pml-list,.meta b,.tfsel,.legend,.pre-bars,.ofstats,input,select,#upd){font-family:var(--mono)}
+
+/* header + tabs */
+html[data-theme^="glass"] header{background:color-mix(in srgb,var(--bg) 55%,transparent);-webkit-backdrop-filter:var(--gblur);backdrop-filter:var(--gblur);border-bottom:1px solid var(--line)}
+html[data-theme^="glass"] .brand{font-weight:700;letter-spacing:.14em}
+html[data-theme^="glass"] .brand span{color:var(--accent);margin-left:2px}
+html[data-theme^="glass"] .tabbar{gap:4px;margin:8px -16px -2px;padding:2px 12px 8px}
+html[data-theme^="glass"] .tabbar button{border:1px solid transparent;border-radius:999px;padding:6px 13px;font-size:12.5px;font-weight:500}
+html[data-theme^="glass"] .tabbar button:hover{background:var(--glass)}
+html[data-theme^="glass"] .tabbar button.on{background:var(--glass2);border-color:var(--line2);margin-bottom:0;box-shadow:var(--gshadow)}
+html[data-theme^="glass"] .tabbar button.on::after{display:none}
+html[data-theme^="glass"] :is(#gear,#help,#hlth,.hbtn){border-radius:11px;background:var(--glass);border-color:var(--line2)}
+html[data-theme^="glass"] .badge{border-radius:999px;padding:3px 9px;background:var(--glass)}
+
+/* glass surfaces */
+html[data-theme^="glass"] :is(.mj,.fzc,.pl-card,.pl-hero,.bhero,.olc,.pml-list .it,.keylv,#hlthPanel,.tip,#toast,.otape,.pl-size,.pre-lean){
+  background:var(--glass);-webkit-backdrop-filter:var(--gblur);backdrop-filter:var(--gblur);border:1px solid var(--line2);border-radius:var(--r);box-shadow:var(--gshadow)}
+html[data-theme^="glass"] .mj,html[data-theme^="glass"] .fzc{border-radius:12px}
+html[data-theme^="glass"] .keylv{margin:12px 16px 4px;padding:12px 14px 6px}
+html[data-theme^="glass"] .meta{border-bottom:0;padding:10px 16px 2px}
+html[data-theme^="glass"] .majors{border-bottom:0}
+html[data-theme^="glass"] .sheet{background:rgba(5,8,15,.45);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+html[data-theme^="glass"] .sheet .box{background:var(--glass2);-webkit-backdrop-filter:var(--gblur);backdrop-filter:var(--gblur);border-color:var(--line2);border-radius:22px 22px 0 0;box-shadow:0 -10px 40px rgba(0,0,0,.35)}
+html[data-theme^="glass"] .sheet.inline{background:none;-webkit-backdrop-filter:none;backdrop-filter:none}
+html[data-theme^="glass"] .sheet.inline .box{background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none;border-radius:0}
+html[data-theme^="glass"] .box h3{font-weight:700;letter-spacing:.06em}
+
+/* chart areas: dark glass cards in every glass theme (level colours are tuned for dark) */
+html[data-theme^="glass"] #chartWrap{margin:8px 12px 0;border:1px solid var(--line2);border-radius:var(--r);overflow:hidden;background:var(--chartbg);box-shadow:var(--gshadow)}
+html[data-theme^="glass"] :is(.pml-chart,.ofmain,#preChart){background:var(--chartbg);border:1px solid var(--line2);border-radius:var(--r);overflow:hidden}
+html[data-theme^="glass"] :is(.anacv,.ofcust,.ofstrikes){border-radius:var(--r);border-color:var(--line2)}
+html[data-theme^="glass"] .grip{background:transparent;border:0;margin:0 12px}
+html[data-theme^="glass"] .grip span{background:var(--line2);width:56px}
+/* overlay controls on the chart */
+html[data-theme^="glass"] :is(.focbtn,.tfsel,.barsrc,.zbar button,.rpbar,.nowbtn,.legend .lgi,.legend .lgh button){
+  background:rgba(16,20,32,.55);-webkit-backdrop-filter:saturate(160%) blur(14px);backdrop-filter:saturate(160%) blur(14px);border-color:rgba(255,255,255,.12);color:#c9cfdc}
+html[data-theme^="glass"] :is(.focbtn,.tfsel,.rpbar,.nowbtn){border-radius:10px}
+html[data-theme^="glass"] .zbar button{border-radius:10px}
+html[data-theme^="glass"] .tfsel button.on{background:rgba(255,255,255,.12);color:#fff}
+html[data-theme^="glass"] .focbtn.on{color:#5ee0c8;border-color:rgba(94,224,200,.55)}
+html[data-theme^="glass"] .nowbtn{color:var(--gold);border-color:rgba(217,183,122,.6)}
+
+/* buttons, filters, inputs */
+html[data-theme^="glass"] :is(.tabs button,.sfil button,.btns button,.btleg button,.olc .ver button,.empty button){border-radius:999px;background:var(--glass);border-color:var(--line2);padding-left:13px;padding-right:13px}
+html[data-theme^="glass"] :is(.tabs button.on,.sfil button.on,.btleg button.on,.olc .ver button.on){background:var(--accent);border-color:transparent;color:#fff}
+html[data-theme^="glass"] .btns .pri{background:var(--accent);border-color:transparent;color:#fff}
+html[data-theme^="glass"] :is(.f input[type=text],.f input[type=password],.f input[type=number],.f input[type=url],.pl-in input,.pl-in select,#sVol){background:var(--glass);border-color:var(--line2);border-radius:10px;color:var(--text)}
+html[data-theme^="glass"] .seg{background:var(--glass);border-color:var(--line2)}
+html[data-theme^="glass"] .seg button.on{background:var(--accent);color:#fff}
+
+/* level list */
+html[data-theme^="glass"] .row{border-bottom-color:var(--line);margin:0 8px;border-radius:12px}
+html[data-theme^="glass"] .row:hover{background:var(--glass)}
+html[data-theme^="glass"] .chip{border-radius:999px;padding:3px 8px;background:var(--glass)}
+html[data-theme^="glass"] .chip.qqq.star,html[data-theme^="glass"] .chip.star{color:#1d1709;background:var(--gold)}
+html[data-theme^="glass"] .mj.strong{background:color-mix(in srgb,var(--gold) 16%,var(--glass))}
+html[data-theme^="glass"] #toast.major{background:color-mix(in srgb,var(--gold) 22%,var(--glass2));color:var(--text)}
+
+/* light glass: hard-coded greys from the classic sheet need darker values to stay readable */
+html[data-theme="glass-light"] :is(.keylv th,.keylv h4 span,.keylv .empty,.otape th){color:#6a7387}
+html[data-theme="glass-light"] :is(.keylv td,.otape td){border-top-color:rgba(20,30,60,.07)}
+html[data-theme="glass-light"] .keylv td:nth-child(2){color:#4f586c}
+html[data-theme="glass-light"] :is(.keylv td b,.keylv tr.px td,.keylv tr.fl td:first-child){color:#121725}
+html[data-theme="glass-light"] .keylv tr.px td{background:rgba(168,121,44,.12)}
+html[data-theme="glass-light"] .otape td{color:#3d4557}
+html[data-theme="glass-light"] .otape th{background:rgba(255,255,255,.85)}
+html[data-theme="glass-light"] .tip{color:#2a3142}
+html[data-theme="glass-light"] .tip p{color:#4f586c}
+html[data-theme="glass-light"] .pl-row{border-bottom-color:rgba(20,30,60,.06)}
+html[data-theme="glass-light"] .pl-row .u{color:#0f8a74} html[data-theme="glass-light"] .pl-row .d{color:#c2307e}
+html[data-theme="glass-light"] :is(.pl-lean.bull,.fzc.short .sd,.ofstats .up){color:#0f8a74}
+html[data-theme="glass-light"] :is(.pl-lean.bear,.fzc.long .sd,.ofstats .dn){color:#c2307e}
+html[data-theme="glass-light"] .pre-bar i{background:linear-gradient(90deg,transparent calc(50% - .5px),#b9c0cf calc(50% - .5px),#b9c0cf calc(50% + .5px),transparent calc(50% + .5px))}
+html[data-theme="glass-light"] .sheet{background:rgba(200,208,225,.35)}
+html[data-theme="glass-light"] .sheet .box{box-shadow:0 -10px 40px rgba(30,40,80,.18)}
+html[data-theme^="glass"] .keylv:empty{display:none}
+@media (max-width:520px){
+  .brand small{display:none} .brand{letter-spacing:.1em!important;font-size:12px}
+  .gd-mark{width:20px;height:20px;margin-right:7px;font-size:12px}
+  html[data-theme^="glass"] .brand span{display:inline}
+}
+@media (max-width:430px){
+  .brand{font-size:0!important} .brand span{display:none!important} .gd-mark{font-size:12px;margin-right:0}
+  .cardbtn{right:auto!important;left:8px;top:40px} .rpbtn{right:auto!important;left:88px;top:40px} .legend{top:74px}
+}
+@media (prefers-reduced-transparency:reduce){html[data-theme^="glass"]{--glass:var(--bg);--glass2:var(--bg)}}
 </style>
 </head>
 <body>
 <header>
-  <div class="brand">ALGO<span>LEVELS</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v11.10l</small></div>
+  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.0</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="pmlBtn" class="hbtn" hidden aria-label="Premarket levely">▬</button>
@@ -442,6 +594,9 @@ body.focus .meta{display:none!important}
 </div></div>
 <div id="settings" class="sheet"><div class="box">
   <h3>NASTAVENÍ</h3>
+  <h4>VZHLED</h4>
+  <div class="seg" id="themePick"><button data-theme-pick="glass">Glass tmavý</button><button data-theme-pick="glass-light">Glass světlý</button><button data-theme-pick="classic">Klasický</button></div>
+  <p class="hint" style="margin-bottom:6px">Mění se hned a každé zařízení si to pamatuje zvlášť. Grafy zůstávají i ve světlém vzhledu tmavé, aby barvy levelů seděly.</p>
   <h4>PŘIPOJENÍ</h4>
   <div class="f full"><input id="sWorker" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://algo-levels.xxx.workers.dev" autocomplete="off"></div>
   <div class="f full"><input id="sToken" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="ACCESS_TOKEN" autocomplete="off"></div>
