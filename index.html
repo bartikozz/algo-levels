@@ -48,12 +48,12 @@
   document.addEventListener('DOMContentLoaded', function(){ GD.setTheme(GD.theme); });
 })();
 </script>
-<script src="yyy.js?v=12.0"></script>
-<script src="levels.js?v=12.0"></script>
-<script src="bias.js?v=12.0"></script>
-<script src="analysis.js?v=12.0"></script>
-<script src="backtest.js?v=12.0"></script>
-<script src="pro.js?v=12.0"></script>
+<script src="yyy.js?v=12.0a"></script>
+<script src="levels.js?v=12.0a"></script>
+<script src="bias.js?v=12.0a"></script>
+<script src="analysis.js?v=12.0a"></script>
+<script src="backtest.js?v=12.0a"></script>
+<script src="pro.js?v=12.0a"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -474,7 +474,7 @@ html[data-theme^="glass"] .keylv:empty{display:none}
 </head>
 <body>
 <header>
-  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.0</small></div>
+  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.0a</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="pmlBtn" class="hbtn" hidden aria-label="Premarket levely">▬</button>
@@ -2143,9 +2143,17 @@ async function resolveServer(force){
   if (S.server !== 'auto') { st.srvBase = S.server || null; if (/127\.0\.0\.1|localhost/.test(S.server || '')) srvHandOver(); return st.srvBase; }
   if (!force && st.srvBase && Date.now() - st.srvResolvedAt < 60000) return st.srvBase;
   st.srvResolvedAt = Date.now();
-  const ok = async u => { try { const c = new AbortController(); const tm = setTimeout(() => c.abort(), 1500); const r = await fetch(u + '/health', { signal:c.signal, cache:'no-store' }); clearTimeout(tm); return r.ok; } catch(e){ return false; } };
-  if (!/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) && await ok('http://127.0.0.1:8090')) { st.srvBase = 'http://127.0.0.1:8090'; srvHandOver(); return st.srvBase; }
-  try { const j = await api('/srv'); if (j && j.url && await ok(j.url)) return (st.srvBase = j.url); } catch(e){}
+  const ok = async (u, ms) => { try { const c = new AbortController(); const tm = setTimeout(() => c.abort(), ms); const r = await fetch(u + '/health', { signal:c.signal, cache:'no-store' }); clearTimeout(tm); return r.ok; } catch(e){ return false; } };
+  if (!/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) && await ok('http://127.0.0.1:8090', 1500)) { st.srvBase = 'http://127.0.0.1:8090'; srvHandOver(); return st.srvBase; }
+  // phone / other devices: the PC's Cloudflare quick tunnel, registered in the Worker. A cold tunnel on mobile data often needs
+  // 2–5 s for the first answer, so allow 8 s (the old 1.5 s limit made the phone give up while the PC server was fine)
+  st.srvWhy = '';
+  try {
+    const j = await api('/srv');
+    if (!j || !j.url) st.srvWhy = 'PC zatím nenahlásil tunel (spusť Algo server na PC a otevři terminál na PC)';
+    else if (await ok(j.url, 8000)) return (st.srvBase = j.url);
+    else st.srvWhy = `tunel z PC neodpovídá (PC spí / vypnutý nebo server spadl) · nahlášen ${j.at ? new Date(j.at).toLocaleString('cs-CZ', { day:'numeric', month:'numeric', hour:'2-digit', minute:'2-digit' }) : '?'}`;
+  } catch(e){ st.srvWhy = 'Worker nedostupný: ' + e.message; }
   return (st.srvBase = null);
 }
 // the server tape counts as live only if it really streams futures (last 1m bar < 3 min old) — without a
@@ -2154,7 +2162,7 @@ const srvFresh = () => { const b = st.srv.b60; return !!(S.server && st.srv.ok &
 const srvLevelsFresh = () => !!(S.server && st.srv.levels && Date.now() - st.srv.levelsAt < 180000);
 async function srv(path){
   if (!SB()) await resolveServer(true);
-  if (!SB()) throw new Error('server nedostupný (PC vypnutý nebo tunel neběží)');
+  if (!SB()) throw new Error('server nedostupný – ' + (st.srvWhy || 'PC vypnutý nebo tunel neběží'));
   try { return await fetchJSON(SB() + path + (path.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(srvTok()), 8000, 'srv'); }
   catch(e) { if (S.server === 'auto' && !/→ \d/.test(e.message)) { st.srvBase = null; } throw e; }
 }
