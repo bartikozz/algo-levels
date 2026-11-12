@@ -222,6 +222,26 @@ function evalLevel(bars, i0, i1, p) {
   return null;
 }
 
+// first touch of a Focus zone after it appeared and what followed: reaction measured from the zone edge price hit first,
+// broken = a close beyond the wall itself (+ brk)
+function evalZone(bars, i0, z) {
+  for (let i = Math.max(0, i0); i < bars.length; i++) {
+    const b = bars[i];
+    if (b.h < z.lo - EV.touch || b.l > z.hi + EV.touch) continue;
+    const ent = z.side === 'short' ? Math.max(z.lo, Math.min(b.o, z.hi)) : Math.min(z.hi, Math.max(b.o, z.lo));   // edge hit first, or the open if it gapped in
+    let res = 'chop', mfe = 0, mae = 0;
+    for (let j = i; j < Math.min(bars.length, i + EV.look); j++) {
+      const x = bars[j];
+      const fav = z.side === 'short' ? ent - x.l : x.h - ent, adv = z.side === 'short' ? x.h - ent : ent - x.l;
+      mfe = Math.max(mfe, fav); mae = Math.max(mae, adv);
+      if (z.side === 'short' ? x.c > z.p + EV.brk : x.c < z.p - EV.brk) { res = 'broken'; break; }
+      if (fav >= EV.react) { res = 'reacted'; break; }
+    }
+    return { t: b.t, res, mfe: Math.round(mfe * 4) / 4, mae: Math.round(mae * 4) / 4 };
+  }
+  return null;
+}
+
 async function evaluateDay(env, date) {
   const list = await env.SNAP.list({ prefix: `lv:${date}:` });
   const snaps = [];
@@ -260,7 +280,15 @@ async function evaluateDay(env, date) {
     }
   } catch (e) { /* EM optional */ }
   events.sort((a, b) => a.t - b.t);
-  const doc = { date, snaps: snaps.length, bars: bars.length, events };
+  // Focus zones logged by the terminal (★ / ◆ with their confluence) → hold / break, for the zone model in the journal
+  const zones = [];
+  try {
+    for (const z of (await env.SNAP.get(`fzl:${date}`, 'json')) || []) {
+      const e = evalZone(bars, idxAt(z.t), z);
+      zones.push({ side: z.side, p: z.p, f: z.f, ...(e || { res: 'untouched' }) });
+    }
+  } catch (e) { /* optional */ }
+  const doc = { date, snaps: snaps.length, bars: bars.length, events, zones };
   await env.SNAP.put(`ev:${date}`, JSON.stringify(doc), { expirationTtl: 60 * 60 * 24 * 400 });
   return { date, snaps: snaps.length, events: events.length };
 }
@@ -270,7 +298,7 @@ async function statsAll(env, days) {
   const keys = list.keys.map(k => k.name).sort().slice(-(days || 120));
   const docs = [];
   for (const k of keys) { const d = await env.SNAP.get(k, 'json'); if (d) docs.push(d); }
-  return { days: docs.map(d => ({ date: d.date, snaps: d.snaps, events: d.events })) };
+  return { days: docs.map(d => ({ date: d.date, snaps: d.snaps, events: d.events, zones: d.zones || [] })) };
 }
 
 
@@ -561,6 +589,29 @@ export default {
           return json({ ok: true, url: h.origin }, 200, cors);
         }
         return json((await env.SNAP.get('srv:url', 'json')) || { url: null }, 200, cors);
+      }
+
+      // ── Focus zones as the terminal shows them (★ walls, ◆ HOD?/LOD?) with their confluence at that moment:
+      //    /fz/log?date=&z=[{side,p,lo,hi,k,c,s,d,g}] — first appearance time kept, features updated until the zone is touched
+      if (parts[0] === 'fz') {
+        if (!env.SNAP) return json({ error: 'KV binding SNAP missing' }, 500, cors);
+        const d = url.searchParams.get('date') || '';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return json({ error: 'bad date' }, 400, cors);
+        const key = `fzl:${d}`, cur = (await env.SNAP.get(key, 'json')) || [];
+        if (parts[1] === 'log') {
+          let z = []; try { z = JSON.parse(url.searchParams.get('z') || '[]'); } catch (e) {}
+          const now = Math.floor(Date.now() / 1000); let ch = 0;
+          for (const x of (Array.isArray(z) ? z : []).slice(0, 8)) {
+            if (!x || (x.side !== 'short' && x.side !== 'long') || ![x.p, x.lo, x.hi].every(v => Number.isFinite(+v))) continue;
+            const f = { k: x.k === 'hl' ? 'hl' : 'wall', c: +x.c ? 1 : 0, s: +x.s ? 1 : 0, d: [-1, 0, 1].includes(+x.d) ? +x.d : 0, g: +x.g > 0 ? 1 : +x.g < 0 ? -1 : 0 };
+            const e = cur.find(c => c.side === x.side && Math.abs(c.p - x.p) <= 5);
+            if (e) { if (x.hit) continue; Object.assign(e, { lo: +x.lo, hi: +x.hi, f, tu: now }); ch++; }
+            else if (!x.hit && cur.length < 30) { cur.push({ side: x.side, p: +x.p, lo: +x.lo, hi: +x.hi, f, t: now, tu: now }); ch++; }
+          }
+          if (ch) await env.SNAP.put(key, JSON.stringify(cur), { expirationTtl: 400 * 86400 });
+          return json({ ok: true, n: cur.length }, 200, cors);
+        }
+        return json(cur, 200, cors);
       }
 
       // ── SPX gamma + charm magnet strikes (from the PC data server, already in NQ points): /spx/log?date=&z=[[nq, spxStrike, score], …]

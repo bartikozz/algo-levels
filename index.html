@@ -48,12 +48,12 @@
   document.addEventListener('DOMContentLoaded', function(){ GD.setTheme(GD.theme); });
 })();
 </script>
-<script src="yyy.js?v=12.1"></script>
-<script src="levels.js?v=12.1"></script>
-<script src="bias.js?v=12.1"></script>
-<script src="analysis.js?v=12.1"></script>
-<script src="backtest.js?v=12.1"></script>
-<script src="pro.js?v=12.1"></script>
+<script src="yyy.js?v=12.2"></script>
+<script src="levels.js?v=12.2"></script>
+<script src="bias.js?v=12.2"></script>
+<script src="analysis.js?v=12.2"></script>
+<script src="backtest.js?v=12.2"></script>
+<script src="pro.js?v=12.2"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -474,7 +474,7 @@ html[data-theme^="glass"] .keylv:empty{display:none}
 </head>
 <body>
 <header>
-  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.1</small></div>
+  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.2</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="pmlBtn" class="hbtn" hidden aria-label="Premarket levely">▬</button>
@@ -526,6 +526,8 @@ html[data-theme^="glass"] .keylv:empty{display:none}
   <p class="hint" id="sMeta">Načítám…</p>
   <div class="sfil" id="sReg"><button data-r="all" class="on">Vše</button><button data-r="1">+γ</button><button data-r="-1">−γ</button></div>
   <div class="tw" style="overflow-x:auto"><table class="stab" id="sTab"></table></div>
+  <h4>FOCUS ZÓNY · KDY DRŽÍ</h4>
+  <div class="tw" style="overflow-x:auto"><table class="stab" id="sZone"></table></div>
   <h4 id="sDayH">DENÍK</h4>
   <div class="sfil" id="sDays"></div>
   <div id="sDay"></div>
@@ -1779,6 +1781,45 @@ async function spxPinLog(){
     await api(`/spx/log?date=${st.res.today}&z=${encodeURIComponent(JSON.stringify(z))}`); st.spxLogKey = key;
   } catch(e){}
 }
+// ───────── zone track record: every ★ / ◆ zone is logged with its confluence (Worker /fz/log), scored after the close
+// (reaction ≥ 15 b. from the zone edge before a close beyond the wall = held), and the history gives each live zone an
+// estimated hold rate. Model: base rate + per-feature hold rates (side, wall vs ◆, 0/1DTE confluence, SPX γ+charm,
+// net drift, gamma regime, morning / afternoon), each shrunk toward the base rate, combined in log-odds (damped 0.6).
+const zm = { at:0, rows:[], busy:false, logKey:'' };
+const zFeat = (z, t) => { const et = A.et(t || Date.now() / 1000); return { side:z.side, k:z.minor ? 'hl' : 'wall', c:z.conf ? 1 : 0, s:z.spx ? 1 : 0, d:z.drift || 0,
+  g: st.res && st.res.regime0 > 0 ? 1 : st.res && st.res.regime0 < 0 ? -1 : 0, pm: et.h >= 12 ? 1 : 0 }; };
+async function zmLoad(force){
+  if (zm.busy || !S.worker || st.demo || (!force && Date.now() - zm.at < 30 * 60e3)) return;
+  zm.busy = true;
+  try { const D = await api('/stats'); zm.rows = (D.days || []).flatMap(d => (d.zones || []).filter(z => z.res && z.res !== 'untouched' && z.f)
+      .map(z => ({ held: z.res === 'reacted', y: { side:z.side, ...z.f, pm: A.et(z.t).h >= 12 ? 1 : 0 } }))); zm.at = Date.now(); }
+  catch(e){} finally { zm.busy = false; }
+}
+function zoneOdds(z){
+  const R = zm.rows, N = R.length; if (N < 8) return { n:N };
+  const lg = p => Math.log(p / (1 - p)), p0 = (R.filter(r => r.held).length + 1) / (N + 2), x = zFeat(z), K = 6;
+  let L = lg(p0);
+  for (const f of ['side', 'k', 'c', 's', 'd', 'g', 'pm']) {
+    const m = R.filter(r => r.y[f] === x[f]); if (!m.length) continue;
+    const pf = (m.filter(r => r.held).length + K * p0) / (m.length + K);
+    L += 0.6 * (lg(pf) - lg(p0));
+  }
+  const p = 1 / (1 + Math.exp(-L));
+  const same = R.filter(r => r.y.side === x.side && r.y.k === x.k && r.y.c === x.c && r.y.s === x.s);
+  return { n:N, p, same:same.length, sameHeld:same.filter(r => r.held).length };
+}
+const zoneOddsTxt = z => { const o = zoneOdds(z); return o.p == null ? `sbírám data (${o.n}/8 zón)` : `drží ~${Math.round(o.p * 100)} %${o.same ? ` · stejné ${o.sameHeld}/${o.same}` : ''}`; };
+async function fzLog(){
+  try {
+    if (!S.worker || st.demo || st.replay || !st.res || S.majorOnly === false) return;
+    const zs = fzMajors(st.res); if (!zs.length) return;
+    const z = zs.map(z => { const f = zFeat(z); return { side:z.side, p:z.p, lo:z.lo, hi:z.hi, k:f.k, c:f.c, s:f.s, d:f.d, g:f.g, hit:z.hit ? 1 : 0 }; });
+    const key = JSON.stringify(z); if (key === zm.logKey) return;
+    await api(`/fz/log?date=${st.res.today}&z=${encodeURIComponent(JSON.stringify(z))}`); zm.logKey = key;
+  } catch(e){}
+}
+setInterval(() => { if (document.visibilityState === 'visible') { fzLog(); zmLoad(false); } }, 60000);
+setTimeout(() => zmLoad(true), 6000);
 function fzMajors(r){
   if (!r || !r.info) return [];
   const W = fzW(), em = r.info.em ? r.info.em.em : 300;
@@ -1811,7 +1852,8 @@ function fzMajors(r){
   }
   const pins = typeof spxPins === 'function' ? spxPins() : [], pinTol = Math.max(2 * W, 20);
   const pinTag = p => { const x = pins.find(q => Math.abs(q.p - p) <= pinTol); return x ? ` + SPX γ+charm ${x.k}` : ''; };
-  for (const z of out) { const c = conf.get(z.q); if (c) z.label += ' + ' + [...c.tags].slice(0, 2).join(', '); z.label += pinTag(z.p) + dTag(z.side); z.spx = !!pinTag(z.p); }
+  const dNum = side => { const ag = side === 'short' ? ds < 0 : ds > 0, th = side === 'short' ? ds > 0 : ds < 0; return ag ? 1 : th ? -1 : 0; };
+  for (const z of out) { const c = conf.get(z.q); if (c) z.label += ' + ' + [...c.tags].slice(0, 2).join(', '); z.label += pinTag(z.p) + dTag(z.side); z.spx = !!pinTag(z.p); z.conf = !!c; z.drift = dNum(z.side); }
   for (const side of ['short', 'long']) {
     const above = side === 'short', ed = edge(side), ag = above ? ds < 0 : ds > 0, th = above ? ds > 0 : ds < 0;
     if (th) continue;
@@ -1824,7 +1866,7 @@ function fzMajors(r){
     const p = Math.round(best.p * 4) / 4, lo = above ? p - W : p, hi = above ? p : p + W;
     let hit = null; for (let i = bb.length - 1; i >= 0; i--) if (bb[i].h >= lo && bb[i].l <= hi) { hit = bb[i].t; break; }
     out.push({ side, p, lo, hi, q: best.R, t0: 0, full: true, hit, minor: true,
-      range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `◆ ${above ? 'HOD?' : 'LOD?'} · QQQ ${best.R} + ${[...best.c.tags].slice(0, 2).join(', ')}${pinTag(p)}${dTag(side)}`, spx: !!pinTag(p) });
+      range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `◆ ${above ? 'HOD?' : 'LOD?'} · QQQ ${best.R} + ${[...best.c.tags].slice(0, 2).join(', ')}${pinTag(p)}${dTag(side)}`, spx: !!pinTag(p), conf: true, drift: dNum(side) });
   }
   return out.sort((a, b) => b.p - a.p);
 }
@@ -1907,7 +1949,7 @@ function focusCards0(r){
     const zs = fzMajors(r);
     if (!zs.length) return `<div class="fzc"><span class="m">◎ ${gexStale() || !(r.info.majors || []).length ? 'Hlavní QQQ wally se počítají z dnešního 0DTE GEX (GEXbot) – zóny se ukážou po open 15:30.' : 'Žádný hlavní QQQ wall v dosahu.'}</span></div>`;
     return zs.map(z => { const d = z.p - r.last;
-      return `<div class="fzc ${z.side} ${Math.abs(d) <= S.alertDist ? 'near' : ''}"><span class="sd">${esc(z.label)}</span><b>${z.range}</b><span class="m">${d > 0 ? '+' : ''}${d.toFixed(0)} b.${z.hit ? ' · zasaženo ' + A.hhmm(z.hit) : ''}</span></div>`; }).join('')
+      return `<div class="fzc ${z.side} ${Math.abs(d) <= S.alertDist ? 'near' : ''}"><span class="sd">${esc(z.label)}</span><b>${z.range}</b><span class="m">${d > 0 ? '+' : ''}${d.toFixed(0)} b.${z.hit ? ' · zasaženo ' + A.hhmm(z.hit) : ''}</span><span class="m odds" title="Odhad z historie zón v Deníku: jak často zóna se stejnými vlastnostmi držela (reakce ≥ 15 b. dřív než close za wallem)">${esc(zoneOddsTxt(z))}</span></div>`; }).join('')
       .replace(/<\/div>$/, '<button class="tv" onclick="fzCopy()" title="Zkopírovat dnešní zóny pro TradingView">📋 TV</button></div>');
   }
   const act = fzShow(fz.segs.filter(s => !s.t1)).sort((a, b) => b.p - a.p);
@@ -2671,6 +2713,17 @@ function renderStats(){
        + `<td>${avg(a, 'mfe')}</td><td>${avg(a, 'mae')}</td></tr>`;
   }
   $('sTab').innerHTML = kinds.length ? h : '';
+  // Focus zones (★ / ◆) – how often they held, split by what they had going for them
+  const zr = days.flatMap(d => (d.zones || []).filter(z => z.res && z.res !== 'untouched' && z.f).map(z => ({ ...z, pm: A.et(z.t).h >= 12 })))
+    .filter(z => ss.reg === 'all' || String(z.f.g) === ss.reg);
+  const grp = [['Všechny zóny', z => true], ['★ wall', z => z.f.k === 'wall'], ['◆ HOD? / LOD?', z => z.f.k === 'hl'], ['Short (rezistence)', z => z.side === 'short'], ['Long (support)', z => z.side === 'long'],
+    ['+ 0DTE/1DTE wall', z => z.f.c === 1], ['bez 0DTE/1DTE', z => z.f.c === 0], ['+ SPX γ+charm', z => z.f.s === 1], ['drift ✓ (proti pohybu)', z => z.f.d === 1], ['drift ✗ (s pohybem)', z => z.f.d === -1],
+    ['+γ režim', z => z.f.g === 1], ['−γ režim', z => z.f.g === -1], ['dopoledne (do 12 ET)', z => !z.pm], ['odpoledne', z => z.pm]];
+  let zh = '<tr><th>Zóny</th><th>Testů</th><th>Drží</th><th>Průraz</th><th>Ø reakce</th><th>Ø proti</th></tr>';
+  for (const [name, fn] of grp) { const a = zr.filter(fn), n = a.length; if (!n) continue;
+    const r = a.filter(z => z.res === 'reacted').length, b = a.filter(z => z.res === 'broken').length, rp = Math.round(100 * r / n), bp = Math.round(100 * b / n);
+    zh += `<tr><td>${name}</td><td>${n}</td><td><span class="bar" style="width:${rp * 0.5}px"></span>${rp} %</td><td><span class="bar r" style="width:${bp * 0.5}px"></span>${bp} %</td><td>${avg(a, 'mfe')}</td><td>${avg(a, 'mae')}</td></tr>`; }
+  $('sZone').innerHTML = zr.length ? zh : '<tr><td class="hint">Focus zóny se zapisují od v12.2 – první vyhodnocení po dnešním close.</td></tr>';
   // day picker + journal
   const recent = days.slice(-10).reverse();
   if (!ss.day && recent.length) ss.day = recent[0].date;
@@ -3055,7 +3108,7 @@ setInterval(pushTv, 60000);
 function pushUI(){ $('sMajorOnly').checked = S.majorOnly !== false; $('sPushTv').checked = !!S.pushTv; $('sPush').checked = !!S.push; $('sTopic').value = pushTopic(); $('sNear').value = S.pushNear || 15; }
 async function pushPublish(force){
   if (!S.push || !S.worker || st.demo || st.replay || !st.res) return;
-  const z = S.majorOnly !== false ? fzMajors(st.res).map(m => ({ side:m.side, p:m.p, score:0, tags:[m.label] }))
+  const z = S.majorOnly !== false ? fzMajors(st.res).map(m => ({ side:m.side, p:m.p, score:0, tags:[m.label, zoneOddsTxt(m)] }))
     : fzShow(fz.segs.filter(s => !s.t1)).map(s => ({ side:s.side, p:s.p, score:s.score, tags:s.tags.slice(0, 4) }));
   const nt = st.gate && st.gate.label === 'CRITICAL' ? 1 : 0;
   const key = JSON.stringify([z, Math.round(st.basis || 0), S.pushNear || 15, st.res.today, nt]);
