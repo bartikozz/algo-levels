@@ -185,6 +185,8 @@ def sentiment_loop():
                          flow=_oi_delta(name, chain, S, 0.35 if name == 'VIX' else 0.06))
                 if name == 'VIX':
                     v.update(_vix_fwd(S, now))
+                else:
+                    v['pins'] = gex_charm_pins(zero, S)
                 state['sent'][name] = v
             except Exception as e:
                 state['sent'][name] = dict(state['sent'].get(name) or {}, err=f'{type(e).__name__}: {e}')
@@ -195,6 +197,26 @@ def sentiment_loop():
         except Exception:
             pass
         time.sleep(SENT_POLL)
+
+
+def gex_charm_pins(rows, S, band=0.02, top=2):
+    """Strikes where dealer gamma AND charm are both heavy (0DTE / nearest expiry) - the "GEX + charm" magnet levels.
+    Each strike is scored as the geometric mean of its gamma share and charm share (both normalised to the largest strike
+    within ±band of spot), so a strike needs both to rank; top `top` above and below spot, score ≥ 0.25."""
+    near = [r for r in rows if abs(r['strike'] / S - 1) <= band]
+    if not near:
+        return []
+    g = {r['strike']: abs(r['gex_oi']) + abs(r['gex_vol']) for r in near}
+    c = {r['strike']: abs(r['cex_oi']) for r in near}
+    gm, cm = max(g.values()) or 1.0, max(c.values()) or 1.0
+    sc = {k: math.sqrt((g[k] / gm) * (c[k] / cm)) for k in g}
+    out = []
+    for side in (1, -1):
+        cand = sorted((k for k in sc if (k - S) * side > 0 and sc[k] >= 0.25), key=lambda k: -sc[k])[:top]
+        out += [dict(k=k, side='above' if side > 0 else 'below', score=round(sc[k], 2), g=round(g[k] / gm, 2), c=round(c[k] / cm, 2),
+                     gex=round(next(r['gex_oi'] + r['gex_vol'] for r in near if r['strike'] == k)),
+                     cex=round(next(r['cex_oi'] for r in near if r['strike'] == k))) for k in cand]
+    return sorted(out, key=lambda x: -x['k'])
 
 
 def _oi_delta(name, chain, S, band):

@@ -48,12 +48,12 @@
   document.addEventListener('DOMContentLoaded', function(){ GD.setTheme(GD.theme); });
 })();
 </script>
-<script src="yyy.js?v=12.0d"></script>
-<script src="levels.js?v=12.0d"></script>
-<script src="bias.js?v=12.0d"></script>
-<script src="analysis.js?v=12.0d"></script>
-<script src="backtest.js?v=12.0d"></script>
-<script src="pro.js?v=12.0d"></script>
+<script src="yyy.js?v=12.1"></script>
+<script src="levels.js?v=12.1"></script>
+<script src="bias.js?v=12.1"></script>
+<script src="analysis.js?v=12.1"></script>
+<script src="backtest.js?v=12.1"></script>
+<script src="pro.js?v=12.1"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -474,7 +474,7 @@ html[data-theme^="glass"] .keylv:empty{display:none}
 </head>
 <body>
 <header>
-  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.0d</small></div>
+  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.1</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="pmlBtn" class="hbtn" hidden aria-label="Premarket levely">▬</button>
@@ -1755,6 +1755,30 @@ setInterval(() => { if (S.server && !st.demo && S.majorOnly !== false && documen
   srv('/options/customer?pct=0.03').then(D => { st.drift = D && D.drift; fz.hash = ''; }).catch(() => {}); }, 60000);
 // ★ main QQQ walls → zones, computed fresh every time from the GEXbot majors and today's bars (no per-device state),
 // so PC and phone always show the same: zone on the price side of the wall, "zasaženo" = last touch today
+// ───────── SPX gamma + charm magnets: strikes where SPX 0DTE dealer gamma and charm are both heavy (data server),
+// moved to NQ with the live NQ/SPX ratio (same minute). Used as confluence on the ★ / ◆ zones and drawn as a faint line;
+// every new one is logged to the Worker so the journal can score it like any other level.
+function spxRatio(){
+  const sb = sn && sn.yf && sn.yf.spx || [], nb = st.data.bars || [];
+  if (!sb.length || !nb.length) return null;
+  for (let i = sb.length - 1; i >= Math.max(0, sb.length - 30); i--) {
+    const n = nb.find(b => b.t === sb[i].t); if (n && sb[i].c > 0) return n.c / sb[i].c;
+  }
+  const r = nb.at(-1).c / sb.at(-1).c; return Math.abs(nb.at(-1).t - sb.at(-1).t) < 3600 ? r : null;
+}
+function spxPins(){
+  if (!sn || !sn.pins || Date.now() - sn.pins.at > 15 * 60e3) return [];
+  const k = spxRatio(); if (!k) return [];
+  return sn.pins.list.map(x => ({ ...x, p: Math.round(x.k * k * 4) / 4 }));
+}
+async function spxPinLog(){
+  try {
+    if (!S.worker || st.demo || st.replay || !st.res) return;
+    const z = spxPins().map(x => [x.p, x.k, x.score]); if (!z.length) return;
+    const key = JSON.stringify(z.map(x => x[1])); if (key === st.spxLogKey) return;
+    await api(`/spx/log?date=${st.res.today}&z=${encodeURIComponent(JSON.stringify(z))}`); st.spxLogKey = key;
+  } catch(e){}
+}
 function fzMajors(r){
   if (!r || !r.info) return [];
   const W = fzW(), em = r.info.em ? r.info.em.em : 300;
@@ -1785,7 +1809,9 @@ function fzMajors(r){
     const c = conf.get(R) || { tags: new Set(), base: 0 };
     tg.forEach(t => c.tags.add(t)); c.base = Math.max(c.base, l.base != null ? l.base : l.score); conf.set(R, c);
   }
-  for (const z of out) { const c = conf.get(z.q); if (c) z.label += ' + ' + [...c.tags].slice(0, 2).join(', '); z.label += dTag(z.side); }
+  const pins = typeof spxPins === 'function' ? spxPins() : [], pinTol = Math.max(2 * W, 20);
+  const pinTag = p => { const x = pins.find(q => Math.abs(q.p - p) <= pinTol); return x ? ` + SPX γ+charm ${x.k}` : ''; };
+  for (const z of out) { const c = conf.get(z.q); if (c) z.label += ' + ' + [...c.tags].slice(0, 2).join(', '); z.label += pinTag(z.p) + dTag(z.side); z.spx = !!pinTag(z.p); }
   for (const side of ['short', 'long']) {
     const above = side === 'short', ed = edge(side), ag = above ? ds < 0 : ds > 0, th = above ? ds > 0 : ds < 0;
     if (th) continue;
@@ -1798,13 +1824,14 @@ function fzMajors(r){
     const p = Math.round(best.p * 4) / 4, lo = above ? p - W : p, hi = above ? p : p + W;
     let hit = null; for (let i = bb.length - 1; i >= 0; i--) if (bb[i].h >= lo && bb[i].l <= hi) { hit = bb[i].t; break; }
     out.push({ side, p, lo, hi, q: best.R, t0: 0, full: true, hit, minor: true,
-      range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `◆ ${above ? 'HOD?' : 'LOD?'} · QQQ ${best.R} + ${[...best.c.tags].slice(0, 2).join(', ')}${dTag(side)}` });
+      range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `◆ ${above ? 'HOD?' : 'LOD?'} · QQQ ${best.R} + ${[...best.c.tags].slice(0, 2).join(', ')}${pinTag(p)}${dTag(side)}`, spx: !!pinTag(p) });
   }
   return out.sort((a, b) => b.p - a.p);
 }
 function drawMajors(out){
   const zs = S.focus ? fzMajors(st.res) : [];
-  const hash = 'M' + JSON.stringify(zs.map(z => [z.p, z.side, z.hit, z.label])) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus + '|' + fzW();
+  const pinTol = Math.max(2 * fzW(), 20), pl_ = S.focus && st.res ? spxPins().filter(x => !zs.some(z => Math.abs(z.p - x.p) <= pinTol) && Math.abs(x.p - st.res.last) <= 600) : [];
+  const hash = 'M' + JSON.stringify(zs.map(z => [z.p, z.side, z.hit, z.label])) + JSON.stringify(pl_.map(x => x.p)) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus + '|' + fzW();
   if (hash === fz.hash) return; fz.hash = hash;
   try { series.setMarkers([]); } catch(e){}
   fz.series.forEach(x => { try { chart.removeSeries(x); } catch(e){} }); fz.series = [];
@@ -1817,6 +1844,8 @@ function drawMajors(out){
     fz.axis.push(series.createPriceLine({ price: z.p, color: col + (z.minor ? '55' : '88'), lineWidth: 1, lineStyle: z.minor ? 2 : 0, lineVisible: true,
       axisLabelVisible: true, axisLabelColor: '#a4a9b0', axisLabelTextColor: '#07080a', title: z.label + (z.hit ? ` · zasaženo ${A.hhmm(z.hit)}` : '') }));
   }
+  for (const x of pl_) fz.axis.push(series.createPriceLine({ price: x.p, color: 'rgba(167,139,250,.55)', lineWidth: 1, lineStyle: 1, lineVisible: true,
+    axisLabelVisible: true, axisLabelColor: '#a78bfa', axisLabelTextColor: '#07080a', title: `SPX γ+charm ${x.k}` }));
 }
 function drawFocus(out){
   if (S.majorOnly !== false) return drawMajors(out);
@@ -3396,6 +3425,8 @@ async function loadSent(force){
     if (!need('VIX')) { keep('vixFull', T.VIX.full); keep('vixZero', T.VIX.zero); } else { keep('vixFull', vf); keep('vixZero', vz); }
     if (spx) sn.yf.spx = spx.filter(b => b.t % 60 === 0); if (vix) sn.yf.vix = vix.filter(b => b.t % 60 === 0);
     sn.flow = {}; if (T) for (const k of ['QQQ', 'SPX', 'VIX']) if (T[k] && !T[k].err && T[k].flow) sn.flow[k] = T[k].flow;
+    sn.pins = T && T.SPX && !T.SPX.err && Array.isArray(T.SPX.pins) ? { list:T.SPX.pins, spot:T.SPX.spot, at:Date.now() } : null;
+    spxPinLog();
     sn.vfwd = T && T.VIX && !T.VIX.err && T.VIX.fwd_close ? { fwd:T.VIX.fwd, close:T.VIX.fwd_close, date:T.VIX.fwd_close_date } : null;
     if (force || Date.now() - sn.secAt > 600e3) {
       const syms = ['SMH','XLK','XLE','XLY','XLC','XLP','XLRE','XLV','XLB','XLF','XLU','XLI'];

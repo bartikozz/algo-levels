@@ -241,6 +241,13 @@ async function evaluateDay(env, date) {
       if (e) { seen.push(l); events.push({ kind: l.kind, tag: l.tag, p: l.p, regime: s.regime, ...e }); }
     }
   });
+  // SPX gamma + charm magnet strikes (logged by the terminal, in NQ points), each scored from the time it first appeared
+  try {
+    for (const x of (await env.SNAP.get(`sp:${date}`, 'json')) || []) {
+      const e = evalLevel(bars, idxAt(x.t), bars.length, x.p);
+      if (e) events.push({ kind: 'SPX γ+charm', tag: `SPX ${x.k}`, p: x.p, regime: snaps.length ? snaps[0].regime : 0, ...e });
+    }
+  } catch (e) { /* optional */ }
   // EM levels (VXN × 0.8, RTH open) are valid the whole session
   try {
     const vx = (await yfBars('^VXN', '1d', '1mo')).filter(b => etParts(b.t).date < date).pop();
@@ -554,6 +561,24 @@ export default {
           return json({ ok: true, url: h.origin }, 200, cors);
         }
         return json((await env.SNAP.get('srv:url', 'json')) || { url: null }, 200, cors);
+      }
+
+      // ── SPX gamma + charm magnet strikes (from the PC data server, already in NQ points): /spx/log?date=&z=[[nq, spxStrike, score], …]
+      //    every new strike of the day is kept with the time it first appeared; evaluateDay scores them like the other levels
+      if (parts[0] === 'spx') {
+        if (!env.SNAP) return json({ error: 'KV binding SNAP missing' }, 500, cors);
+        const d = url.searchParams.get('date') || '';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return json({ error: 'bad date' }, 400, cors);
+        const key = `sp:${d}`, cur = (await env.SNAP.get(key, 'json')) || [];
+        if (parts[1] === 'log') {
+          let z = []; try { z = JSON.parse(url.searchParams.get('z') || '[]'); } catch (e) {}
+          z = (Array.isArray(z) ? z : []).slice(0, 6).filter(x => Array.isArray(x) && Number.isFinite(+x[0]) && Number.isFinite(+x[1]));
+          let add = 0;
+          for (const [p, k, sc] of z) if (!cur.some(c => c.k === +k && Math.abs(c.p - p) <= 25) && cur.length < 40) { cur.push({ p: Math.round(+p * 4) / 4, k: +k, score: +sc || 0, t: Math.floor(Date.now() / 1000) }); add++; }
+          if (add) await env.SNAP.put(key, JSON.stringify(cur), { expirationTtl: 60 * 86400 });
+          return json({ ok: true, added: add, n: cur.length }, 200, cors);
+        }
+        return json(cur, 200, cors);
       }
 
       // ── premarket levels of the day (mentor's structure), one record shared by every device: /pre?date=, /pre/set?date=&lv={…}
