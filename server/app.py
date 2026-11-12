@@ -132,8 +132,11 @@ def options_loop():
             oflow.set_chain(chain, S)          # deltas / IV + fallback quotes for the flow engine
             # intraday surface history: 0DTE (or nearest) GEX by strike, every poll
             b = snap['buckets'].get('0D') or snap['buckets'].get('1D') or []
+            ba = snap['buckets'].get('ALL') or []
             row = dict(t=int(time.time()), spot=S, k=state['k'],
-                       s=[[r['strike'], round(r['gex_oi']), round(r['gex_vol'])] for r in b if abs(r['strike'] / S - 1) < 0.03])
+                       s=[[r['strike'], round(r['gex_oi']), round(r['gex_vol'])] for r in b if abs(r['strike'] / S - 1) < 0.03],
+                       # all expiries: [strike, net GEX $ per 1 % (OI + today's volume), charm $ delta per day] – the gamma map
+                       a=[[r['strike'], round(r['gex_oi'] + r['gex_vol']), round(r['cex_oi'])] for r in ba if abs(r['strike'] / S - 1) < 0.04])
             day = datetime.now(ET).strftime('%Y-%m-%d')
             if state['hist'] and datetime.fromtimestamp(state['hist'][-1]['t'], ET).strftime('%Y-%m-%d') != day:
                 state['hist'] = []
@@ -686,6 +689,36 @@ def opt_surface(t: str | None = None):
     """intraday history of 0DTE GEX by strike (every poll) for the heatmap-over-time view"""
     auth(t)
     return j(dict(rows=state['hist'][-1500:], k=state['k']))
+
+
+@app.get('/options/gammamap')
+def opt_gammamap(days: int = 3, step: int = 300, t: str | None = None):
+    """gamma map behind the chart: per-strike GEX (all expiries + 0DTE) and charm over the last `days` sessions,
+    one column per `step` seconds (last poll in each bucket). Older days come from data/surface-<day>.jsonl."""
+    auth(t)
+    days, step = max(1, min(int(days), 5)), max(60, min(int(step), 900))
+    files = sorted(f for f in os.listdir(DATA_DIR) if f.startswith('surface-') and f.endswith('.jsonl'))[-days:]
+    today = datetime.now(ET).strftime('%Y-%m-%d')
+    cols = {}
+    for f in files:
+        rows = list(state['hist']) if f == f'surface-{today}.jsonl' else []
+        if not rows:
+            try:
+                with open(os.path.join(DATA_DIR, f)) as fh:
+                    for l in fh:
+                        try:
+                            if l.strip(): rows.append(json.loads(l))
+                        except ValueError:
+                            pass
+            except OSError:
+                continue
+        for r in rows:
+            cols[int(r['t']) // step * step] = r
+    out = []
+    for b in sorted(cols):
+        r = cols[b]
+        out.append(dict(t=b, k=r.get('k'), spot=r.get('spot'), z=[[x[0], x[1] + x[2]] for x in r.get('s', [])], a=r.get('a')))
+    return j(dict(step=step, cols=out, k=state['k']))
 
 
 @app.get('/bars')

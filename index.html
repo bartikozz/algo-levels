@@ -48,12 +48,12 @@
   document.addEventListener('DOMContentLoaded', function(){ GD.setTheme(GD.theme); });
 })();
 </script>
-<script src="yyy.js?v=12.2a"></script>
-<script src="levels.js?v=12.2a"></script>
-<script src="bias.js?v=12.2a"></script>
-<script src="analysis.js?v=12.2a"></script>
-<script src="backtest.js?v=12.2a"></script>
-<script src="pro.js?v=12.2a"></script>
+<script src="yyy.js?v=12.3"></script>
+<script src="levels.js?v=12.3"></script>
+<script src="bias.js?v=12.3"></script>
+<script src="analysis.js?v=12.3"></script>
+<script src="backtest.js?v=12.3"></script>
+<script src="pro.js?v=12.3"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -98,6 +98,9 @@ header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
 .barsrc{position:absolute;left:96px;top:8px;z-index:3;font:11px var(--mono);padding:4px 6px;border:1px solid var(--line2);border-radius:6px;background:rgba(7,8,10,.85);color:var(--text)}
 .barsrc[hidden]{display:none}
 #gexp,#vpc{position:absolute;left:0;top:0;pointer-events:none;z-index:1}
+#gmap{position:absolute;left:0;top:0;pointer-events:none;z-index:1}
+.focbtn.gmbtn{left:auto;right:268px}.gmbtn.on{color:#7fe3d4;border-color:rgba(127,227,212,.55)}
+@media (max-width:520px){.focbtn.gmbtn{right:auto!important;left:178px;top:40px}}
 .zones{position:absolute;left:0;top:0;bottom:0;pointer-events:none;overflow:hidden;z-index:2}
 .zw{position:absolute;left:0;right:0;background:rgba(150,156,166,.16);border-top:1px solid rgba(190,196,206,.35);border-bottom:1px solid rgba(190,196,206,.35)}
 .zs{position:absolute;left:0;right:0;background:rgba(190,196,206,.26)}
@@ -474,7 +477,7 @@ html[data-theme^="glass"] .keylv:empty{display:none}
 </head>
 <body>
 <header>
-  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.2a</small></div>
+  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.3</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="pmlBtn" class="hbtn" hidden aria-label="Premarket levely">▬</button>
@@ -507,9 +510,10 @@ html[data-theme^="glass"] .keylv:empty{display:none}
   <span>pPOC <b id="mPoc">—</b></span>
   <span>QQQ×<b id="mRatio">—</b></span>
   <span id="biasBadge" class="badge" style="cursor:pointer" hidden>Bias —</span>
+  <span id="w7Badge" class="badge" style="cursor:pointer" hidden>W7 —</span>
 </div>
 <div id="majors" class="majors pg-chart"></div>
-<div id="chartWrap" class="pg-chart" style="position:relative"><div id="chart"></div><canvas id="gexp"></canvas><canvas id="vpc"></canvas><canvas id="fpc"></canvas><div id="tfSel" class="tfsel"><button data-tf="1">1m</button><button data-tf="5">5m</button><button data-tf="15">15m</button></div><select id="barSrc" class="barsrc" hidden></select><div id="zones" class="zones"></div><div id="zbar" class="zbar"><button data-z="out" title="Oddálit (−)">−</button><button data-z="in" title="Přiblížit (+)">+</button><span class="sp"></span><button data-z="left" title="Posunout doleva">‹</button><button data-z="right" title="Posunout doprava">›</button><span class="sp"></span><button data-z="reset" title="Zpět na výchozí pohled">↺</button></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button><button id="cardBtn" class="focbtn cardbtn" title="Skrýt / ukázat karty nad grafem">▤ KARTY</button><button id="rpBtn" class="focbtn rpbtn" title="Přehrát den (i dnešní rozehraný)">▶ REPLAY</button><div id="legend" class="legend"></div><div id="rpBar" class="rpbar" hidden></div></div>
+<div id="chartWrap" class="pg-chart" style="position:relative"><div id="chart"></div><canvas id="gmap"></canvas><canvas id="gexp"></canvas><canvas id="vpc"></canvas><canvas id="fpc"></canvas><div id="tfSel" class="tfsel"><button data-tf="1">1m</button><button data-tf="5">5m</button><button data-tf="15">15m</button></div><select id="barSrc" class="barsrc" hidden></select><div id="zones" class="zones"></div><div id="zbar" class="zbar"><button data-z="out" title="Oddálit (−)">−</button><button data-z="in" title="Přiblížit (+)">+</button><span class="sp"></span><button data-z="left" title="Posunout doleva">‹</button><button data-z="right" title="Posunout doprava">›</button><span class="sp"></span><button data-z="reset" title="Zpět na výchozí pohled">↺</button></div><button id="now" class="nowbtn" hidden>Teď ▸</button><button id="focBtn" class="focbtn">◎ FOCUS</button><button id="cardBtn" class="focbtn cardbtn" title="Skrýt / ukázat karty nad grafem">▤ KARTY</button><button id="gmBtn" class="focbtn gmbtn" title="Gamma mapa za grafem: všechny expirace / 0DTE / charm / vypnuto">γ MAPA</button><button id="rpBtn" class="focbtn rpbtn" title="Přehrát den (i dnešní rozehraný)">▶ REPLAY</button><div id="legend" class="legend"></div><div id="rpBar" class="rpbar" hidden></div></div>
 <div id="grip" class="grip" role="separator" aria-label="Velikost grafu"><span></span></div>
 <div id="keyLv" class="keylv pg-levels"></div>
 <div class="tabs pg-levels">
@@ -821,6 +825,149 @@ function drawProfile(){
   dash(q.major_neg_vol, '#f44336', '−γ');
 }
 
+// ───────── GAMMA MAP (pendqnt style): per-strike dealer gamma of QQQ behind the candles, over the last 3 sessions
+// (5-min columns, each day on its own colour scale, teal = +γ / red = −γ), plus a strike ladder for the current
+// snapshot (net $ gamma per 1 % move, share of the total, NQ price, distance in EM) and glowing 0DTE walls of NDX and
+// SPX moved to NQ. Data: data server /options/gammamap (all expiries = OI + today's volume, 0DTE, charm).
+const gm = { cols:[], at:0, busy:false, err:null };
+const GM_MODES = ['a', 'z', 'c', 'off'], GM_NAME = { a:'γ ALL', z:'γ 0DTE', c:'CHARM', off:'γ MAPA' };
+const gmMode = () => GM_MODES.includes(S.gmap) ? S.gmap : 'a';
+const fmtUSD = v => { const a = Math.abs(v), sg = v < 0 ? '−' : '+'; return sg + '$' + (a >= 1e9 ? (a / 1e9).toFixed(2) + 'B' : a >= 1e6 ? (a / 1e6).toFixed(1) + 'M' : (a / 1e3).toFixed(0) + 'K'); };
+async function gmLoad(force){
+  if (gm.busy || !S.server || st.demo || gmMode() === 'off' || (!force && Date.now() - gm.at < 60e3)) return;
+  gm.busy = true;
+  try { const D = await srv('/options/gammamap?days=3&step=300'); gm.cols = (D.cols || []).filter(c => c.k > 0); gm.at = Date.now(); gm.err = null; const c = $('gmap'); if (c) c._k = ''; }
+  catch(e) { gm.err = e.message; } finally { gm.busy = false; }
+}
+setInterval(() => { if (document.visibilityState === 'visible') gmLoad(false); }, 30000);
+setTimeout(() => gmLoad(true), 5000);
+const gmVal = (c, mode) => mode === 'z' ? (c.z || []).map(x => [x[0], x[1]]) : (c.a || []).map(x => [x[0], mode === 'c' ? x[2] : x[1]]);
+function gmLadder(){
+  const r = st.res, c = gm.cols.length ? gm.cols[gm.cols.length - 1] : null, k = r && r.info && r.info.ratio;
+  if (!c || !k || Date.now() / 1000 - c.t > 1800) return [];
+  const rows = gmVal(c, 'a').filter(x => Math.abs(x[0] / 5 - Math.round(x[0] / 5)) < 1e-6 && Math.abs(x[0] / (r.last / k) - 1) <= 0.03);
+  const tot = rows.reduce((s, x) => s + Math.abs(x[1]), 0) || 1, E = r.info.em;
+  return rows.map(x => ({ q:x[0], v:x[1], sh:Math.abs(x[1]) / tot, p:Math.round(x[0] * k * 4) / 4 }))
+    .filter(x => x.sh >= 0.04).sort((a, b) => b.sh - a.sh).slice(0, 7)
+    .map(x => ({ ...x, em: E && E.em ? (x.p - E.anchor) / E.em : null }));
+}
+function gmWalls(){
+  // strongest + and − 0DTE strike of NDX (GEXbot, NQ points) and SPX (moved to NQ with the live NQ/SPX ratio)
+  const out = [], top = (strikes, map, src) => {
+    if (!Array.isArray(strikes) || !strikes.length) return;
+    const by = s => strikes.reduce((m, x) => (s > 0 ? x[1] > (m ? m[1] : 0) : x[1] < (m ? m[1] : 0)) ? x : m, null);
+    for (const s of [1, -1]) { const x = by(s); if (x && map(x[0])) out.push({ src, kind:s > 0 ? 'CW' : 'PW', p:map(x[0]), v:x[1] }); }
+  };
+  const z = st.data.gex && st.data.gex.zero; if (z) top(z.strikes, p => p, 'NDX');
+  const sz = sn && sn.g && sn.g.spxZero, kk = typeof spxRatio === 'function' ? spxRatio() : null;
+  if (sz && kk) top(sz.strikes, p => Math.round(p * kk * 4) / 4, 'SPX');
+  return out;
+}
+function drawGMap(){
+  const cv = $('gmap'); if (!cv) return;
+  const mode = gmMode(), on = mode !== 'off' && document.body.dataset.tab === 'chart' && (gm.cols.length || (st.data.gex && st.data.gex.zero));
+  let w = 0, h = 0; try { w = chart.timeScale().width(); h = $('chart').clientHeight - 26; } catch(e){}
+  const ts = chart.timeScale(), lr = ts.getVisibleLogicalRange && ts.getVisibleLogicalRange();
+  const y0 = series.priceToCoordinate(30000), y1 = series.priceToCoordinate(31000);
+  const key = on ? [mode, w, h, y0, y1, lr && lr.from.toFixed(2), lr && lr.to.toFixed(2), gm.at, st.gexAt, sn && sn.at, st.res && st.res.last].join('|') : 'off';
+  if (cv._k === key) return; cv._k = key;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.width = w + 'px'; cv.style.height = h + 'px'; }
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+  if (!on || !(w > 0) || y0 === null) return;
+  const T = st.outT || [], X = t => { const d = A.et(t).disp; let x = ts.timeToCoordinate(d); if (x === null && T.length) { const i = Math.min(T.length - 1, vpIdx(d)); x = ts.timeToCoordinate(T[i]); } return x; };
+  // 1) heat map
+  if (gm.cols.length) {
+    const days = new Map(); for (const col of gm.cols) { const d = A.tdate(col.t); const m = Math.max(...gmVal(col, mode).map(x => Math.abs(x[1])), 0); days.set(d, Math.max(days.get(d) || 0, m)); }
+    for (let i = 0; i < gm.cols.length; i++) {
+      const col = gm.cols[i], nx = gm.cols[i + 1];
+      const xa = X(col.t); if (xa === null) continue;
+      let xb = nx && nx.t - col.t <= 900 ? X(nx.t) : null; if (xb === null || xb <= xa) xb = xa + Math.max(2, (ts.options().barSpacing || 6) * 5);
+      if (xb < 0 || xa > w) continue;
+      const mx = days.get(A.tdate(col.t)) || 1, vals = gmVal(col, mode);
+      for (const [q, v] of vals) {
+        if (!v) continue;
+        const ya = series.priceToCoordinate((q + 0.5) * col.k), yb = series.priceToCoordinate((q - 0.5) * col.k);
+        if (ya === null || yb === null || yb < 0 || ya > h) continue;
+        const a = Math.min(0.5, 0.5 * Math.sqrt(Math.abs(v) / mx)); if (a < 0.03) continue;
+        c.fillStyle = v > 0 ? `rgba(64,196,180,${a.toFixed(3)})` : `rgba(214,52,78,${a.toFixed(3)})`;
+        c.fillRect(xa, ya, Math.max(1, xb - xa + 0.5), Math.max(1, yb - ya));
+      }
+    }
+  }
+  // 2) strike ladder (current snapshot, all expiries)
+  const k = st.res && st.res.info && st.res.info.ratio;
+  c.textBaseline = 'middle';
+  for (const L of gmLadder()) {
+    const ya = series.priceToCoordinate(L.p + 0.9 * k), yb = series.priceToCoordinate(L.p - 0.9 * k), y = series.priceToCoordinate(L.p);
+    if (y === null || y < -20 || y > h + 20) continue;
+    const pos = L.v > 0, col = pos ? '64,196,180' : '214,52,78';
+    c.fillStyle = `rgba(${col},${(0.06 + 0.18 * L.sh).toFixed(3)})`; c.fillRect(0, ya, w, yb - ya);
+    c.fillStyle = `rgba(${col},.9)`; c.fillRect(0, ya, 3, yb - ya);
+    c.font = '600 11px JetBrains Mono, monospace'; c.fillStyle = pos ? '#7fe3d4' : '#ff8a9c';
+    c.fillText(`${fmtUSD(L.v)}  ${Math.round(L.sh * 100)}%  · QQQ ${L.q}`, 10, y - 6);
+    c.font = '10px JetBrains Mono, monospace'; c.fillStyle = '#9aa3b5';
+    c.fillText(`${fmtP(L.p)}${L.em != null ? `  ${L.em >= 0 ? '+' : '−'}${Math.abs(L.em).toFixed(1)} EM` : ''}`, 10, y + 7);
+  }
+  // 3) glowing 0DTE walls of NDX and SPX
+  for (const g of gmWalls()) {
+    const y = series.priceToCoordinate(g.p); if (y === null || y < 0 || y > h) continue;
+    c.save(); c.shadowColor = '#ff4fa3'; c.shadowBlur = 14; c.strokeStyle = 'rgba(255,92,170,.95)'; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(0, y); c.lineTo(w * 0.62, y); c.stroke(); c.restore();
+    c.fillStyle = 'rgba(255,92,170,.10)'; c.fillRect(0, y - 6, w * 0.62, 12);
+    c.font = '600 11px JetBrains Mono, monospace'; c.fillStyle = '#ffc2df';
+    c.fillText(`${g.src} ${g.kind} 0DTE ${fmtUSD(g.v).replace('$', '')}`, w * 0.62 + 8, y);
+  }
+}
+function gmTipAt(time, price){
+  if (gmMode() === 'off' || !gm.cols.length || time == null) return null;
+  let best = null; for (const col of gm.cols) { const d = A.et(col.t).disp; if (d <= time && (!best || d > A.et(best.t).disp)) best = col; }
+  if (!best || time - A.et(best.t).disp > 900) return null;
+  const q = Math.round(price / best.k), v = (gmVal(best, gmMode()).find(x => x[0] === q) || [])[1];
+  if (!v) return null;
+  return `${gmMode() === 'c' ? 'CHARM' : 'GAMMA'} ${fmtUSD(v)} · QQQ ${q} · NQ ${fmtP(q * best.k)} · ${A.hhmm(best.t)} · ${gmMode() === 'z' ? '0DTE' : 'všechny expirace'}`;
+}
+$('gmBtn').onclick = () => { const i = GM_MODES.indexOf(gmMode()); S.gmap = GM_MODES[(i + 1) % GM_MODES.length]; save(); gmBtnUI(); const c = $('gmap'); if (c) c._k = ''; gmLoad(true); };
+function gmBtnUI(){ const b = $('gmBtn'); if (!b) return; b.textContent = GM_NAME[gmMode()]; b.classList.toggle('on', gmMode() !== 'off'); }
+gmBtnUI();
+
+// ───────── W7 daily wave (vector / pivot): in a bear cycle the vector is the highest close of the last 7 daily bars,
+// a daily close above it flips the cycle to bull (and that vector becomes the pivot); in a bull cycle the vector is the
+// lowest close of the last 7 bars, a close below flips to bear. Stage = new cycle lows (bear) / highs (bull) so far.
+const w7 = { at:0, out:null, lines:[] };
+function w7Compute(bars){
+  const d = bars.filter(b => Number.isFinite(b.c)); if (d.length < 20) return null;
+  let bull = d[7].c > d[0].c, pivot = null, ext = d[7].c, stage = 0, since = d[7].t;
+  for (let i = 7; i < d.length; i++) {
+    const last7 = d.slice(i - 7, i).map(b => b.c), vec = bull ? Math.min(...last7) : Math.max(...last7), c = d[i].c;
+    if (bull ? c < vec : c > vec) { bull = !bull; pivot = vec; ext = c; stage = 0; since = d[i].t; continue; }
+    if (bull ? c > ext : c < ext) { ext = c; stage++; }
+  }
+  const last7 = d.slice(-7).map(b => b.c);
+  return { bull, vector: bull ? Math.min(...last7) : Math.max(...last7), pivot, stage, since, close:d[d.length - 1].c };
+}
+async function w7Load(){
+  if (!S.worker || st.demo || Date.now() - w7.at < 30 * 60e3) return;
+  try { const j = await api('/yf/NQ%3DF?interval=1d&range=1y'); const b = A.parseYF(j).filter(x => A.et(x.t).date !== A.et(Date.now() / 1000).date || A.et(Date.now() / 1000).min >= 1020);
+    w7.out = w7Compute(b); w7.at = Date.now(); w7Draw(); } catch(e){}
+}
+function w7Draw(){
+  w7.lines.forEach(l => { try { series.removePriceLine(l); } catch(e){} }); w7.lines = [];
+  const o = w7.out; if (!o || S.w7On === false) { w7Badge(); return; }
+  w7.lines.push(series.createPriceLine({ price:o.vector, color:'rgba(240,160,32,.85)', lineWidth:1, lineStyle:2, axisLabelVisible:true, title:`W7 vector (${o.bull ? 'bull' : 'bear'} · ${o.bull ? 'H' : 'L'}${o.stage})` }));
+  if (o.pivot) w7.lines.push(series.createPriceLine({ price:o.pivot, color:'rgba(240,160,32,.45)', lineWidth:1, lineStyle:1, axisLabelVisible:true, title:'W7 pivot' }));
+  w7Badge();
+}
+function w7Badge(){
+  const o = w7.out, el = $('w7Badge'); if (!el) return;
+  if (!o) { el.hidden = true; return; }
+  el.hidden = false; el.className = 'badge ' + (o.bull ? 'pos' : 'neg');
+  el.textContent = `W7 ${o.bull ? '▲ bull' : '▼ bear'} · vector ${fmtP(o.vector)}`;
+  el.title = `${o.bull ? 'Bull' : 'Bear'} cyklus od ${A.et(o.since).date} · stage ${o.bull ? 'H' : 'L'}${o.stage}${o.pivot ? ' · pivot ' + fmtP(o.pivot) : ''}. Denní close ${o.bull ? 'pod' : 'nad'} vectorem otočí cyklus. Klepni pro čáry v grafu.`;
+}
+setTimeout(w7Load, 7000); setInterval(w7Load, 10 * 60e3);
+$('w7Badge').onclick = () => { S.w7On = S.w7On === false; save(); w7Draw(); toast(S.w7On === false ? 'W7 čáry skryté' : 'W7 vector a pivot v grafu'); };
+
 // ───────── Volume profile, MotiveWave style: a profile per Globex session (anchored at its open) + composite
 // VP 7D and VP 30D on the right edge + their key LVNs as grey bands across the chart. Bins = 1 NQ point,
 // volume from 1m bars (last ~5 sessions) and 5m bars (older), each bar's volume spread evenly over its high–low.
@@ -944,7 +1091,7 @@ try { chart.timeScale().subscribeVisibleLogicalRangeChange(() => { ov.hot = perf
 window.addEventListener('resize', ovKick);
 (function loop(now){
   if (now - ov.hot < 1200 || now - ov.at > 250) { ov.at = now;
-    try { drawLegend(); } catch(e){} try { drawZones(); } catch(e){} try { drawProfile(); } catch(e){} try { drawVP(); } catch(e){} try { drawFP(); } catch(e){} }
+    try { drawLegend(); } catch(e){} try { drawZones(); } catch(e){} try { drawProfile(); } catch(e){} try { drawGMap(); } catch(e){} try { drawVP(); } catch(e){} try { drawFP(); } catch(e){} }
   requestAnimationFrame(loop);
 })(0);
 const goNow = () => { try { chart.timeScale().scrollToRealTime(); } catch(e){} };
@@ -1448,7 +1595,7 @@ function fzLoad(date){
   fz.date = date; fz.alerted = {};
   try { fz.segs = JSON.parse(localStorage.getItem('algoLevels.focus.' + date) || '[]'); } catch(e){ fz.segs = []; }
 }
-window.AL = { get st(){ return st; }, get fz(){ return fz; }, get sn(){ return sn; }, get pml(){ return pml; } };   // console debugging
+window.AL = { get st(){ return st; }, get fz(){ return fz; }, get sn(){ return sn; }, get pml(){ return pml; }, get gm(){ return gm; } };   // console debugging
 function fzSave(){ if (st.replay) return; try { localStorage.setItem('algoLevels.focus.' + fz.date, JSON.stringify(fz.segs)); } catch(e){} try { pushPublish(false); } catch(e){} try { pushTv(); } catch(e){} }
 // level tag → journal kind (so the zone can carry its measured reaction rate)
 function tagKind(t){
@@ -2726,7 +2873,7 @@ function renderStats(){
   for (const [name, fn] of grp) { const a = zr.filter(fn), n = a.length; if (!n) continue;
     const r = a.filter(z => z.res === 'reacted').length, b = a.filter(z => z.res === 'broken').length, rp = Math.round(100 * r / n), bp = Math.round(100 * b / n);
     zh += `<tr><td>${name}</td><td>${n}</td><td><span class="bar" style="width:${rp * 0.5}px"></span>${rp} %</td><td><span class="bar r" style="width:${bp * 0.5}px"></span>${bp} %</td><td>${avg(a, 'mfe')}</td><td>${avg(a, 'mae')}</td></tr>`; }
-  $('sZone').innerHTML = zr.length ? zh : '<tr><td class="hint">Focus zóny se zapisují od v12.2a – první vyhodnocení po dnešním close.</td></tr>';
+  $('sZone').innerHTML = zr.length ? zh : '<tr><td class="hint">Focus zóny se zapisují od v12.3 – první vyhodnocení po dnešním close.</td></tr>';
   // day picker + journal
   const recent = days.slice(-10).reverse();
   if (!ss.day && recent.length) ss.day = recent[0].date;
@@ -2978,6 +3125,7 @@ chart.subscribeCrosshairMove(prm => {
   if (!items.length && vis('lines')) for (const l of r.levels) if (near(l.price) && (l.srcs.includes('opt') || l.srcs.includes('qqq'))) l.tags.slice(0, 4).forEach((t, i) => items.push({ tag:t, price:i ? null : l.price }));
   const E = r.info && r.info.em;
   if (!items.length && vis('em') && E) for (const [m, t] of [[1.5, 'EM +1.5'], [1, 'EM +1'], [.5, 'EM +½'], [0, 'Ref'], [-.5, 'EM −½'], [-1, 'EM −1'], [-1.5, 'EM −1.5']]) { const p = Math.round((E.anchor + m * E.em) * 4) / 4; if (near(p)) items.push({ tag:t, price:p }); }
+  if (!items.length && typeof gmTipAt === 'function') { let pr = null; try { pr = series.coordinateToPrice(y); } catch(e){} const g = pr != null ? gmTipAt(prm.time, pr) : null; if (g) items.push({ tag:g, price:null }); }
   if (!items.length) return hideTip();
   const rc = $('chart').getBoundingClientRect();
   showTip(items.slice(0, 6), rc.left + prm.point.x, rc.top + prm.point.y, '');
