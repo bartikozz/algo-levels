@@ -48,12 +48,12 @@
   document.addEventListener('DOMContentLoaded', function(){ GD.setTheme(GD.theme); });
 })();
 </script>
-<script src="yyy.js?v=12.2"></script>
-<script src="levels.js?v=12.2"></script>
-<script src="bias.js?v=12.2"></script>
-<script src="analysis.js?v=12.2"></script>
-<script src="backtest.js?v=12.2"></script>
-<script src="pro.js?v=12.2"></script>
+<script src="yyy.js?v=12.2a"></script>
+<script src="levels.js?v=12.2a"></script>
+<script src="bias.js?v=12.2a"></script>
+<script src="analysis.js?v=12.2a"></script>
+<script src="backtest.js?v=12.2a"></script>
+<script src="pro.js?v=12.2a"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -474,7 +474,7 @@ html[data-theme^="glass"] .keylv:empty{display:none}
 </head>
 <body>
 <header>
-  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.2</small></div>
+  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.2a</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="pmlBtn" class="hbtn" hidden aria-label="Premarket levely">▬</button>
@@ -1823,13 +1823,16 @@ setTimeout(() => zmLoad(true), 6000);
 function fzMajors(r){
   if (!r || !r.info) return [];
   const W = fzW(), em = r.info.em ? r.info.em.em : 300;
+  // a zone counts as hit within the touch tolerance (⚙ Touch, 3 b.): the QQQ→NQ conversion is a few points off either way,
+  // and the TradingView zones (other feed, own ratio) showed a hit where the terminal missed by a point
+  const TT = Number.isFinite(+S.touch) ? Math.max(0, +S.touch) : 3;
   const bb = (st.data.bars || []).filter(b => A.tdate(b.t) === r.today && A.isRTH(b.t));
   const all = st.data.bars || [];
   const fromBelow = p => { for (let i = all.length - 1; i >= Math.max(0, all.length - 2000); i--) { const b = all[i];
     if (b.h < p - W) return true; if (b.l > p + W) return false; } return r.last < p; };
   const mz = (r.info.majors || []).filter(m => Number.isFinite(m.price) && Math.abs(m.price - r.last) <= em * 2.5).map(m => {
     const above = fromBelow(m.price), lo = above ? m.price - W : m.price, hi = above ? m.price : m.price + W;
-    let hit = null; for (let i = bb.length - 1; i >= 0; i--) if (bb[i].h >= lo && bb[i].l <= hi) { hit = bb[i].t; break; }
+    let hit = null; for (let i = bb.length - 1; i >= 0; i--) if (bb[i].h >= lo - TT && bb[i].l <= hi + TT) { hit = bb[i].t; break; }
     return { side: above ? 'short' : 'long', p: m.price, lo, hi, q: m.qqq, t0: 0, full: true, hit,
       range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `★ ${above ? 'RESISTANCE' : 'SUPPORT'} · QQQ ${m.qqq}` };
   });
@@ -1864,7 +1867,7 @@ function fzMajors(r){
       .sort((a, b) => b.c.base - a.c.base)[0];
     if (!best) continue;
     const p = Math.round(best.p * 4) / 4, lo = above ? p - W : p, hi = above ? p : p + W;
-    let hit = null; for (let i = bb.length - 1; i >= 0; i--) if (bb[i].h >= lo && bb[i].l <= hi) { hit = bb[i].t; break; }
+    let hit = null; for (let i = bb.length - 1; i >= 0; i--) if (bb[i].h >= lo - TT && bb[i].l <= hi + TT) { hit = bb[i].t; break; }
     out.push({ side, p, lo, hi, q: best.R, t0: 0, full: true, hit, minor: true,
       range: `${fmtP(lo)} – ${fmtP(hi)}`, label: `◆ ${above ? 'HOD?' : 'LOD?'} · QQQ ${best.R} + ${[...best.c.tags].slice(0, 2).join(', ')}${pinTag(p)}${dTag(side)}`, spx: !!pinTag(p), conf: true, drift: dNum(side) });
   }
@@ -2723,7 +2726,7 @@ function renderStats(){
   for (const [name, fn] of grp) { const a = zr.filter(fn), n = a.length; if (!n) continue;
     const r = a.filter(z => z.res === 'reacted').length, b = a.filter(z => z.res === 'broken').length, rp = Math.round(100 * r / n), bp = Math.round(100 * b / n);
     zh += `<tr><td>${name}</td><td>${n}</td><td><span class="bar" style="width:${rp * 0.5}px"></span>${rp} %</td><td><span class="bar r" style="width:${bp * 0.5}px"></span>${bp} %</td><td>${avg(a, 'mfe')}</td><td>${avg(a, 'mae')}</td></tr>`; }
-  $('sZone').innerHTML = zr.length ? zh : '<tr><td class="hint">Focus zóny se zapisují od v12.2 – první vyhodnocení po dnešním close.</td></tr>';
+  $('sZone').innerHTML = zr.length ? zh : '<tr><td class="hint">Focus zóny se zapisují od v12.2a – první vyhodnocení po dnešním close.</td></tr>';
   // day picker + journal
   const recent = days.slice(-10).reverse();
   if (!ss.day && recent.length) ss.day = recent[0].date;
@@ -3114,7 +3117,7 @@ async function pushPublish(force){
   const key = JSON.stringify([z, Math.round(st.basis || 0), S.pushNear || 15, st.res.today, nt]);
   if (!force && key === st.pushKey && Date.now() - (st.pushAt || 0) < 10 * 60e3) return;
   try {
-    await api(`/focus/set?topic=${encodeURIComponent(pushTopic())}&date=${st.res.today}&b=${encodeURIComponent((st.basis || 0).toFixed(2))}&near=${S.pushNear || 15}&touch=${fzW()}&nt=${nt}&z=${encodeURIComponent(JSON.stringify(z))}`);
+    await api(`/focus/set?topic=${encodeURIComponent(pushTopic())}&date=${st.res.today}&b=${encodeURIComponent((st.basis || 0).toFixed(2))}&near=${S.pushNear || 15}&touch=${fzW() + (Number.isFinite(+S.touch) ? Math.max(0, +S.touch) : 3)}&nt=${nt}&z=${encodeURIComponent(JSON.stringify(z))}`);
     st.pushKey = key; st.pushAt = Date.now();
   } catch(e){}
 }
