@@ -48,12 +48,12 @@
   document.addEventListener('DOMContentLoaded', function(){ GD.setTheme(GD.theme); });
 })();
 </script>
-<script src="yyy.js?v=12.3"></script>
-<script src="levels.js?v=12.3"></script>
-<script src="bias.js?v=12.3"></script>
-<script src="analysis.js?v=12.3"></script>
-<script src="backtest.js?v=12.3"></script>
-<script src="pro.js?v=12.3"></script>
+<script src="yyy.js?v=12.3a"></script>
+<script src="levels.js?v=12.3a"></script>
+<script src="bias.js?v=12.3a"></script>
+<script src="analysis.js?v=12.3a"></script>
+<script src="backtest.js?v=12.3a"></script>
+<script src="pro.js?v=12.3a"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -477,7 +477,7 @@ html[data-theme^="glass"] .keylv:empty{display:none}
 </head>
 <body>
 <header>
-  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.3</small></div>
+  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.3a</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="pmlBtn" class="hbtn" hidden aria-label="Premarket levely">▬</button>
@@ -847,8 +847,9 @@ function gmLadder(){
   if (!c || !k || Date.now() / 1000 - c.t > 1800) return [];
   const rows = gmVal(c, 'a').filter(x => Math.abs(x[0] / 5 - Math.round(x[0] / 5)) < 1e-6 && Math.abs(x[0] / (r.last / k) - 1) <= 0.03);
   const tot = rows.reduce((s, x) => s + Math.abs(x[1]), 0) || 1, E = r.info.em;
+  const mainQ = new Set(fzMajors(r).filter(z => !z.minor).map(z => z.q));
   return rows.map(x => ({ q:x[0], v:x[1], sh:Math.abs(x[1]) / tot, p:Math.round(x[0] * k * 4) / 4 }))
-    .filter(x => x.sh >= 0.04).sort((a, b) => b.sh - a.sh).slice(0, 7)
+    .filter(x => mainQ.has(x.q))   // only the ★ main walls (always shown for them)
     .map(x => ({ ...x, em: E && E.em ? (x.p - E.anchor) / E.em : null }));
 }
 function gmWalls(){
@@ -858,10 +859,11 @@ function gmWalls(){
     const by = s => strikes.reduce((m, x) => (s > 0 ? x[1] > (m ? m[1] : 0) : x[1] < (m ? m[1] : 0)) ? x : m, null);
     for (const s of [1, -1]) { const x = by(s); if (x && map(x[0])) out.push({ src, kind:s > 0 ? 'CW' : 'PW', p:map(x[0]), v:x[1] }); }
   };
-  const z = st.data.gex && st.data.gex.zero; if (z) top(z.strikes, p => p, 'NDX');
+  // SPX only, and only where it lands on a ★ main wall zone (confluence) – Bart: "jen SPX a jen u main walls"
   const sz = sn && sn.g && sn.g.spxZero, kk = typeof spxRatio === 'function' ? spxRatio() : null;
   if (sz && kk) top(sz.strikes, p => Math.round(p * kk * 4) / 4, 'SPX');
-  return out;
+  const mains = st.res ? fzMajors(st.res).filter(z => !z.minor) : [], tol = Math.max(2 * fzW(), 20);
+  return out.filter(g => mains.some(z => g.p >= z.lo - tol && g.p <= z.hi + tol));
 }
 function drawGMap(){
   const cv = $('gmap'); if (!cv) return;
@@ -2022,7 +2024,7 @@ function fzMajors(r){
 }
 function drawMajors(out){
   const zs = S.focus ? fzMajors(st.res) : [];
-  const pinTol = Math.max(2 * fzW(), 20), pl_ = S.focus && st.res ? spxPins().filter(x => !zs.some(z => Math.abs(z.p - x.p) <= pinTol) && Math.abs(x.p - st.res.last) <= 600) : [];
+  const pinTol = Math.max(2 * fzW(), 20), pl_ = false && S.focus && st.res ? spxPins().filter(x => !zs.some(z => Math.abs(z.p - x.p) <= pinTol) && Math.abs(x.p - st.res.last) <= 600) : [];
   const hash = 'M' + JSON.stringify(zs.map(z => [z.p, z.side, z.hit, z.label])) + JSON.stringify(pl_.map(x => x.p)) + (out.length ? out[0].time + ':' + out[out.length - 1].time : '') + S.focus + '|' + fzW();
   if (hash === fz.hash) return; fz.hash = hash;
   try { series.setMarkers([]); } catch(e){}
@@ -2873,7 +2875,7 @@ function renderStats(){
   for (const [name, fn] of grp) { const a = zr.filter(fn), n = a.length; if (!n) continue;
     const r = a.filter(z => z.res === 'reacted').length, b = a.filter(z => z.res === 'broken').length, rp = Math.round(100 * r / n), bp = Math.round(100 * b / n);
     zh += `<tr><td>${name}</td><td>${n}</td><td><span class="bar" style="width:${rp * 0.5}px"></span>${rp} %</td><td><span class="bar r" style="width:${bp * 0.5}px"></span>${bp} %</td><td>${avg(a, 'mfe')}</td><td>${avg(a, 'mae')}</td></tr>`; }
-  $('sZone').innerHTML = zr.length ? zh : '<tr><td class="hint">Focus zóny se zapisují od v12.3 – první vyhodnocení po dnešním close.</td></tr>';
+  $('sZone').innerHTML = zr.length ? zh : '<tr><td class="hint">Focus zóny se zapisují od v12.3a – první vyhodnocení po dnešním close.</td></tr>';
   // day picker + journal
   const recent = days.slice(-10).reverse();
   if (!ss.day && recent.length) ss.day = recent[0].date;
