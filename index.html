@@ -48,12 +48,12 @@
   document.addEventListener('DOMContentLoaded', function(){ GD.setTheme(GD.theme); });
 })();
 </script>
-<script src="yyy.js?v=12.4a"></script>
-<script src="levels.js?v=12.4a"></script>
-<script src="bias.js?v=12.4a"></script>
-<script src="analysis.js?v=12.4a"></script>
-<script src="backtest.js?v=12.4a"></script>
-<script src="pro.js?v=12.4a"></script>
+<script src="yyy.js?v=12.4b"></script>
+<script src="levels.js?v=12.4b"></script>
+<script src="bias.js?v=12.4b"></script>
+<script src="analysis.js?v=12.4b"></script>
+<script src="backtest.js?v=12.4b"></script>
+<script src="pro.js?v=12.4b"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -477,7 +477,7 @@ html[data-theme^="glass"] .keylv:empty{display:none}
 </head>
 <body>
 <header>
-  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.4a</small></div>
+  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.4b</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="pmlBtn" class="hbtn" hidden aria-label="Premarket levely">▬</button>
@@ -936,22 +936,38 @@ function tagLevels(){
   const add = (src, strikes, map, n) => {
     if (!Array.isArray(strikes) || !strikes.length) return;
     const pos = strikes.filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]).slice(0, n), neg = strikes.filter(x => x[1] < 0).sort((a, b) => a[1] - b[1]).slice(0, n);
-    for (const [arr, kind] of [[pos, 'CW'], [neg, 'PW']]) for (const x of arr) { const p = map(x[0]); if (Number.isFinite(p) && Math.abs(p - px) <= rng) out.push({ src, kind, p }); }
+    for (const [arr, kind] of [[pos, 'CW'], [neg, 'PW']]) for (const x of arr) { const p = map(x[0]); if (Number.isFinite(p) && Math.abs(p - px) <= rng) out.push({ src, kind, p, strike:x[0], g:x[1], exp }); }
   };
+  let exp = '';
   const G = st.data.gex || {};
-  if (k) add('QQQ', G.qqq && G.qqq.strikes, q => q * k, 2);
-  if (k && sn && sn.g && sn.g.qqqFull) add('QQQ', sn.g.qqqFull.strikes, q => q * k, 2);
-  add('NDX', G.zero && G.zero.strikes, p => p, 2);
+  const near = A.et(Date.now() / 1000).min >= 960 ? '1DTE' : '0DTE';   // after the close GEXbot's "zero" chain is tomorrow's
+  exp = near; if (k) add('QQQ', G.qqq && G.qqq.strikes, q => q * k, 2);
+  exp = 'ALL'; if (k && sn && sn.g && sn.g.qqqFull) add('QQQ', sn.g.qqqFull.strikes, q => q * k, 2);
+  exp = near; add('NDX', G.zero && G.zero.strikes, p => p, 2);
   const kk = typeof spxRatio === 'function' ? spxRatio() : null;
-  if (kk && sn && sn.g && sn.g.spxZero) add('SPX', sn.g.spxZero.strikes, p => p * kk, 1);
+  exp = near; if (kk && sn && sn.g && sn.g.spxZero) add('SPX', sn.g.spxZero.strikes, p => p * kk, 1);
   // merge into tags
   const tags = [];
   for (const w of out.sort((a, b) => a.p - b.p)) {
     const t = tags.find(t => t.kind === w.kind && Math.abs(t.p - w.p) <= 12);
-    if (t) { t.n++; t.srcs.add(w.src); if (w.src === 'QQQ') t.p = w.p; } else tags.push({ kind:w.kind, p:w.p, n:1, srcs:new Set([w.src]) });
+    if (t) { t.n++; t.srcs.add(w.src); if (w.src === 'QQQ' && t.lead.src !== 'QQQ') { t.p = w.p; t.lead = w; } else if (w.src === t.lead.src && Math.abs(w.g) > Math.abs(t.lead.g)) t.lead = w; }
+    else tags.push({ kind:w.kind, p:w.p, n:1, srcs:new Set([w.src]), lead:w });
   }
-  const T = tags.map(t => ({ kind:t.kind, p:Math.round(t.p * 4) / 4, dots:Math.min(3, t.n),
-    pre:t.srcs.has('QQQ') ? '' : [...t.srcs].join('/') + ' ' }));
+  // how long the wall has stood on that strike (first seen today, remembered per device)
+  const day = r.today, now = Date.now() / 1000;
+  if (!st.wallSeen || st.wallSeen.day !== day) { try { st.wallSeen = JSON.parse(localStorage.getItem('gd.wallSeen') || 'null'); } catch(e){} if (!st.wallSeen || st.wallSeen.day !== day) st.wallSeen = { day, m:{} }; }
+  let dirty = false;
+  const held = L => { const key = `${L.src}:${L.exp}:${L.kind}:${L.strike}`; if (!st.wallSeen.m[key]) { st.wallSeen.m[key] = now; dirty = true; }
+    const m = Math.floor((now - st.wallSeen.m[key]) / 60); return m >= 10 ? (m >= 60 ? `HELD ${Math.floor(m / 60)}H${m % 60 >= 10 ? ' ' + (m % 60) + 'M' : ''}` : `HELD ${m}M`) : ''; };
+  const gfmt = v => { const a = Math.abs(v); return 'Γ ' + (a >= 1e9 ? (a / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (a / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (a / 1e3).toFixed(1) + 'K' : a.toFixed(1)); };
+  const T = tags.map(t => { const L = t.lead;
+    const parts = [ (L.src === 'QQQ' ? 'QQQ ' + L.strike : L.src + ' ' + L.strike), gfmt(L.g), L.exp, held(L) ].filter(Boolean);
+    return { kind:t.kind, p:Math.round(t.p * 4) / 4, dots:Math.min(3, t.n), name:(L.src === 'QQQ' ? '' : L.src + ' ') + (t.kind === 'CW' ? 'CALL WALL' : 'PUT WALL'),
+      info:parts.join(' | ') + (t.n > 1 ? ' | +' + [...t.srcs].filter(x => x !== L.src).join('/') : '') }; });
+  if (dirty) try { localStorage.setItem('gd.wallSeen', JSON.stringify(st.wallSeen)); } catch(e){}
+  // previous settlement (last RTH close of the previous session)
+  const pb = (st.data.bars || []).filter(b => A.tdate(b.t) < day && A.isRTH(b.t));
+  if (pb.length && Math.abs(pb[pb.length - 1].c - px) <= rng) T.push({ kind:'SETTLE', p:pb[pb.length - 1].c, name:'PREV SETTLE', info:'' });
   const z = G.zero && G.zero.zero_gamma;
   const ivpk = srvLevelsFresh() ? (st.srv.levels.levels || []).filter(x => /IVPK/.test(x.kind) && x.nq && Math.abs(x.nq - px) <= rng).map(x => x.nq) : [];
   if (Number.isFinite(z) && Math.abs(z - px) <= rng) {
@@ -978,14 +994,18 @@ function drawTags(c, w, h){
   c.textBaseline = 'middle';
   for (const t of tagLevels()) {
     const y = series.priceToCoordinate(t.p); if (y === null || y < 6 || y > h - 6) continue;
-    const isC = t.kind === 'CW', isP = t.kind === 'PW', col = isC ? '#ff6b7f' : isP ? '#4fd88a' : t.kind === 'HVL' ? '#7aa2ff' : '#c9a66b';
+    const isC = t.kind === 'CW', isP = t.kind === 'PW', isS = t.kind === 'SETTLE', col = isC ? '#ff6b7f' : isP ? '#4fd88a' : t.kind === 'HVL' ? '#7aa2ff' : isS ? '#b7bdc9' : '#c9a66b';
     const dots = t.dots ? ' ' + '●'.repeat(t.dots) : '';
-    const label = (t.pre || '') + t.kind + dots + (t.extra ? ' | ' + t.extra : '');
-    const x0 = pill(y, label, t.p, col, isC ? 'rgba(120,24,40,.82)' : isP ? 'rgba(18,84,48,.82)' : t.kind === 'HVL' ? 'rgba(30,48,110,.82)' : 'rgba(80,62,26,.82)');
+    const label = (t.name || t.kind) + dots + (t.info ? ' | ' + t.info : '') + (t.extra ? ' | ' + t.extra : '');
+    const x0 = pill(y, label, t.p, col, isC ? 'rgba(120,24,40,.82)' : isP ? 'rgba(18,84,48,.82)' : t.kind === 'HVL' ? 'rgba(30,48,110,.82)' : isS ? 'rgba(40,44,54,.85)' : 'rgba(80,62,26,.82)');
     c.save(); c.strokeStyle = col; c.globalAlpha = t.dots ? 0.25 + 0.2 * t.dots : 0.55; c.lineWidth = 1;
-    if (!isC && !isP) c.setLineDash([5, 4]);
+    if (!isC && !isP) c.setLineDash(isS ? [3, 4] : [5, 4]);
     c.beginPath(); c.moveTo(0, y); c.lineTo(x0, y); c.stroke(); c.restore();
   }
+  // current price also in QQQ terms (4leafclover: "QQQ 661.58 | 27285.25")
+  { const k = r.info.ratio, y = series.priceToCoordinate(r.last);
+    if (k && y !== null && y > 6 && y < h - 6) { c.font = '600 11px JetBrains Mono, monospace'; const t = `QQQ ${(r.last / k).toFixed(2)}`, tw = c.measureText(t).width;
+      c.fillStyle = 'rgba(217,170,70,.92)'; c.fillRect(w - tw - 14, y - 9, tw + 10, 18); c.fillStyle = '#1b1405'; c.fillText(t, w - tw - 9, y); } }
   // session value area (left)
   const V = r.info.vpToday;
   if (V) for (const [p, name, col] of [[V.vah, 'VAH', '#9aa3b5'], [V.val, 'VAL', '#9aa3b5'], [V.poc, 'POC', '#ff5a6e']]) {
@@ -2963,7 +2983,7 @@ function renderStats(){
   for (const [name, fn] of grp) { const a = zr.filter(fn), n = a.length; if (!n) continue;
     const r = a.filter(z => z.res === 'reacted').length, b = a.filter(z => z.res === 'broken').length, rp = Math.round(100 * r / n), bp = Math.round(100 * b / n);
     zh += `<tr><td>${name}</td><td>${n}</td><td><span class="bar" style="width:${rp * 0.5}px"></span>${rp} %</td><td><span class="bar r" style="width:${bp * 0.5}px"></span>${bp} %</td><td>${avg(a, 'mfe')}</td><td>${avg(a, 'mae')}</td></tr>`; }
-  $('sZone').innerHTML = zr.length ? zh : '<tr><td class="hint">Focus zóny se zapisují od v12.4a – první vyhodnocení po dnešním close.</td></tr>';
+  $('sZone').innerHTML = zr.length ? zh : '<tr><td class="hint">Focus zóny se zapisují od v12.4b – první vyhodnocení po dnešním close.</td></tr>';
   // day picker + journal
   const recent = days.slice(-10).reverse();
   if (!ss.day && recent.length) ss.day = recent[0].date;
