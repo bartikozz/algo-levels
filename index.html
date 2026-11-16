@@ -48,12 +48,12 @@
   document.addEventListener('DOMContentLoaded', function(){ GD.setTheme(GD.theme); });
 })();
 </script>
-<script src="yyy.js?v=12.4"></script>
-<script src="levels.js?v=12.4"></script>
-<script src="bias.js?v=12.4"></script>
-<script src="analysis.js?v=12.4"></script>
-<script src="backtest.js?v=12.4"></script>
-<script src="pro.js?v=12.4"></script>
+<script src="yyy.js?v=12.4a"></script>
+<script src="levels.js?v=12.4a"></script>
+<script src="bias.js?v=12.4a"></script>
+<script src="analysis.js?v=12.4a"></script>
+<script src="backtest.js?v=12.4a"></script>
+<script src="pro.js?v=12.4a"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -477,7 +477,7 @@ html[data-theme^="glass"] .keylv:empty{display:none}
 </head>
 <body>
 <header>
-  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.4</small></div>
+  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.4a</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="pmlBtn" class="hbtn" hidden aria-label="Premarket levely">▬</button>
@@ -771,8 +771,10 @@ function drawZones(){
 // blue dots = 1/5/10/15/30 min ago, dashed major +/− and zero gamma lines.
 // ───────── TradingView-style legend: show/hide drawings only — the levels stay in the confluence either way.
 // Separate visibility for the normal view and Focus mode (Focus = clean chart, only the zone by default).
-const VIS = [['sessVP','Volume profil ETH/RTH'],['compVP','VP 7D / 30D'],['lvn','LVN pásy'],['gex','GEX profil'],['qqqZ','QQQ zóny'],['em','EM Levels'],['lines','Konfluenční čáry'],['prevL','Včerejší levely'],['vol','Objem'],['cvd','CVD'],['sent','Sentiment levely']];
-const VIS_DEF = { n: Object.fromEntries(VIS.map(v => [v[0], true])), f: Object.fromEntries(VIS.map(v => [v[0], v[0] === 'sent'])) };
+const VIS = [['tags','Štítky levelů (CW/PW, HVL, VA, EM kužel)'],['sessVP','Volume profil ETH/RTH'],['compVP','VP 7D / 30D'],['lvn','LVN pásy'],['gex','GEX profil'],['qqqZ','QQQ zóny'],['em','EM Levels'],['lines','Konfluenční čáry'],['prevL','Včerejší levely'],['vol','Objem'],['cvd','CVD'],['sent','Sentiment levely']];
+// normal view = the 4leafclover-style tag view (tags + session profile + volume), Focus = only the ★ zones
+const VIS_DEF = { n: Object.fromEntries(VIS.map(v => [v[0], ['tags', 'sessVP', 'vol'].includes(v[0])])), f: Object.fromEntries(VIS.map(v => [v[0], v[0] === 'sent'])) };
+if (!S.visMig124) { S.vis = S.vis || {}; S.vis.n = { ...VIS_DEF.n }; if (S.vis.f) S.vis.f.tags = false; S.visMig124 = true; save(); }
 const vis = k => { const m = (S.vis && S.vis[S.focus ? 'f' : 'n']) || VIS_DEF[S.focus ? 'f' : 'n']; return m[k] !== undefined ? !!m[k] : VIS_DEF[S.focus ? 'f' : 'n'][k]; };
 function legendHTML(){
   return `<div class="lgh"><span>${S.focus ? 'Focus' : 'Graf'}</span><button data-lg="all" title="Skrýt / ukázat vše">◐</button><button data-lg="fold" title="Sbalit">${lgFolded() ? '▾' : '▴'}</button></div>` +
@@ -867,11 +869,11 @@ function gmWalls(){
 }
 function drawGMap(){
   const cv = $('gmap'); if (!cv) return;
-  const mode = gmMode(), tagsOn = S.layers && S.layers.tags !== false, on = document.body.dataset.tab === 'chart' && (tagsOn || (mode !== 'off' && (gm.cols.length || (st.data.gex && st.data.gex.zero))));
+  const mode = gmMode(), tagsOn = S.layers && S.layers.tags !== false && vis('tags'), on = document.body.dataset.tab === 'chart' && (tagsOn || (mode !== 'off' && (gm.cols.length || (st.data.gex && st.data.gex.zero))));
   let w = 0, h = 0; try { w = chart.timeScale().width(); h = $('chart').clientHeight - 26; } catch(e){}
   const ts = chart.timeScale(), lr = ts.getVisibleLogicalRange && ts.getVisibleLogicalRange();
   const y0 = series.priceToCoordinate(30000), y1 = series.priceToCoordinate(31000);
-  const key = on ? [mode, w, h, y0, y1, lr && lr.from.toFixed(2), lr && lr.to.toFixed(2), gm.at, st.gexAt, sn && sn.at, st.res && st.res.last, st.srv && st.srv.levelsAt, S.layers && S.layers.tags].join('|') : 'off';
+  const key = on ? [mode, w, h, y0, y1, lr && lr.from.toFixed(2), lr && lr.to.toFixed(2), gm.at, st.gexAt, sn && sn.at, st.res && st.res.last, st.srv && st.srv.levelsAt, S.layers && S.layers.tags, vis('tags'), S.focus].join('|') : 'off';
   if (cv._k === key) return; cv._k = key;
   const dpr = window.devicePixelRatio || 1;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.width = w + 'px'; cv.style.height = h + 'px'; }
@@ -961,7 +963,7 @@ function tagLevels(){
   return T;
 }
 function drawTags(c, w, h){
-  if (!S.layers || S.layers.tags === false || !st.res) return;
+  if (!S.layers || S.layers.tags === false || !st.res || !vis('tags')) return;
   const r = st.res, ts = chart.timeScale();
   const zs = S.focus ? fzMajors(r) : [];
   const pill = (y, text, value, col, bg) => {
@@ -2961,7 +2963,7 @@ function renderStats(){
   for (const [name, fn] of grp) { const a = zr.filter(fn), n = a.length; if (!n) continue;
     const r = a.filter(z => z.res === 'reacted').length, b = a.filter(z => z.res === 'broken').length, rp = Math.round(100 * r / n), bp = Math.round(100 * b / n);
     zh += `<tr><td>${name}</td><td>${n}</td><td><span class="bar" style="width:${rp * 0.5}px"></span>${rp} %</td><td><span class="bar r" style="width:${bp * 0.5}px"></span>${bp} %</td><td>${avg(a, 'mfe')}</td><td>${avg(a, 'mae')}</td></tr>`; }
-  $('sZone').innerHTML = zr.length ? zh : '<tr><td class="hint">Focus zóny se zapisují od v12.4 – první vyhodnocení po dnešním close.</td></tr>';
+  $('sZone').innerHTML = zr.length ? zh : '<tr><td class="hint">Focus zóny se zapisují od v12.4a – první vyhodnocení po dnešním close.</td></tr>';
   // day picker + journal
   const recent = days.slice(-10).reverse();
   if (!ss.day && recent.length) ss.day = recent[0].date;
