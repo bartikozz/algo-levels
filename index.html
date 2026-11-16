@@ -48,12 +48,12 @@
   document.addEventListener('DOMContentLoaded', function(){ GD.setTheme(GD.theme); });
 })();
 </script>
-<script src="yyy.js?v=12.3a"></script>
-<script src="levels.js?v=12.3a"></script>
-<script src="bias.js?v=12.3a"></script>
-<script src="analysis.js?v=12.3a"></script>
-<script src="backtest.js?v=12.3a"></script>
-<script src="pro.js?v=12.3a"></script>
+<script src="yyy.js?v=12.4"></script>
+<script src="levels.js?v=12.4"></script>
+<script src="bias.js?v=12.4"></script>
+<script src="analysis.js?v=12.4"></script>
+<script src="backtest.js?v=12.4"></script>
+<script src="pro.js?v=12.4"></script>
 <style>
 :root{
   --bg:#07080a; --panel:#0d0f12; --panel2:#12151a; --line:#1b1f26; --line2:#262b33;
@@ -477,7 +477,7 @@ html[data-theme^="glass"] .keylv:empty{display:none}
 </head>
 <body>
 <header>
-  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.3a</small></div>
+  <div class="brand"><i class="gd-mark">Γ</i>GAMMA<span>DESK</span><small style="opacity:.35;font-size:9px;margin-left:6px;letter-spacing:0">v12.4</small></div>
   <div class="quote"><span id="px">—</span><span id="regime" class="badge">γ —</span></div>
   <button id="preBtn" class="hbtn" hidden aria-label="Premarket">◆</button>
   <button id="pmlBtn" class="hbtn" hidden aria-label="Premarket levely">▬</button>
@@ -667,7 +667,7 @@ html[data-theme^="glass"] .keylv:empty{display:none}
 const A = window.AlgoLevels;
 const LAYERS = [
   ['gex0','0DTE GEX'],['gex1','1DTE GEX'],['gexFull','Full chain GEX'],['maxchg','ΔGEX 15m'],
-  ['qqq','QQQ walls (0/5)'],['qqqMain','QQQ 0/5 levely'],['gexProf','GEX profil (gexbot)'],['cvd','CVD pod grafem (server)'],['vpProf','Volume profil + LVN (graf)'],['volHist','Objem pod grafem'],['em','EM (VXN/VIX)'],['sigma','σ Grid'],['vp','Prev VP']
+  ['qqq','QQQ walls (0/5)'],['qqqMain','QQQ 0/5 levely'],['gexProf','GEX profil (gexbot)'],['cvd','CVD pod grafem (server)'],['tags','Štítky levelů u osy (CW/PW/HVL/IVPK, VAH/VAL/POC, EM kužel)'],['vpProf','Volume profil + LVN (graf)'],['volHist','Objem pod grafem'],['em','EM (VXN/VIX)'],['sigma','σ Grid'],['vp','Prev VP']
 ];
 const DEF = { worker:'', token:'', server:'', srvToken:'', barSrc:'60s', footprint:true, tol:10, minScore:3, range:3, touch:3, zone:25, brk:6, react:15, lookahead:15,
   scanRTH:true, alertDist:8, alertScore:4, showPrev:true, volIndex:'VXN', emStraddle:true, majorAlerts:true, majorStrong:10, focus:true, layers:Object.fromEntries(LAYERS.map(l=>[l[0],true])) };
@@ -867,16 +867,18 @@ function gmWalls(){
 }
 function drawGMap(){
   const cv = $('gmap'); if (!cv) return;
-  const mode = gmMode(), on = mode !== 'off' && document.body.dataset.tab === 'chart' && (gm.cols.length || (st.data.gex && st.data.gex.zero));
+  const mode = gmMode(), tagsOn = S.layers && S.layers.tags !== false, on = document.body.dataset.tab === 'chart' && (tagsOn || (mode !== 'off' && (gm.cols.length || (st.data.gex && st.data.gex.zero))));
   let w = 0, h = 0; try { w = chart.timeScale().width(); h = $('chart').clientHeight - 26; } catch(e){}
   const ts = chart.timeScale(), lr = ts.getVisibleLogicalRange && ts.getVisibleLogicalRange();
   const y0 = series.priceToCoordinate(30000), y1 = series.priceToCoordinate(31000);
-  const key = on ? [mode, w, h, y0, y1, lr && lr.from.toFixed(2), lr && lr.to.toFixed(2), gm.at, st.gexAt, sn && sn.at, st.res && st.res.last].join('|') : 'off';
+  const key = on ? [mode, w, h, y0, y1, lr && lr.from.toFixed(2), lr && lr.to.toFixed(2), gm.at, st.gexAt, sn && sn.at, st.res && st.res.last, st.srv && st.srv.levelsAt, S.layers && S.layers.tags].join('|') : 'off';
   if (cv._k === key) return; cv._k = key;
   const dpr = window.devicePixelRatio || 1;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.width = w + 'px'; cv.style.height = h + 'px'; }
   const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
   if (!on || !(w > 0) || y0 === null) return;
+  try { drawTags(c, w, h); } catch(e){}
+  if (mode === 'off') return;
   const T = st.outT || [], X = t => { const d = A.et(t).disp; let x = ts.timeToCoordinate(d); if (x === null && T.length) { const i = Math.min(T.length - 1, vpIdx(d)); x = ts.timeToCoordinate(T[i]); } return x; };
   // 1) heat map
   if (gm.cols.length) {
@@ -919,6 +921,90 @@ function drawGMap(){
     c.fillStyle = 'rgba(255,92,170,.10)'; c.fillRect(0, y - 6, w * 0.62, 12);
     c.font = '600 11px JetBrains Mono, monospace'; c.fillStyle = '#ffc2df';
     c.fillText(`${g.src} ${g.kind} 0DTE ${fmtUSD(g.v).replace('$', '')}`, w * 0.62 + 8, y);
+  }
+}
+// ───────── LEVEL TAGS (4leafclover style): every gamma wall as a thin line with a pill at the price axis.
+// CW = largest + gamma strike (calls), PW = largest − gamma strike (puts); one dot per source that has a wall there
+// (QQQ 0DTE, QQQ all expiries, NDX 0DTE, SPX 0DTE), walls of several sources within 12 b. merge into one tag.
+// HVL = gamma flip (zero gamma, NDX 0DTE), IVPK = IV wall from the data server, VAH / VAL / POC of today's session
+// on the left, and the expected-move cone from the RTH open (anchor ± EM · √(elapsed / session)).
+function tagLevels(){
+  const r = st.res; if (!r || !r.info) return [];
+  const k = r.info.ratio, E = r.info.em, rng = (E && E.em ? E.em : 300) * 2.2, px = r.last, out = [];
+  const add = (src, strikes, map, n) => {
+    if (!Array.isArray(strikes) || !strikes.length) return;
+    const pos = strikes.filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]).slice(0, n), neg = strikes.filter(x => x[1] < 0).sort((a, b) => a[1] - b[1]).slice(0, n);
+    for (const [arr, kind] of [[pos, 'CW'], [neg, 'PW']]) for (const x of arr) { const p = map(x[0]); if (Number.isFinite(p) && Math.abs(p - px) <= rng) out.push({ src, kind, p }); }
+  };
+  const G = st.data.gex || {};
+  if (k) add('QQQ', G.qqq && G.qqq.strikes, q => q * k, 2);
+  if (k && sn && sn.g && sn.g.qqqFull) add('QQQ', sn.g.qqqFull.strikes, q => q * k, 2);
+  add('NDX', G.zero && G.zero.strikes, p => p, 2);
+  const kk = typeof spxRatio === 'function' ? spxRatio() : null;
+  if (kk && sn && sn.g && sn.g.spxZero) add('SPX', sn.g.spxZero.strikes, p => p * kk, 1);
+  // merge into tags
+  const tags = [];
+  for (const w of out.sort((a, b) => a.p - b.p)) {
+    const t = tags.find(t => t.kind === w.kind && Math.abs(t.p - w.p) <= 12);
+    if (t) { t.n++; t.srcs.add(w.src); if (w.src === 'QQQ') t.p = w.p; } else tags.push({ kind:w.kind, p:w.p, n:1, srcs:new Set([w.src]) });
+  }
+  const T = tags.map(t => ({ kind:t.kind, p:Math.round(t.p * 4) / 4, dots:Math.min(3, t.n),
+    pre:t.srcs.has('QQQ') ? '' : [...t.srcs].join('/') + ' ' }));
+  const z = G.zero && G.zero.zero_gamma;
+  const ivpk = srvLevelsFresh() ? (st.srv.levels.levels || []).filter(x => /IVPK/.test(x.kind) && x.nq && Math.abs(x.nq - px) <= rng).map(x => x.nq) : [];
+  if (Number.isFinite(z) && Math.abs(z - px) <= rng) {
+    const iv = ivpk.find(p => Math.abs(p - z) <= 15);
+    T.push({ kind:'HVL', p:z, extra:iv != null ? 'IVPK' : '' });
+    if (iv != null) ivpk.splice(ivpk.indexOf(iv), 1);
+  }
+  ivpk.forEach(p => T.push({ kind:'IVPK', p }));
+  return T;
+}
+function drawTags(c, w, h){
+  if (!S.layers || S.layers.tags === false || !st.res) return;
+  const r = st.res, ts = chart.timeScale();
+  const zs = S.focus ? fzMajors(r) : [];
+  const pill = (y, text, value, col, bg) => {
+    c.font = '600 11px JetBrains Mono, monospace'; const vt = fmtP(value), tw = c.measureText(text).width, vw = c.measureText(vt).width;
+    // next to a ★ zone the axis already carries its title → put the pill further left so they don't overlap
+    const busy = zs.some(z => { const yz = series.priceToCoordinate(z.p); return yz !== null && Math.abs(yz - y) <= 10; });
+    const x1 = busy ? w * 0.6 : w - 4, x0 = x1 - tw - vw - 26;
+    c.fillStyle = bg; c.beginPath(); c.roundRect ? c.roundRect(x0, y - 9, x1 - x0, 18, 4) : c.rect(x0, y - 9, x1 - x0, 18); c.fill();
+    c.fillStyle = col; c.fillText(text, x0 + 7, y); c.fillStyle = '#e8ebf2'; c.fillText(vt, x1 - vw - 7, y);
+    return x0;
+  };
+  c.textBaseline = 'middle';
+  for (const t of tagLevels()) {
+    const y = series.priceToCoordinate(t.p); if (y === null || y < 6 || y > h - 6) continue;
+    const isC = t.kind === 'CW', isP = t.kind === 'PW', col = isC ? '#ff6b7f' : isP ? '#4fd88a' : t.kind === 'HVL' ? '#7aa2ff' : '#c9a66b';
+    const dots = t.dots ? ' ' + '●'.repeat(t.dots) : '';
+    const label = (t.pre || '') + t.kind + dots + (t.extra ? ' | ' + t.extra : '');
+    const x0 = pill(y, label, t.p, col, isC ? 'rgba(120,24,40,.82)' : isP ? 'rgba(18,84,48,.82)' : t.kind === 'HVL' ? 'rgba(30,48,110,.82)' : 'rgba(80,62,26,.82)');
+    c.save(); c.strokeStyle = col; c.globalAlpha = t.dots ? 0.25 + 0.2 * t.dots : 0.55; c.lineWidth = 1;
+    if (!isC && !isP) c.setLineDash([5, 4]);
+    c.beginPath(); c.moveTo(0, y); c.lineTo(x0, y); c.stroke(); c.restore();
+  }
+  // session value area (left)
+  const V = r.info.vpToday;
+  if (V) for (const [p, name, col] of [[V.vah, 'VAH', '#9aa3b5'], [V.val, 'VAL', '#9aa3b5'], [V.poc, 'POC', '#ff5a6e']]) {
+    const y = series.priceToCoordinate(p); if (y === null || y < 6 || y > h - 6) continue;
+    c.save(); c.strokeStyle = col; c.globalAlpha = name === 'POC' ? 0.7 : 0.45; c.beginPath(); c.moveTo(0, y); c.lineTo(w * (name === 'POC' ? 0.55 : 0.16), y); c.stroke(); c.restore();
+    c.font = '600 10.5px JetBrains Mono, monospace'; const t = `${name} ${fmtP(p)}`, tw = c.measureText(t).width;
+    c.fillStyle = 'rgba(10,13,22,.85)'; c.fillRect(4, y - 8, tw + 10, 16); c.fillStyle = col; c.fillText(t, 9, y);
+  }
+  // expected-move cone from the RTH open
+  const E = r.info.em, bars = (st.data.bars || []).filter(b => b.t && A.tdate(b.t) === r.today && A.isRTH(b.t));
+  if (E && E.em && bars.length) {
+    const t0 = bars[0].t, T1 = t0 + 390 * 60;
+    for (const sg of [1, -1]) {
+      c.save(); c.strokeStyle = 'rgba(200,206,220,.45)'; c.setLineDash([2, 4]); c.lineWidth = 1; c.beginPath(); let started = false;
+      for (let t = t0; t <= T1; t += 300) {
+        const x = ts.timeToCoordinate(A.et(t).disp); if (x === null) continue;
+        const y = series.priceToCoordinate(E.anchor + sg * E.em * Math.sqrt((t - t0) / (T1 - t0)));
+        if (y === null) continue; if (!started) { c.moveTo(x, y); started = true; } else c.lineTo(x, y);
+      }
+      c.stroke(); c.restore();
+    }
   }
 }
 function gmTipAt(time, price){
@@ -2875,7 +2961,7 @@ function renderStats(){
   for (const [name, fn] of grp) { const a = zr.filter(fn), n = a.length; if (!n) continue;
     const r = a.filter(z => z.res === 'reacted').length, b = a.filter(z => z.res === 'broken').length, rp = Math.round(100 * r / n), bp = Math.round(100 * b / n);
     zh += `<tr><td>${name}</td><td>${n}</td><td><span class="bar" style="width:${rp * 0.5}px"></span>${rp} %</td><td><span class="bar r" style="width:${bp * 0.5}px"></span>${bp} %</td><td>${avg(a, 'mfe')}</td><td>${avg(a, 'mae')}</td></tr>`; }
-  $('sZone').innerHTML = zr.length ? zh : '<tr><td class="hint">Focus zóny se zapisují od v12.3a – první vyhodnocení po dnešním close.</td></tr>';
+  $('sZone').innerHTML = zr.length ? zh : '<tr><td class="hint">Focus zóny se zapisují od v12.4 – první vyhodnocení po dnešním close.</td></tr>';
   // day picker + journal
   const recent = days.slice(-10).reverse();
   if (!ss.day && recent.length) ss.day = recent[0].date;
